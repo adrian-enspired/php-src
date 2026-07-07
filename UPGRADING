@@ -217,6 +217,11 @@ PHP 8.6 UPGRADE NOTES
     RFC: https://wiki.php.net/rfc/debugable-enums
   . #[\Override] can now be applied to class constants, including enum cases.
     RFC: https://wiki.php.net/rfc/override_constants
+  . $_POST is now populated from request bodies with an application/json
+    Content-Type. The top-level keys of the decoded JSON document (objects
+    and arrays only) become $_POST entries, analogous to form submissions.
+    Invalid JSON or a scalar top-level value leaves $_POST empty; the raw
+    body remains available via php://input as before.
 
 - Curl:
   . curl_getinfo() return array now includes a new size_delivered key, which
