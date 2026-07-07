@@ -274,6 +274,59 @@ ZEND_VM_COLD_CONSTCONST_HANDLER(5, ZEND_MOD, CONST|TMPVARCV, CONST|TMPVARCV)
 	ZEND_VM_DISPATCH_TO_HELPER(zend_mod_helper, op_1, op1, op_2, op2);
 }
 
+ZEND_VM_HELPER(zend_mod_euc_helper, ANY, ANY, zval *op_1, zval *op_2)
+{
+	USE_OPLINE
+
+	SAVE_OPLINE();
+	if (UNEXPECTED(Z_TYPE_INFO_P(op_1) == IS_UNDEF)) {
+		op_1 = ZVAL_UNDEFINED_OP1();
+	}
+	if (UNEXPECTED(Z_TYPE_INFO_P(op_2) == IS_UNDEF)) {
+		op_2 = ZVAL_UNDEFINED_OP2();
+	}
+	mod_euc_function(EX_VAR(opline->result.var), op_1, op_2);
+	if (OP1_TYPE & (IS_TMP_VAR|IS_VAR)) {
+		zval_ptr_dtor_nogc(op_1);
+	}
+	if (OP2_TYPE & (IS_TMP_VAR|IS_VAR)) {
+		zval_ptr_dtor_nogc(op_2);
+	}
+	ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();
+}
+
+ZEND_VM_COLD_CONSTCONST_HANDLER(212, ZEND_MOD_EUC, CONST|TMPVARCV, CONST|TMPVARCV)
+{
+	USE_OPLINE
+	zval *op1, *op2, *result;
+
+	op1 = GET_OP1_ZVAL_PTR_UNDEF(BP_VAR_R);
+	op2 = GET_OP2_ZVAL_PTR_UNDEF(BP_VAR_R);
+	if (ZEND_VM_SPEC && OP1_TYPE == IS_CONST && OP2_TYPE == IS_CONST) {
+		/* pass */
+	} else if (EXPECTED(Z_TYPE_INFO_P(op1) == IS_LONG)) {
+		if (EXPECTED(Z_TYPE_INFO_P(op2) == IS_LONG)) {
+			result = EX_VAR(opline->result.var);
+			if (UNEXPECTED(Z_LVAL_P(op2) == 0)) {
+				ZEND_VM_DISPATCH_TO_HELPER(zend_mod_by_zero_helper);
+			} else if (UNEXPECTED(Z_LVAL_P(op2) == -1)) {
+				/* Prevent overflow error/crash if op1==ZEND_LONG_MIN */
+				ZVAL_LONG(result, 0);
+			} else {
+				zend_long mod = Z_LVAL_P(op1) % Z_LVAL_P(op2);
+				if (mod < 0) {
+					/* Euclidean modulo: result is always in [0, |op2|) */
+					mod += (Z_LVAL_P(op2) < 0) ? -Z_LVAL_P(op2) : Z_LVAL_P(op2);
+				}
+				ZVAL_LONG(result, mod);
+			}
+			ZEND_VM_NEXT_OPCODE();
+		}
+	}
+
+	ZEND_VM_DISPATCH_TO_HELPER(zend_mod_euc_helper, op_1, op1, op_2, op2);
+}
+
 ZEND_VM_HELPER(zend_shift_left_helper, ANY, ANY, zval *op_1, zval *op_2)
 {
 	USE_OPLINE

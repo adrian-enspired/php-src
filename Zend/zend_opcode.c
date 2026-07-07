@@ -1289,6 +1289,8 @@ ZEND_API binary_op_type get_binary_op(int opcode)
 			return (binary_op_type) div_function;
 		case ZEND_MOD:
 			return (binary_op_type) mod_function;
+		case ZEND_MOD_EUC:
+			return (binary_op_type) mod_euc_function;
 		case ZEND_SL:
 			return (binary_op_type) shift_left_function;
 		case ZEND_SR:

@@ -74,7 +74,7 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
 %left '.'
 %left T_SL T_SR
 %left '+' '-'
-%left '*' '/' '%'
+%left '*' '/' '%' T_MOD_EUC
 %precedence '!'
 %precedence T_INSTANCEOF
 %precedence '~' T_INT_CAST T_DOUBLE_CAST T_STRING_CAST T_ARRAY_CAST T_OBJECT_CAST T_BOOL_CAST T_UNSET_CAST '@'
@@ -134,6 +134,7 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
 %token <ident> T_CASE          "'case'"
 %token <ident> T_DEFAULT       "'default'"
 %token <ident> T_MATCH         "'match'"
+%token <ident> T_UNLESS        "'unless'"
 %token <ident> T_BREAK         "'break'"
 %token <ident> T_CONTINUE      "'continue'"
 %token <ident> T_GOTO          "'goto'"
@@ -236,6 +237,7 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
 %token T_ELLIPSIS        "'...'"
 %token T_COALESCE        "'??'"
 %token T_POW             "'**'"
+%token T_MOD_EUC         "'%%'"
 %token T_POW_EQUAL       "'**='"
 %token T_PIPE         "'|>'"
 /* We need to split the & token in two to avoid a shift/reduce conflict. For T1&$v and T1&T2,
@@ -311,7 +313,7 @@ reserved_non_modifiers:
 	| T_FUNCTION | T_CONST | T_RETURN | T_PRINT | T_YIELD | T_LIST | T_SWITCH | T_ENDSWITCH | T_CASE | T_DEFAULT | T_BREAK
 	| T_ARRAY | T_CALLABLE | T_EXTENDS | T_IMPLEMENTS | T_NAMESPACE | T_TRAIT | T_INTERFACE | T_CLASS
 	| T_CLASS_C | T_TRAIT_C | T_FUNC_C | T_METHOD_C | T_LINE | T_FILE | T_DIR | T_NS_C | T_FN | T_MATCH | T_ENUM
-	| T_PROPERTY_C
+	| T_PROPERTY_C | T_UNLESS
 ;
 
 semi_reserved:
@@ -511,6 +513,8 @@ statement:
 	|	alt_if_stmt { $$ = $1; }
 	|	T_WHILE '(' expr ')' while_statement
 			{ $$ = zend_ast_create(ZEND_AST_WHILE, $3, $5); }
+	|	T_UNLESS '(' expr ')' statement
+			{ $$ = zend_ast_create(ZEND_AST_UNLESS, $3, $5); }
 	|	T_DO statement T_WHILE '(' expr ')' ';'
 			{ $$ = zend_ast_create(ZEND_AST_DO_WHILE, $2, $5); }
 	|	T_FOR '(' for_exprs ';' for_cond_exprs ';' for_exprs ')' for_statement
@@ -1321,6 +1325,7 @@ expr:
 	|	expr T_POW expr	{ $$ = zend_ast_create_binary_op(ZEND_POW, $1, $3); }
 	|	expr '/' expr	{ $$ = zend_ast_create_binary_op(ZEND_DIV, $1, $3); }
 	|	expr '%' expr 	{ $$ = zend_ast_create_binary_op(ZEND_MOD, $1, $3); }
+	|	expr T_MOD_EUC expr	{ $$ = zend_ast_create_binary_op(ZEND_MOD_EUC, $1, $3); }
 	| 	expr T_SL expr	{ $$ = zend_ast_create_binary_op(ZEND_SL, $1, $3); }
 	|	expr T_SR expr	{ $$ = zend_ast_create_binary_op(ZEND_SR, $1, $3); }
 	|	'+' expr %prec '~' { $$ = zend_ast_create(ZEND_AST_UNARY_PLUS, $2); }

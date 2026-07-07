@@ -217,6 +217,16 @@ PHP 8.6 UPGRADE NOTES
     RFC: https://wiki.php.net/rfc/debugable-enums
   . #[\Override] can now be applied to class constants, including enum cases.
     RFC: https://wiki.php.net/rfc/override_constants
+  . Added the unless statement, an inverted if without an else clause:
+    unless (expr) statement executes the statement when the condition is
+    falsy. The unless keyword is semi-reserved: it remains usable as a
+    method, property, or class constant name, but no longer as a global
+    function name.
+  . Added the %% (euclidean modulo) binary operator. Unlike %, whose result
+    takes the sign of the dividend, the result of $a %% $b is always in
+    [0, |$b|), e.g. -7 %% 3 === 2 and 7 %% -3 === 1. It has the same
+    precedence and associativity as %, works in constant expressions, and
+    throws DivisionByZeroError for a zero divisor.
 
 - Curl:
   . curl_getinfo() return array now includes a new size_delivered key, which
@@ -449,6 +459,10 @@ PHP 8.6 UPGRADE NOTES
 
 - Curl:
   . CURLINFO_SIZE_DELIVERED (libcurl >= 8.20.0).
+
+- Tokenizer:
+  . T_UNLESS.
+  . T_MOD_EUC.
 
 - Sockets:
   . TCP_USER_TIMEOUT (Linux only).
