@@ -6284,6 +6284,22 @@ static void zend_compile_while(const zend_ast *ast) /* {{{ */
 }
 /* }}} */
 
+static void zend_compile_unless(const zend_ast *ast) /* {{{ */
+{
+	zend_ast *cond_ast = ast->child[0];
+	zend_ast *stmt_ast = ast->child[1];
+	znode cond_node;
+	uint32_t opnum_jmp;
+
+	zend_compile_expr(&cond_node, cond_ast);
+	opnum_jmp = zend_emit_cond_jump(ZEND_JMPNZ, &cond_node, 0);
+
+	zend_compile_stmt(stmt_ast);
+
+	zend_update_jump_target_to_next(opnum_jmp);
+}
+/* }}} */
+
 static void zend_compile_do_while(const zend_ast *ast) /* {{{ */
 {
 	zend_ast *stmt_ast = ast->child[0];
@@ -10280,7 +10296,8 @@ ZEND_API bool zend_binary_op_produces_error(uint32_t opcode, const zval *op1, co
 	}
 
 	if (!(opcode == ZEND_ADD || opcode == ZEND_SUB || opcode == ZEND_MUL || opcode == ZEND_DIV
-               || opcode == ZEND_POW || opcode == ZEND_MOD || opcode == ZEND_SL || opcode == ZEND_SR
+               || opcode == ZEND_POW || opcode == ZEND_MOD || opcode == ZEND_MOD_EUC
+               || opcode == ZEND_SL || opcode == ZEND_SR
                || opcode == ZEND_BW_OR || opcode == ZEND_BW_AND || opcode == ZEND_BW_XOR)) {
 		/* Only the numeric operations throw errors. */
 		return 0;
@@ -10328,7 +10345,7 @@ ZEND_API bool zend_binary_op_produces_error(uint32_t opcode, const zval *op1, co
 
 	/* Mod is an operation that will cast float/float-strings to integers which might
 	   produce float to int incompatible errors, and also cannot be divided by 0 */
-	if (opcode == ZEND_MOD) {
+	if (opcode == ZEND_MOD || opcode == ZEND_MOD_EUC) {
 		if (!zend_is_op_long_compatible(op1) || !zend_is_op_long_compatible(op2) || zval_get_long(op2) == 0) {
 			return 1;
 		}
@@ -12047,6 +12064,9 @@ static void zend_compile_stmt(zend_ast *ast) /* {{{ */
 			break;
 		case ZEND_AST_WHILE:
 			zend_compile_while(ast);
+			break;
+		case ZEND_AST_UNLESS:
+			zend_compile_unless(ast);
 			break;
 		case ZEND_AST_DO_WHILE:
 			zend_compile_do_while(ast);

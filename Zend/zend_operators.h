@@ -56,6 +56,7 @@ ZEND_API zend_result ZEND_FASTCALL mul_function(zval *result, zval *op1, zval *o
 ZEND_API zend_result ZEND_FASTCALL pow_function(zval *result, zval *op1, zval *op2);
 ZEND_API zend_result ZEND_FASTCALL div_function(zval *result, zval *op1, zval *op2);
 ZEND_API zend_result ZEND_FASTCALL mod_function(zval *result, zval *op1, zval *op2);
+ZEND_API zend_result ZEND_FASTCALL mod_euc_function(zval *result, zval *op1, zval *op2);
 ZEND_API zend_result ZEND_FASTCALL boolean_xor_function(zval *result, zval *op1, zval *op2);
 ZEND_API zend_result ZEND_FASTCALL boolean_not_function(zval *result, zval *op1);
 ZEND_API zend_result ZEND_FASTCALL bitwise_not_function(zval *result, zval *op1);

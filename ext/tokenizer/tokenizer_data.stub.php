@@ -239,6 +239,11 @@ const T_DEFAULT = UNKNOWN;
 const T_MATCH = UNKNOWN;
 /**
  * @var int
+ * @cvalue T_UNLESS
+ */
+const T_UNLESS = UNKNOWN;
+/**
+ * @var int
  * @cvalue T_BREAK
  */
 const T_BREAK = UNKNOWN;
@@ -737,6 +742,11 @@ const T_COALESCE = UNKNOWN;
  * @cvalue T_POW
  */
 const T_POW = UNKNOWN;
+/**
+ * @var int
+ * @cvalue T_MOD_EUC
+ */
+const T_MOD_EUC = UNKNOWN;
 /**
  * @var int
  * @cvalue T_POW_EQUAL

@@ -1848,6 +1848,7 @@ static ZEND_COLD void zend_ast_export_stmt(smart_str *str, zend_ast *ast, int in
 			case ZEND_AST_IF:
 			case ZEND_AST_SWITCH:
 			case ZEND_AST_WHILE:
+			case ZEND_AST_UNLESS:
 			case ZEND_AST_TRY:
 			case ZEND_AST_FOR:
 			case ZEND_AST_FOREACH:
@@ -2601,6 +2602,7 @@ simple_list:
 				case ZEND_MUL:                 BINARY_OP(" * ",   210, 210, 211);
 				case ZEND_DIV:                 BINARY_OP(" / ",   210, 210, 211);
 				case ZEND_MOD:                 BINARY_OP(" % ",   210, 210, 211);
+				case ZEND_MOD_EUC:             BINARY_OP(" %% ",  210, 210, 211);
 				case ZEND_SL:                  BINARY_OP(" << ",  190, 190, 191);
 				case ZEND_SR:                  BINARY_OP(" >> ",  190, 190, 191);
 				case ZEND_CONCAT:              BINARY_OP(" . ",   185, 185, 186);
@@ -2681,6 +2683,14 @@ simple_list:
 			APPEND_DEFAULT_VALUE(1);
 		case ZEND_AST_WHILE:
 			smart_str_appends(str, "while (");
+			zend_ast_export_ex(str, ast->child[0], 0, indent);
+			smart_str_appends(str, ") {\n");
+			zend_ast_export_stmt(str, ast->child[1], indent + 1);
+			zend_ast_export_indent(str, indent);
+			smart_str_appendc(str, '}');
+			break;
+		case ZEND_AST_UNLESS:
+			smart_str_appends(str, "unless (");
 			zend_ast_export_ex(str, ast->child[0], 0, indent);
 			smart_str_appends(str, ") {\n");
 			zend_ast_export_stmt(str, ast->child[1], indent + 1);
