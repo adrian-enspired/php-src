@@ -7967,6 +7967,21 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
+			/* PHP Modules: "Module::Member" written as a class-constant chain
+			 * ("M::C::X", "M::C::m()", "M::C::$p", "M::C::class") whose module was only
+			 * autoloaded at runtime. The prefix "M::C" fetches constant "C" from module
+			 * M's backing class; no such constant exists, but if "C" names a declared
+			 * member of M, yield the canonical name string "M::C" (identity, ungated,
+			 * as ::class does). The enclosing access then resolves that class through the
+			 * normal two-tier autoload and applies the visibility gate. */
+			zend_string *canonical;
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
+				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+
+
+				ZEND_VM_NEXT_OPCODE();
+			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -9296,6 +9311,20 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
+			/* PHP Modules: "Module::Member" written as a class-constant chain
+			 * ("M::C::X", "M::C::m()", "M::C::$p", "M::C::class") whose module was only
+			 * autoloaded at runtime. The prefix "M::C" fetches constant "C" from module
+			 * M's backing class; no such constant exists, but if "C" names a declared
+			 * member of M, yield the canonical name string "M::C" (identity, ungated,
+			 * as ::class does). The enclosing access then resolves that class through the
+			 * normal two-tier autoload and applies the visibility gate. */
+			zend_string *canonical;
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
+				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+				FREE_OP(opline->op2_type, opline->op2.var);
+				ZEND_VM_NEXT_OPCODE();
+			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -18416,6 +18445,17 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_N
 		if (UNEXPECTED(Z_TYPE_P(op) != IS_OBJECT)) {
 			ZVAL_DEREF(op);
 			if (Z_TYPE_P(op) != IS_OBJECT) {
+				/* PHP Modules: a "Module::Member" canonical name that reached ::class via a
+				 * runtime chain (e.g. cold-autoloaded "M::C::class", whose "M::C" prefix
+				 * resolves to the canonical name string): the string already IS the class
+				 * name, so yield it. Restricted to "::"-bearing strings (module boundary
+				 * names) so "foo"::class / $int::class keep their TypeError. */
+				if (Z_TYPE_P(op) == IS_STRING
+						&& zend_memnstr(Z_STRVAL_P(op), "::", 2, Z_STRVAL_P(op) + Z_STRLEN_P(op))) {
+					ZVAL_STR_COPY(EX_VAR(opline->result.var), Z_STR_P(op));
+					zval_ptr_dtor_nogc(EX_VAR(opline->op1.var));
+					ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();
+				}
 				zend_type_error("Cannot use \"::class\" on %s", zend_zval_value_name(op));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				zval_ptr_dtor_nogc(EX_VAR(opline->op1.var));
@@ -26256,6 +26296,21 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
+			/* PHP Modules: "Module::Member" written as a class-constant chain
+			 * ("M::C::X", "M::C::m()", "M::C::$p", "M::C::class") whose module was only
+			 * autoloaded at runtime. The prefix "M::C" fetches constant "C" from module
+			 * M's backing class; no such constant exists, but if "C" names a declared
+			 * member of M, yield the canonical name string "M::C" (identity, ungated,
+			 * as ::class does). The enclosing access then resolves that class through the
+			 * normal two-tier autoload and applies the visibility gate. */
+			zend_string *canonical;
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
+				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+
+
+				ZEND_VM_NEXT_OPCODE();
+			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -26801,6 +26856,20 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
+			/* PHP Modules: "Module::Member" written as a class-constant chain
+			 * ("M::C::X", "M::C::m()", "M::C::$p", "M::C::class") whose module was only
+			 * autoloaded at runtime. The prefix "M::C" fetches constant "C" from module
+			 * M's backing class; no such constant exists, but if "C" names a declared
+			 * member of M, yield the canonical name string "M::C" (identity, ungated,
+			 * as ::class does). The enclosing access then resolves that class through the
+			 * normal two-tier autoload and applies the visibility gate. */
+			zend_string *canonical;
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
+				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+				FREE_OP(opline->op2_type, opline->op2.var);
+				ZEND_VM_NEXT_OPCODE();
+			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -33058,6 +33127,18 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_N
 		if (UNEXPECTED(Z_TYPE_P(op) != IS_OBJECT)) {
 			ZVAL_DEREF(op);
 			if (Z_TYPE_P(op) != IS_OBJECT) {
+				/* PHP Modules: a "Module::Member" canonical name that reached ::class via a
+				 * runtime chain (e.g. cold-autoloaded "M::C::class", whose "M::C" prefix
+				 * resolves to the canonical name string): the string already IS the class
+				 * name, so yield it. Restricted to "::"-bearing strings (module boundary
+				 * names) so "foo"::class / $int::class keep their TypeError. */
+				if (Z_TYPE_P(op) == IS_STRING
+						&& zend_memnstr(Z_STRVAL_P(op), "::", 2, Z_STRVAL_P(op) + Z_STRLEN_P(op))) {
+					ZVAL_STR_COPY(EX_VAR(opline->result.var), Z_STR_P(op));
+
+
+					ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();
+				}
 				zend_type_error("Cannot use \"::class\" on %s", zend_zval_value_name(op));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 
@@ -34864,6 +34945,21 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
+			/* PHP Modules: "Module::Member" written as a class-constant chain
+			 * ("M::C::X", "M::C::m()", "M::C::$p", "M::C::class") whose module was only
+			 * autoloaded at runtime. The prefix "M::C" fetches constant "C" from module
+			 * M's backing class; no such constant exists, but if "C" names a declared
+			 * member of M, yield the canonical name string "M::C" (identity, ungated,
+			 * as ::class does). The enclosing access then resolves that class through the
+			 * normal two-tier autoload and applies the visibility gate. */
+			zend_string *canonical;
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
+				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+
+
+				ZEND_VM_NEXT_OPCODE();
+			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -35250,6 +35346,20 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
+			/* PHP Modules: "Module::Member" written as a class-constant chain
+			 * ("M::C::X", "M::C::m()", "M::C::$p", "M::C::class") whose module was only
+			 * autoloaded at runtime. The prefix "M::C" fetches constant "C" from module
+			 * M's backing class; no such constant exists, but if "C" names a declared
+			 * member of M, yield the canonical name string "M::C" (identity, ungated,
+			 * as ::class does). The enclosing access then resolves that class through the
+			 * normal two-tier autoload and applies the visibility gate. */
+			zend_string *canonical;
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
+				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+				FREE_OP(opline->op2_type, opline->op2.var);
+				ZEND_VM_NEXT_OPCODE();
+			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -41152,6 +41262,18 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_N
 		if (UNEXPECTED(Z_TYPE_P(op) != IS_OBJECT)) {
 			ZVAL_DEREF(op);
 			if (Z_TYPE_P(op) != IS_OBJECT) {
+				/* PHP Modules: a "Module::Member" canonical name that reached ::class via a
+				 * runtime chain (e.g. cold-autoloaded "M::C::class", whose "M::C" prefix
+				 * resolves to the canonical name string): the string already IS the class
+				 * name, so yield it. Restricted to "::"-bearing strings (module boundary
+				 * names) so "foo"::class / $int::class keep their TypeError. */
+				if (Z_TYPE_P(op) == IS_STRING
+						&& zend_memnstr(Z_STRVAL_P(op), "::", 2, Z_STRVAL_P(op) + Z_STRLEN_P(op))) {
+					ZVAL_STR_COPY(EX_VAR(opline->result.var), Z_STR_P(op));
+
+
+					ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();
+				}
 				zend_type_error("Cannot use \"::class\" on %s", zend_zval_value_name(op));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 
@@ -60960,6 +61082,21 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
+			/* PHP Modules: "Module::Member" written as a class-constant chain
+			 * ("M::C::X", "M::C::m()", "M::C::$p", "M::C::class") whose module was only
+			 * autoloaded at runtime. The prefix "M::C" fetches constant "C" from module
+			 * M's backing class; no such constant exists, but if "C" names a declared
+			 * member of M, yield the canonical name string "M::C" (identity, ungated,
+			 * as ::class does). The enclosing access then resolves that class through the
+			 * normal two-tier autoload and applies the visibility gate. */
+			zend_string *canonical;
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
+				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+
+
+				ZEND_VM_NEXT_OPCODE();
+			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -62289,6 +62426,20 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
+			/* PHP Modules: "Module::Member" written as a class-constant chain
+			 * ("M::C::X", "M::C::m()", "M::C::$p", "M::C::class") whose module was only
+			 * autoloaded at runtime. The prefix "M::C" fetches constant "C" from module
+			 * M's backing class; no such constant exists, but if "C" names a declared
+			 * member of M, yield the canonical name string "M::C" (identity, ungated,
+			 * as ::class does). The enclosing access then resolves that class through the
+			 * normal two-tier autoload and applies the visibility gate. */
+			zend_string *canonical;
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
+				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+				FREE_OP(opline->op2_type, opline->op2.var);
+				ZEND_VM_NEXT_OPCODE();
+			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -71307,6 +71458,17 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_NAME_S
 		if (UNEXPECTED(Z_TYPE_P(op) != IS_OBJECT)) {
 			ZVAL_DEREF(op);
 			if (Z_TYPE_P(op) != IS_OBJECT) {
+				/* PHP Modules: a "Module::Member" canonical name that reached ::class via a
+				 * runtime chain (e.g. cold-autoloaded "M::C::class", whose "M::C" prefix
+				 * resolves to the canonical name string): the string already IS the class
+				 * name, so yield it. Restricted to "::"-bearing strings (module boundary
+				 * names) so "foo"::class / $int::class keep their TypeError. */
+				if (Z_TYPE_P(op) == IS_STRING
+						&& zend_memnstr(Z_STRVAL_P(op), "::", 2, Z_STRVAL_P(op) + Z_STRLEN_P(op))) {
+					ZVAL_STR_COPY(EX_VAR(opline->result.var), Z_STR_P(op));
+					zval_ptr_dtor_nogc(EX_VAR(opline->op1.var));
+					ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();
+				}
 				zend_type_error("Cannot use \"::class\" on %s", zend_zval_value_name(op));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				zval_ptr_dtor_nogc(EX_VAR(opline->op1.var));
@@ -79047,6 +79209,21 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
+			/* PHP Modules: "Module::Member" written as a class-constant chain
+			 * ("M::C::X", "M::C::m()", "M::C::$p", "M::C::class") whose module was only
+			 * autoloaded at runtime. The prefix "M::C" fetches constant "C" from module
+			 * M's backing class; no such constant exists, but if "C" names a declared
+			 * member of M, yield the canonical name string "M::C" (identity, ungated,
+			 * as ::class does). The enclosing access then resolves that class through the
+			 * normal two-tier autoload and applies the visibility gate. */
+			zend_string *canonical;
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
+				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+
+
+				ZEND_VM_NEXT_OPCODE();
+			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -79592,6 +79769,20 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
+			/* PHP Modules: "Module::Member" written as a class-constant chain
+			 * ("M::C::X", "M::C::m()", "M::C::$p", "M::C::class") whose module was only
+			 * autoloaded at runtime. The prefix "M::C" fetches constant "C" from module
+			 * M's backing class; no such constant exists, but if "C" names a declared
+			 * member of M, yield the canonical name string "M::C" (identity, ungated,
+			 * as ::class does). The enclosing access then resolves that class through the
+			 * normal two-tier autoload and applies the visibility gate. */
+			zend_string *canonical;
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
+				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+				FREE_OP(opline->op2_type, opline->op2.var);
+				ZEND_VM_NEXT_OPCODE();
+			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -85849,6 +86040,18 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_NAME_S
 		if (UNEXPECTED(Z_TYPE_P(op) != IS_OBJECT)) {
 			ZVAL_DEREF(op);
 			if (Z_TYPE_P(op) != IS_OBJECT) {
+				/* PHP Modules: a "Module::Member" canonical name that reached ::class via a
+				 * runtime chain (e.g. cold-autoloaded "M::C::class", whose "M::C" prefix
+				 * resolves to the canonical name string): the string already IS the class
+				 * name, so yield it. Restricted to "::"-bearing strings (module boundary
+				 * names) so "foo"::class / $int::class keep their TypeError. */
+				if (Z_TYPE_P(op) == IS_STRING
+						&& zend_memnstr(Z_STRVAL_P(op), "::", 2, Z_STRVAL_P(op) + Z_STRLEN_P(op))) {
+					ZVAL_STR_COPY(EX_VAR(opline->result.var), Z_STR_P(op));
+
+
+					ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();
+				}
 				zend_type_error("Cannot use \"::class\" on %s", zend_zval_value_name(op));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 
@@ -87655,6 +87858,21 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
+			/* PHP Modules: "Module::Member" written as a class-constant chain
+			 * ("M::C::X", "M::C::m()", "M::C::$p", "M::C::class") whose module was only
+			 * autoloaded at runtime. The prefix "M::C" fetches constant "C" from module
+			 * M's backing class; no such constant exists, but if "C" names a declared
+			 * member of M, yield the canonical name string "M::C" (identity, ungated,
+			 * as ::class does). The enclosing access then resolves that class through the
+			 * normal two-tier autoload and applies the visibility gate. */
+			zend_string *canonical;
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
+				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+
+
+				ZEND_VM_NEXT_OPCODE();
+			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -88041,6 +88259,20 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
+			/* PHP Modules: "Module::Member" written as a class-constant chain
+			 * ("M::C::X", "M::C::m()", "M::C::$p", "M::C::class") whose module was only
+			 * autoloaded at runtime. The prefix "M::C" fetches constant "C" from module
+			 * M's backing class; no such constant exists, but if "C" names a declared
+			 * member of M, yield the canonical name string "M::C" (identity, ungated,
+			 * as ::class does). The enclosing access then resolves that class through the
+			 * normal two-tier autoload and applies the visibility gate. */
+			zend_string *canonical;
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
+				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+				FREE_OP(opline->op2_type, opline->op2.var);
+				ZEND_VM_NEXT_OPCODE();
+			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -93943,6 +94175,18 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_NAME_S
 		if (UNEXPECTED(Z_TYPE_P(op) != IS_OBJECT)) {
 			ZVAL_DEREF(op);
 			if (Z_TYPE_P(op) != IS_OBJECT) {
+				/* PHP Modules: a "Module::Member" canonical name that reached ::class via a
+				 * runtime chain (e.g. cold-autoloaded "M::C::class", whose "M::C" prefix
+				 * resolves to the canonical name string): the string already IS the class
+				 * name, so yield it. Restricted to "::"-bearing strings (module boundary
+				 * names) so "foo"::class / $int::class keep their TypeError. */
+				if (Z_TYPE_P(op) == IS_STRING
+						&& zend_memnstr(Z_STRVAL_P(op), "::", 2, Z_STRVAL_P(op) + Z_STRLEN_P(op))) {
+					ZVAL_STR_COPY(EX_VAR(opline->result.var), Z_STR_P(op));
+
+
+					ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();
+				}
 				zend_type_error("Cannot use \"::class\" on %s", zend_zval_value_name(op));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 
