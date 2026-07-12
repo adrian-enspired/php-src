@@ -8053,12 +8053,27 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
-				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+					ZVAL_STR(EX_VAR(opline->result.var), canonical);
 
 
-				ZEND_VM_NEXT_OPCODE();
+					ZEND_VM_NEXT_OPCODE();
+				}
+				/* ce is a module backing class but constant_name is neither one of its
+				 * (backing-class) constants nor a declared member -- report it as a missing
+				 * member, consistent with the name-based class fetch (report_class_fetch_error)
+				 * and the compile-time "module::" self-reference check, rather than the generic
+				 * "Undefined constant". */
+				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
+					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
+				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
+					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+				zend_string_release(canonical);
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+				HANDLE_EXCEPTION();
 			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
@@ -9350,11 +9365,25 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
-				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+					ZVAL_STR(EX_VAR(opline->result.var), canonical);
+					FREE_OP(opline->op2_type, opline->op2.var);
+					ZEND_VM_NEXT_OPCODE();
+				}
+				/* ce is a module backing class but constant_name is neither one of its
+				 * (backing-class) constants nor a declared member -- report it as a missing
+				 * member, consistent with the name-based class fetch (report_class_fetch_error)
+				 * and the compile-time "module::" self-reference check, rather than the generic
+				 * "Undefined constant". */
+				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
+					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
+				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
+					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+				zend_string_release(canonical);
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
-				ZEND_VM_NEXT_OPCODE();
+				HANDLE_EXCEPTION();
 			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
@@ -26288,12 +26317,27 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
-				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+					ZVAL_STR(EX_VAR(opline->result.var), canonical);
 
 
-				ZEND_VM_NEXT_OPCODE();
+					ZEND_VM_NEXT_OPCODE();
+				}
+				/* ce is a module backing class but constant_name is neither one of its
+				 * (backing-class) constants nor a declared member -- report it as a missing
+				 * member, consistent with the name-based class fetch (report_class_fetch_error)
+				 * and the compile-time "module::" self-reference check, rather than the generic
+				 * "Undefined constant". */
+				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
+					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
+				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
+					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+				zend_string_release(canonical);
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+				HANDLE_EXCEPTION();
 			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
@@ -26848,11 +26892,25 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
-				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+					ZVAL_STR(EX_VAR(opline->result.var), canonical);
+					FREE_OP(opline->op2_type, opline->op2.var);
+					ZEND_VM_NEXT_OPCODE();
+				}
+				/* ce is a module backing class but constant_name is neither one of its
+				 * (backing-class) constants nor a declared member -- report it as a missing
+				 * member, consistent with the name-based class fetch (report_class_fetch_error)
+				 * and the compile-time "module::" self-reference check, rather than the generic
+				 * "Undefined constant". */
+				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
+					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
+				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
+					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+				zend_string_release(canonical);
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
-				ZEND_VM_NEXT_OPCODE();
+				HANDLE_EXCEPTION();
 			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
@@ -34937,12 +34995,27 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
-				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+					ZVAL_STR(EX_VAR(opline->result.var), canonical);
 
 
-				ZEND_VM_NEXT_OPCODE();
+					ZEND_VM_NEXT_OPCODE();
+				}
+				/* ce is a module backing class but constant_name is neither one of its
+				 * (backing-class) constants nor a declared member -- report it as a missing
+				 * member, consistent with the name-based class fetch (report_class_fetch_error)
+				 * and the compile-time "module::" self-reference check, rather than the generic
+				 * "Undefined constant". */
+				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
+					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
+				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
+					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+				zend_string_release(canonical);
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+				HANDLE_EXCEPTION();
 			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
@@ -35338,11 +35411,25 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
-				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+					ZVAL_STR(EX_VAR(opline->result.var), canonical);
+					FREE_OP(opline->op2_type, opline->op2.var);
+					ZEND_VM_NEXT_OPCODE();
+				}
+				/* ce is a module backing class but constant_name is neither one of its
+				 * (backing-class) constants nor a declared member -- report it as a missing
+				 * member, consistent with the name-based class fetch (report_class_fetch_error)
+				 * and the compile-time "module::" self-reference check, rather than the generic
+				 * "Undefined constant". */
+				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
+					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
+				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
+					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+				zend_string_release(canonical);
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
-				ZEND_VM_NEXT_OPCODE();
+				HANDLE_EXCEPTION();
 			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
@@ -61152,12 +61239,27 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
-				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+					ZVAL_STR(EX_VAR(opline->result.var), canonical);
 
 
-				ZEND_VM_NEXT_OPCODE();
+					ZEND_VM_NEXT_OPCODE();
+				}
+				/* ce is a module backing class but constant_name is neither one of its
+				 * (backing-class) constants nor a declared member -- report it as a missing
+				 * member, consistent with the name-based class fetch (report_class_fetch_error)
+				 * and the compile-time "module::" self-reference check, rather than the generic
+				 * "Undefined constant". */
+				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
+					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
+				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
+					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+				zend_string_release(canonical);
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+				HANDLE_EXCEPTION();
 			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
@@ -62449,11 +62551,25 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
-				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+					ZVAL_STR(EX_VAR(opline->result.var), canonical);
+					FREE_OP(opline->op2_type, opline->op2.var);
+					ZEND_VM_NEXT_OPCODE();
+				}
+				/* ce is a module backing class but constant_name is neither one of its
+				 * (backing-class) constants nor a declared member -- report it as a missing
+				 * member, consistent with the name-based class fetch (report_class_fetch_error)
+				 * and the compile-time "module::" self-reference check, rather than the generic
+				 * "Undefined constant". */
+				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
+					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
+				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
+					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+				zend_string_release(canonical);
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
-				ZEND_VM_NEXT_OPCODE();
+				HANDLE_EXCEPTION();
 			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
@@ -79185,12 +79301,27 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
-				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+					ZVAL_STR(EX_VAR(opline->result.var), canonical);
 
 
-				ZEND_VM_NEXT_OPCODE();
+					ZEND_VM_NEXT_OPCODE();
+				}
+				/* ce is a module backing class but constant_name is neither one of its
+				 * (backing-class) constants nor a declared member -- report it as a missing
+				 * member, consistent with the name-based class fetch (report_class_fetch_error)
+				 * and the compile-time "module::" self-reference check, rather than the generic
+				 * "Undefined constant". */
+				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
+					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
+				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
+					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+				zend_string_release(canonical);
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+				HANDLE_EXCEPTION();
 			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
@@ -79745,11 +79876,25 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
-				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+					ZVAL_STR(EX_VAR(opline->result.var), canonical);
+					FREE_OP(opline->op2_type, opline->op2.var);
+					ZEND_VM_NEXT_OPCODE();
+				}
+				/* ce is a module backing class but constant_name is neither one of its
+				 * (backing-class) constants nor a declared member -- report it as a missing
+				 * member, consistent with the name-based class fetch (report_class_fetch_error)
+				 * and the compile-time "module::" self-reference check, rather than the generic
+				 * "Undefined constant". */
+				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
+					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
+				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
+					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+				zend_string_release(canonical);
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
-				ZEND_VM_NEXT_OPCODE();
+				HANDLE_EXCEPTION();
 			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
@@ -87834,12 +87979,27 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
-				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+					ZVAL_STR(EX_VAR(opline->result.var), canonical);
 
 
-				ZEND_VM_NEXT_OPCODE();
+					ZEND_VM_NEXT_OPCODE();
+				}
+				/* ce is a module backing class but constant_name is neither one of its
+				 * (backing-class) constants nor a declared member -- report it as a missing
+				 * member, consistent with the name-based class fetch (report_class_fetch_error)
+				 * and the compile-time "module::" self-reference check, rather than the generic
+				 * "Undefined constant". */
+				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
+					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
+				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
+					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+				zend_string_release(canonical);
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+				HANDLE_EXCEPTION();
 			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
@@ -88235,11 +88395,25 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))
-				&& (canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-				ZVAL_STR(EX_VAR(opline->result.var), canonical);
+			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+					ZVAL_STR(EX_VAR(opline->result.var), canonical);
+					FREE_OP(opline->op2_type, opline->op2.var);
+					ZEND_VM_NEXT_OPCODE();
+				}
+				/* ce is a module backing class but constant_name is neither one of its
+				 * (backing-class) constants nor a declared member -- report it as a missing
+				 * member, consistent with the name-based class fetch (report_class_fetch_error)
+				 * and the compile-time "module::" self-reference check, rather than the generic
+				 * "Undefined constant". */
+				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
+					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
+				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
+					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+				zend_string_release(canonical);
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
-				ZEND_VM_NEXT_OPCODE();
+				HANDLE_EXCEPTION();
 			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
