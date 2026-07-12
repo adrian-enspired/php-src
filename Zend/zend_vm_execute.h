@@ -7987,11 +7987,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 				 * member, consistent with the name-based class fetch (report_class_fetch_error)
 				 * and the compile-time "module::" self-reference check, rather than the generic
 				 * "Undefined constant". */
-				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
-					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
 				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
-					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
-				zend_string_release(canonical);
+					ZSTR_VAL(constant_name), ZSTR_VAL(ce->name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 
 
@@ -9345,11 +9342,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 				 * member, consistent with the name-based class fetch (report_class_fetch_error)
 				 * and the compile-time "module::" self-reference check, rather than the generic
 				 * "Undefined constant". */
-				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
-					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
 				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
-					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
-				zend_string_release(canonical);
+					ZSTR_VAL(constant_name), ZSTR_VAL(ce->name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
 				HANDLE_EXCEPTION();
@@ -26345,11 +26339,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 				 * member, consistent with the name-based class fetch (report_class_fetch_error)
 				 * and the compile-time "module::" self-reference check, rather than the generic
 				 * "Undefined constant". */
-				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
-					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
 				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
-					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
-				zend_string_release(canonical);
+					ZSTR_VAL(constant_name), ZSTR_VAL(ce->name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 
 
@@ -26919,11 +26910,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 				 * member, consistent with the name-based class fetch (report_class_fetch_error)
 				 * and the compile-time "module::" self-reference check, rather than the generic
 				 * "Undefined constant". */
-				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
-					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
 				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
-					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
-				zend_string_release(canonical);
+					ZSTR_VAL(constant_name), ZSTR_VAL(ce->name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
 				HANDLE_EXCEPTION();
@@ -35023,11 +35011,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 				 * member, consistent with the name-based class fetch (report_class_fetch_error)
 				 * and the compile-time "module::" self-reference check, rather than the generic
 				 * "Undefined constant". */
-				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
-					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
 				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
-					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
-				zend_string_release(canonical);
+					ZSTR_VAL(constant_name), ZSTR_VAL(ce->name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 
 
@@ -35438,11 +35423,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 				 * member, consistent with the name-based class fetch (report_class_fetch_error)
 				 * and the compile-time "module::" self-reference check, rather than the generic
 				 * "Undefined constant". */
-				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
-					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
 				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
-					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
-				zend_string_release(canonical);
+					ZSTR_VAL(constant_name), ZSTR_VAL(ce->name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
 				HANDLE_EXCEPTION();
@@ -61189,11 +61171,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 				 * member, consistent with the name-based class fetch (report_class_fetch_error)
 				 * and the compile-time "module::" self-reference check, rather than the generic
 				 * "Undefined constant". */
-				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
-					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
 				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
-					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
-				zend_string_release(canonical);
+					ZSTR_VAL(constant_name), ZSTR_VAL(ce->name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 
 
@@ -62547,11 +62526,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 				 * member, consistent with the name-based class fetch (report_class_fetch_error)
 				 * and the compile-time "module::" self-reference check, rather than the generic
 				 * "Undefined constant". */
-				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
-					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
 				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
-					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
-				zend_string_release(canonical);
+					ZSTR_VAL(constant_name), ZSTR_VAL(ce->name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
 				HANDLE_EXCEPTION();
@@ -79345,11 +79321,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 				 * member, consistent with the name-based class fetch (report_class_fetch_error)
 				 * and the compile-time "module::" self-reference check, rather than the generic
 				 * "Undefined constant". */
-				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
-					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
 				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
-					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
-				zend_string_release(canonical);
+					ZSTR_VAL(constant_name), ZSTR_VAL(ce->name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 
 
@@ -79919,11 +79892,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 				 * member, consistent with the name-based class fetch (report_class_fetch_error)
 				 * and the compile-time "module::" self-reference check, rather than the generic
 				 * "Undefined constant". */
-				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
-					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
 				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
-					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
-				zend_string_release(canonical);
+					ZSTR_VAL(constant_name), ZSTR_VAL(ce->name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
 				HANDLE_EXCEPTION();
@@ -88023,11 +87993,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 				 * member, consistent with the name-based class fetch (report_class_fetch_error)
 				 * and the compile-time "module::" self-reference check, rather than the generic
 				 * "Undefined constant". */
-				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
-					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
 				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
-					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
-				zend_string_release(canonical);
+					ZSTR_VAL(constant_name), ZSTR_VAL(ce->name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 
 
@@ -88438,11 +88405,8 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 				 * member, consistent with the name-based class fetch (report_class_fetch_error)
 				 * and the compile-time "module::" self-reference check, rather than the generic
 				 * "Undefined constant". */
-				canonical = zend_string_concat3(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), "::", 2,
-					ZSTR_VAL(constant_name), ZSTR_LEN(constant_name));
 				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
-					ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
-				zend_string_release(canonical);
+					ZSTR_VAL(constant_name), ZSTR_VAL(ce->name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
 				HANDLE_EXCEPTION();
