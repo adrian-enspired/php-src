@@ -7972,6 +7972,17 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 				HANDLE_EXCEPTION();
 			}
 
+			/* PHP Modules: a module-internal constant is reachable only from inside
+			 * its own module (it is public at the class level). */
+			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
+					&& !zend_module_scope_allows(c->ce, scope)) {
+				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+				HANDLE_EXCEPTION();
+			}
+
 			if (ce->ce_flags & ZEND_ACC_TRAIT) {
 				zend_throw_error(NULL, "Cannot access trait constant %s::%s directly", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -9243,6 +9254,16 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			scope = EX(func)->op_array.scope;
 			if (!zend_verify_const_access(c, scope)) {
 				zend_throw_error(NULL, "Cannot access %s constant %s::%s", zend_visibility_string(ZEND_CLASS_CONST_FLAGS(c)), ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
+				FREE_OP(opline->op2_type, opline->op2.var);
+				HANDLE_EXCEPTION();
+			}
+
+			/* PHP Modules: a module-internal constant is reachable only from inside
+			 * its own module (it is public at the class level). */
+			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
+					&& !zend_module_scope_allows(c->ce, scope)) {
+				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
 				HANDLE_EXCEPTION();
@@ -26125,6 +26146,17 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 				HANDLE_EXCEPTION();
 			}
 
+			/* PHP Modules: a module-internal constant is reachable only from inside
+			 * its own module (it is public at the class level). */
+			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
+					&& !zend_module_scope_allows(c->ce, scope)) {
+				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+				HANDLE_EXCEPTION();
+			}
+
 			if (ce->ce_flags & ZEND_ACC_TRAIT) {
 				zend_throw_error(NULL, "Cannot access trait constant %s::%s directly", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -26659,6 +26691,16 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			scope = EX(func)->op_array.scope;
 			if (!zend_verify_const_access(c, scope)) {
 				zend_throw_error(NULL, "Cannot access %s constant %s::%s", zend_visibility_string(ZEND_CLASS_CONST_FLAGS(c)), ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
+				FREE_OP(opline->op2_type, opline->op2.var);
+				HANDLE_EXCEPTION();
+			}
+
+			/* PHP Modules: a module-internal constant is reachable only from inside
+			 * its own module (it is public at the class level). */
+			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
+					&& !zend_module_scope_allows(c->ce, scope)) {
+				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
 				HANDLE_EXCEPTION();
@@ -34690,6 +34732,17 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 				HANDLE_EXCEPTION();
 			}
 
+			/* PHP Modules: a module-internal constant is reachable only from inside
+			 * its own module (it is public at the class level). */
+			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
+					&& !zend_module_scope_allows(c->ce, scope)) {
+				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+				HANDLE_EXCEPTION();
+			}
+
 			if (ce->ce_flags & ZEND_ACC_TRAIT) {
 				zend_throw_error(NULL, "Cannot access trait constant %s::%s directly", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -35065,6 +35118,16 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			scope = EX(func)->op_array.scope;
 			if (!zend_verify_const_access(c, scope)) {
 				zend_throw_error(NULL, "Cannot access %s constant %s::%s", zend_visibility_string(ZEND_CLASS_CONST_FLAGS(c)), ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
+				FREE_OP(opline->op2_type, opline->op2.var);
+				HANDLE_EXCEPTION();
+			}
+
+			/* PHP Modules: a module-internal constant is reachable only from inside
+			 * its own module (it is public at the class level). */
+			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
+					&& !zend_module_scope_allows(c->ce, scope)) {
+				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
 				HANDLE_EXCEPTION();
@@ -60808,6 +60871,17 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 				HANDLE_EXCEPTION();
 			}
 
+			/* PHP Modules: a module-internal constant is reachable only from inside
+			 * its own module (it is public at the class level). */
+			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
+					&& !zend_module_scope_allows(c->ce, scope)) {
+				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+				HANDLE_EXCEPTION();
+			}
+
 			if (ce->ce_flags & ZEND_ACC_TRAIT) {
 				zend_throw_error(NULL, "Cannot access trait constant %s::%s directly", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -62079,6 +62153,16 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			scope = EX(func)->op_array.scope;
 			if (!zend_verify_const_access(c, scope)) {
 				zend_throw_error(NULL, "Cannot access %s constant %s::%s", zend_visibility_string(ZEND_CLASS_CONST_FLAGS(c)), ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
+				FREE_OP(opline->op2_type, opline->op2.var);
+				HANDLE_EXCEPTION();
+			}
+
+			/* PHP Modules: a module-internal constant is reachable only from inside
+			 * its own module (it is public at the class level). */
+			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
+					&& !zend_module_scope_allows(c->ce, scope)) {
+				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
 				HANDLE_EXCEPTION();
@@ -78759,6 +78843,17 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 				HANDLE_EXCEPTION();
 			}
 
+			/* PHP Modules: a module-internal constant is reachable only from inside
+			 * its own module (it is public at the class level). */
+			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
+					&& !zend_module_scope_allows(c->ce, scope)) {
+				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+				HANDLE_EXCEPTION();
+			}
+
 			if (ce->ce_flags & ZEND_ACC_TRAIT) {
 				zend_throw_error(NULL, "Cannot access trait constant %s::%s directly", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -79293,6 +79388,16 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			scope = EX(func)->op_array.scope;
 			if (!zend_verify_const_access(c, scope)) {
 				zend_throw_error(NULL, "Cannot access %s constant %s::%s", zend_visibility_string(ZEND_CLASS_CONST_FLAGS(c)), ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
+				FREE_OP(opline->op2_type, opline->op2.var);
+				HANDLE_EXCEPTION();
+			}
+
+			/* PHP Modules: a module-internal constant is reachable only from inside
+			 * its own module (it is public at the class level). */
+			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
+					&& !zend_module_scope_allows(c->ce, scope)) {
+				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
 				HANDLE_EXCEPTION();
@@ -87324,6 +87429,17 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 				HANDLE_EXCEPTION();
 			}
 
+			/* PHP Modules: a module-internal constant is reachable only from inside
+			 * its own module (it is public at the class level). */
+			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
+					&& !zend_module_scope_allows(c->ce, scope)) {
+				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+				HANDLE_EXCEPTION();
+			}
+
 			if (ce->ce_flags & ZEND_ACC_TRAIT) {
 				zend_throw_error(NULL, "Cannot access trait constant %s::%s directly", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -87699,6 +87815,16 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			scope = EX(func)->op_array.scope;
 			if (!zend_verify_const_access(c, scope)) {
 				zend_throw_error(NULL, "Cannot access %s constant %s::%s", zend_visibility_string(ZEND_CLASS_CONST_FLAGS(c)), ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
+				FREE_OP(opline->op2_type, opline->op2.var);
+				HANDLE_EXCEPTION();
+			}
+
+			/* PHP Modules: a module-internal constant is reachable only from inside
+			 * its own module (it is public at the class level). */
+			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
+					&& !zend_module_scope_allows(c->ce, scope)) {
+				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
 				HANDLE_EXCEPTION();
