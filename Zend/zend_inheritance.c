@@ -1498,6 +1498,36 @@ static void do_inherit_property(zend_property_info *parent_info, zend_string *ke
 						ZSTR_VAL(ce->name), ZSTR_VAL(key));
 				}
 			}
+			/* PHP Modules: `internal(set)` is module-scoped write access and, like an
+			 * `internal` method, it never re-homes to another module through inheritance.
+			 * Inside the declaring module a child may keep `internal(set)` or widen to
+			 * `public(set)`; from outside the module the property may not be overridden
+			 * except by dropping the restriction entirely (a plain public / public(set)
+			 * redeclaration is a widening and is allowed). A non-internal(set) write
+			 * contract may never be narrowed to `internal(set)`. */
+			{
+				bool parent_internal_set = (parent_info->flags & ZEND_ACC_MODULE_INTERNAL_SET) != 0;
+				bool child_internal_set  = (child_info->flags & ZEND_ACC_MODULE_INTERNAL_SET) != 0;
+				if (child_internal_set) {
+					if (!parent_internal_set) {
+						zend_error_noreturn(E_COMPILE_ERROR,
+							"Cannot redeclare %s::$%s as internal(set): internal(set) may only "
+							"override an internal(set) property (as in class %s)",
+							ZSTR_VAL(ce->name), ZSTR_VAL(key), ZSTR_VAL(parent_info->ce->name));
+					}
+					if (!zend_module_scope_allows(parent_info->ce, ce)) {
+						zend_error_noreturn(E_COMPILE_ERROR,
+							"Cannot override internal(set) property %s::$%s from outside its module",
+							ZSTR_VAL(parent_info->ce->name), ZSTR_VAL(key));
+					}
+				} else if (parent_internal_set
+				 && (child_info->flags & (ZEND_ACC_PROTECTED_SET | ZEND_ACC_PRIVATE_SET))) {
+					zend_error_noreturn(E_COMPILE_ERROR,
+						"Set access level of %s::$%s must be public(set) or internal(set) (as in class %s)",
+						ZSTR_VAL(ce->name), ZSTR_VAL(key), ZSTR_VAL(parent_info->ce->name));
+				}
+			}
+
 			if (UNEXPECTED((child_info->flags & ZEND_ACC_PPP_SET_MASK))
 			 /* Get-only virtual properties have no set visibility, so any child visibility is fine. */
 			 && !(parent_info->hooks && (parent_info->flags & ZEND_ACC_VIRTUAL) && !parent_info->hooks[ZEND_PROPERTY_HOOK_SET])) {

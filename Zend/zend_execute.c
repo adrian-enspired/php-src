@@ -942,7 +942,10 @@ ZEND_API zend_never_inline ZEND_COLD void ZEND_FASTCALL zend_asymmetric_visibili
 	}
 
 	const char *visibility;
-	if (prop_info->flags & ZEND_ACC_PRIVATE_SET) {
+	if (prop_info->flags & ZEND_ACC_MODULE_INTERNAL_SET) {
+		/* PHP Modules: asymmetric module visibility -- writable only within the module. */
+		visibility = "internal(set)";
+	} else if (prop_info->flags & ZEND_ACC_PRIVATE_SET) {
 		visibility = "private(set)";
 	} else {
 		ZEND_ASSERT(prop_info->flags & ZEND_ACC_PROTECTED_SET);
@@ -1074,12 +1077,12 @@ static zend_never_inline zval* zend_assign_to_typed_prop(const zend_property_inf
 {
 	zval tmp;
 
-	if (UNEXPECTED(info->flags & (ZEND_ACC_READONLY|ZEND_ACC_PPP_SET_MASK))) {
+	if (UNEXPECTED(info->flags & (ZEND_ACC_READONLY|ZEND_ACC_ALL_SET_MASK))) {
 		if ((info->flags & ZEND_ACC_READONLY) && !(Z_PROP_FLAG_P(property_val) & IS_PROP_REINITABLE)) {
 			zend_readonly_property_modification_error(info);
 			return &EG(uninitialized_zval);
 		}
-		if (info->flags & ZEND_ACC_PPP_SET_MASK && !zend_asymmetric_property_has_set_access(info)) {
+		if (info->flags & ZEND_ACC_ALL_SET_MASK && !zend_asymmetric_property_has_set_access(info)) {
 			zend_asymmetric_visibility_property_modification_error(info, "modify");
 			return &EG(uninitialized_zval);
 		}
@@ -3575,7 +3578,7 @@ static zend_always_inline void zend_fetch_property_address(
 				ZVAL_INDIRECT(result, ptr);
 				zend_property_info *prop_info = CACHED_PTR_EX(cache_slot + 2);
 				if (prop_info) {
-					if (UNEXPECTED(prop_info->flags & (ZEND_ACC_READONLY|ZEND_ACC_PPP_SET_MASK))
+					if (UNEXPECTED(prop_info->flags & (ZEND_ACC_READONLY|ZEND_ACC_ALL_SET_MASK))
 					 && ((prop_info->flags & ZEND_ACC_READONLY) || !zend_asymmetric_property_has_set_access(prop_info))) {
 						/* For objects, W/RW/UNSET fetch modes might not actually modify object.
 						 * Similar as with magic __get() allow them, but return the value as a copy

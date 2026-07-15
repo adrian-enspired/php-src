@@ -321,6 +321,12 @@ typedef struct _zend_oparray_context {
 #define ZEND_ACC_PUBLIC_SET              (1 << 10) /*     |     |  X  |     */
 #define ZEND_ACC_PROTECTED_SET           (1 << 11) /*     |     |  X  |     */
 #define ZEND_ACC_PRIVATE_SET             (1 << 12) /*     |     |  X  |     */
+/* PHP Modules (experimental): asymmetric module visibility -- `internal(set)`. The  */
+/* property reads at its class-level visibility (e.g. public) but writes are gated to */
+/* same-module code, like ZEND_ACC_MODULE_INTERNAL_MEMBER but on the set path only.   */
+/* Rides the asymmetric-visibility write machinery; bit 13 is free in the property    */
+/* context and low enough to survive the 16-bit compile-time zend_ast->attr.          */
+#define ZEND_ACC_MODULE_INTERNAL_SET     (1 << 13) /*     |     |  X  |     */
 /*                                                        |     |     |     */
 /* PHP Modules (experimental): property or class-constant has "internal" module   */
 /* visibility (public at the class level + gated to same-module code). A separate  */
@@ -491,6 +497,10 @@ typedef struct _zend_oparray_context {
 
 #define ZEND_ACC_PPP_MASK  (ZEND_ACC_PUBLIC | ZEND_ACC_PROTECTED | ZEND_ACC_PRIVATE)
 #define ZEND_ACC_PPP_SET_MASK  (ZEND_ACC_PUBLIC_SET | ZEND_ACC_PROTECTED_SET | ZEND_ACC_PRIVATE_SET)
+/* PHP Modules: every kind of asymmetric set-visibility, including `internal(set)`.
+ * ZEND_ACC_PPP_SET_MASK stays pure for the ordinal set-visibility variance check;
+ * the property write path gates on this wider mask so `internal(set)` is included. */
+#define ZEND_ACC_ALL_SET_MASK  (ZEND_ACC_PPP_SET_MASK | ZEND_ACC_MODULE_INTERNAL_SET)
 
 static zend_always_inline uint32_t zend_visibility_to_set_visibility(uint32_t visibility)
 {

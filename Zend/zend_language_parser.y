@@ -142,6 +142,7 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
 %token <ident> T_MATCH         "'match'"
 %token <ident> T_MODULE        "'module'"
 %token <ident> T_INTERNAL      "'internal'"
+%token <ident> T_INTERNAL_SET  "'internal(set)'"
 %token <ident> T_BREAK         "'break'"
 %token <ident> T_CONTINUE      "'continue'"
 %token <ident> T_GOTO          "'goto'"
@@ -1159,6 +1160,7 @@ member_modifier:
 	|	T_FINAL					{ $$ = T_FINAL; }
 	|	T_READONLY				{ $$ = T_READONLY; }
 	|	T_INTERNAL				{ $$ = T_INTERNAL; }
+	|	T_INTERNAL_SET			{ $$ = T_INTERNAL_SET; }
 ;
 
 property_list:
