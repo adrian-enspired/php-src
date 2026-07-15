@@ -685,9 +685,15 @@ ZEND_API zend_result zend_check_property_access(const zend_object *zobj, zend_st
 /* }}} */
 
 ZEND_API bool ZEND_FASTCALL zend_asymmetric_property_has_set_access(const zend_property_info *prop_info) {
-	ZEND_ASSERT(prop_info->flags & ZEND_ACC_PPP_SET_MASK);
+	ZEND_ASSERT(prop_info->flags & ZEND_ACC_ALL_SET_MASK);
 	ZEND_ASSERT(!(prop_info->flags & ZEND_ACC_PUBLIC_SET));
 	const zend_class_entry *scope = get_fake_or_executed_scope();
+	/* PHP Modules: `internal(set)` -- the property reads publicly but may be written
+	 * only by code inside the module that declares it (the set path's analogue of
+	 * ZEND_ACC_MODULE_INTERNAL_MEMBER). */
+	if (prop_info->flags & ZEND_ACC_MODULE_INTERNAL_SET) {
+		return zend_module_scope_allows(prop_info->ce, scope);
+	}
 	if (prop_info->ce == scope) {
 		return true;
 	}
@@ -851,7 +857,7 @@ ZEND_API zval *zend_std_read_property(zend_object *zobj, zend_string *name, int 
 try_again:
 		retval = OBJ_PROP(zobj, property_offset);
 
-		if (prop_info && UNEXPECTED(prop_info->flags & (ZEND_ACC_READONLY|ZEND_ACC_PPP_SET_MASK))
+		if (prop_info && UNEXPECTED(prop_info->flags & (ZEND_ACC_READONLY|ZEND_ACC_ALL_SET_MASK))
 		 && (type == BP_VAR_W || type == BP_VAR_RW || type == BP_VAR_UNSET)
 		 && ((prop_info->flags & ZEND_ACC_READONLY) || !zend_asymmetric_property_has_set_access(prop_info))) {
 			if (Z_TYPE_P(retval) == IS_OBJECT) {
@@ -1174,7 +1180,7 @@ ZEND_API zval *zend_std_write_property(zend_object *zobj, zend_string *name, zva
 try_again:
 		variable_ptr = OBJ_PROP(zobj, property_offset);
 
-		if (prop_info && UNEXPECTED(prop_info->flags & (ZEND_ACC_READONLY|ZEND_ACC_PPP_SET_MASK))) {
+		if (prop_info && UNEXPECTED(prop_info->flags & (ZEND_ACC_READONLY|ZEND_ACC_ALL_SET_MASK))) {
 			bool error;
 			if (Z_TYPE_P(variable_ptr) != IS_UNDEF || (Z_PROP_FLAG_P(variable_ptr) & IS_PROP_UNINIT) || !zobj->ce->__set) {
 				error = true;
@@ -1190,7 +1196,7 @@ try_again:
 					variable_ptr = &EG(error_zval);
 					goto exit;
 				}
-				if ((prop_info->flags & ZEND_ACC_PPP_SET_MASK) && !zend_asymmetric_property_has_set_access(prop_info)) {
+				if ((prop_info->flags & ZEND_ACC_ALL_SET_MASK) && !zend_asymmetric_property_has_set_access(prop_info)) {
 					zend_asymmetric_visibility_property_modification_error(prop_info, "modify");
 					variable_ptr = &EG(error_zval);
 					goto exit;
@@ -1308,7 +1314,7 @@ found:;
 			goto try_again;
 		}
 
-		if (UNEXPECTED(prop_info->flags & ZEND_ACC_PPP_SET_MASK
+		if (UNEXPECTED(prop_info->flags & ZEND_ACC_ALL_SET_MASK
 		 && !zend_asymmetric_property_has_set_access(prop_info))) {
 			zend_asymmetric_visibility_property_modification_error(prop_info, "modify");
 			variable_ptr = &EG(error_zval);
@@ -1570,7 +1576,7 @@ try_again:
 							ZVAL_NULL(retval);
 						 }
 					}
-				} else if (prop_info && UNEXPECTED(prop_info->flags & (ZEND_ACC_READONLY|ZEND_ACC_PPP_SET_MASK))) {
+				} else if (prop_info && UNEXPECTED(prop_info->flags & (ZEND_ACC_READONLY|ZEND_ACC_ALL_SET_MASK))) {
 					if ((prop_info->flags & ZEND_ACC_READONLY) || !zend_asymmetric_property_has_set_access(prop_info)) {
 						retval = NULL;
 					}
@@ -1581,7 +1587,7 @@ try_again:
 				/* we do have getter - fail and let it try again with usual get/set */
 				retval = NULL;
 			}
-		} else if (prop_info && UNEXPECTED(prop_info->flags & (ZEND_ACC_READONLY|ZEND_ACC_PPP_SET_MASK))) {
+		} else if (prop_info && UNEXPECTED(prop_info->flags & (ZEND_ACC_READONLY|ZEND_ACC_ALL_SET_MASK))) {
 			if ((prop_info->flags & ZEND_ACC_READONLY) || !zend_asymmetric_property_has_set_access(prop_info)) {
 				retval = NULL;
 			}
@@ -1663,7 +1669,7 @@ ZEND_API void zend_std_unset_property(zend_object *zobj, zend_string *name, void
 	if (EXPECTED(IS_VALID_PROPERTY_OFFSET(property_offset))) {
 		zval *slot = OBJ_PROP(zobj, property_offset);
 
-		if (prop_info && UNEXPECTED(prop_info->flags & (ZEND_ACC_READONLY|ZEND_ACC_PPP_SET_MASK))) {
+		if (prop_info && UNEXPECTED(prop_info->flags & (ZEND_ACC_READONLY|ZEND_ACC_ALL_SET_MASK))) {
 			bool error;
 			if (Z_TYPE_P(slot) != IS_UNDEF || Z_PROP_FLAG_P(slot) & IS_PROP_UNINIT || !zobj->ce->__unset) {
 				error = true;
@@ -1678,7 +1684,7 @@ ZEND_API void zend_std_unset_property(zend_object *zobj, zend_string *name, void
 					zend_readonly_property_unset_error(prop_info->ce, name);
 					return;
 				}
-				if ((prop_info->flags & ZEND_ACC_PPP_SET_MASK) && !zend_asymmetric_property_has_set_access(prop_info)) {
+				if ((prop_info->flags & ZEND_ACC_ALL_SET_MASK) && !zend_asymmetric_property_has_set_access(prop_info)) {
 					zend_asymmetric_visibility_property_modification_error(prop_info, "unset");
 					return;
 				}

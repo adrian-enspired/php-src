@@ -990,6 +990,13 @@ uint32_t zend_modifier_token_to_flag(zend_modifier_target target, uint32_t token
 				return ZEND_ACC_PRIVATE_SET;
 			}
 			break;
+		case T_INTERNAL_SET:
+			/* PHP Modules: asymmetric module visibility -- readable at the class-level
+			 * visibility, writable only from same-module code. */
+			if (target == ZEND_MODIFIER_TARGET_PROPERTY || target == ZEND_MODIFIER_TARGET_CPP) {
+				return ZEND_ACC_MODULE_INTERNAL_SET;
+			}
+			break;
 	}
 
 	char *member;
@@ -1104,10 +1111,26 @@ uint32_t zend_add_member_modifier(uint32_t flags, uint32_t new_flag, zend_modifi
 		}
 	}
 	if (target == ZEND_MODIFIER_TARGET_PROPERTY || target == ZEND_MODIFIER_TARGET_CPP) {
-		if ((flags & ZEND_ACC_PPP_SET_MASK) && (new_flag & ZEND_ACC_PPP_SET_MASK)) {
+		if ((flags & ZEND_ACC_ALL_SET_MASK) && (new_flag & ZEND_ACC_ALL_SET_MASK)) {
 			zend_throw_exception(zend_ce_compile_error,
 				"Multiple access type modifiers are not allowed", 0);
 			return 0;
+		}
+		/* PHP Modules: `internal(set)` is, for now, only meaningful with public read
+		 * visibility (readable anywhere, writable only within the module). Pairing it
+		 * with protected/private read, or with symmetric `internal`, is rejected until
+		 * the cross-visibility variance semantics are settled. */
+		if (new_flags & ZEND_ACC_MODULE_INTERNAL_SET) {
+			if (new_flags & (ZEND_ACC_PROTECTED | ZEND_ACC_PRIVATE)) {
+				zend_throw_exception(zend_ce_compile_error,
+					"internal(set) may only be combined with public read visibility", 0);
+				return 0;
+			}
+			if (new_flags & ZEND_ACC_MODULE_INTERNAL_MEMBER) {
+				zend_throw_exception(zend_ce_compile_error,
+					"Cannot combine internal and internal(set) on the same property", 0);
+				return 0;
+			}
 		}
 	}
 	return new_flags;
@@ -8581,7 +8604,7 @@ static void zend_compile_params(zend_ast *ast, zend_ast *return_type_ast, uint32
 		}
 	}
 
-	const uint32_t promotion_flags = ZEND_ACC_PPP_MASK | ZEND_ACC_PPP_SET_MASK | ZEND_ACC_READONLY | ZEND_ACC_FINAL;
+	const uint32_t promotion_flags = ZEND_ACC_PPP_MASK | ZEND_ACC_ALL_SET_MASK | ZEND_ACC_READONLY | ZEND_ACC_FINAL;
 	for (i = 0; i < list->children; ++i) {
 		zend_ast *param_ast = list->child[i];
 		zend_ast *type_ast = param_ast->child[0];
@@ -9674,6 +9697,19 @@ static void zend_compile_prop_decl(zend_ast *ast, zend_ast *type_ast, uint32_t f
 		zend_error_noreturn(E_COMPILE_ERROR, "Property cannot be both final and private");
 	}
 
+	/* PHP Modules: `internal(set)` (asymmetric module visibility) is only meaningful on
+	 * an instance property of a class that belongs to a module. */
+	if (flags & ZEND_ACC_MODULE_INTERNAL_SET) {
+		if (flags & ZEND_ACC_STATIC) {
+			zend_error_noreturn(E_COMPILE_ERROR,
+				"Static property of %s may not have asymmetric visibility", ZSTR_VAL(ce->name));
+		}
+		if (!FC(current_module)) {
+			zend_error_noreturn(E_COMPILE_ERROR,
+				"internal(set) may only be used on a property of a module class");
+		}
+	}
+
 	if (ce->ce_flags & ZEND_ACC_INTERFACE) {
 		if (flags & ZEND_ACC_FINAL) {
 			zend_error_noreturn(E_COMPILE_ERROR, "Property in interface cannot be final");
@@ -10251,6 +10287,16 @@ static void zend_compile_class_decl(znode *result, const zend_ast *ast, bool top
 			if (_mprop->flags & ZEND_ACC_MODULE_INTERNAL_MEMBER) {
 				zend_error_noreturn(E_COMPILE_ERROR,
 					"Trait %s declares an internal property %s::$%s but is not itself internal; "
+					"a trait with internal members must be declared `internal` so it can only be "
+					"used within its own module",
+					ZSTR_VAL(ce->name), ZSTR_VAL(ce->name), ZSTR_VAL(_mprop->name));
+			}
+			/* PHP Modules: `internal(set)` is a module-scoped (internal) write capability,
+			 * so it counts as an internal member for the trait rule -- a public trait must
+			 * not carry one, or it would re-home when flattened outside the module. */
+			if (_mprop->flags & ZEND_ACC_MODULE_INTERNAL_SET) {
+				zend_error_noreturn(E_COMPILE_ERROR,
+					"Trait %s declares an internal(set) property %s::$%s but is not itself internal; "
 					"a trait with internal members must be declared `internal` so it can only be "
 					"used within its own module",
 					ZSTR_VAL(ce->name), ZSTR_VAL(ce->name), ZSTR_VAL(_mprop->name));
