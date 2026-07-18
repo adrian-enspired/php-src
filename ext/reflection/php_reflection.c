@@ -8145,7 +8145,11 @@ ZEND_METHOD(ReflectionModule, getName)
 {
 	ZEND_PARSE_PARAMETERS_NONE();
 	zend_class_entry *ce = reflection_module_backing_ce(ZEND_THIS);
-	if (!ce) { RETURN_FALSE; }
+	if (!ce) {
+		zend_throw_exception_ex(reflection_exception_ptr, 0,
+			"The ReflectionModule object is not initialized or its module is no longer available");
+		RETURN_THROWS();
+	}
 	RETURN_STR_COPY(ce->name);
 }
 
@@ -8267,7 +8271,11 @@ ZEND_METHOD(ReflectionModule, getSymbolVisibility)
 	ZEND_PARSE_PARAMETERS_END();
 
 	zend_class_entry *bce = reflection_module_backing_ce(ZEND_THIS);
-	if (!bce) { RETURN_FALSE; }
+	if (!bce) {
+		zend_throw_exception_ex(reflection_exception_ptr, 0,
+			"The ReflectionModule object is not initialized or its module is no longer available");
+		RETURN_THROWS();
+	}
 
 	zend_string *mod_lc = zend_string_tolower(bce->name);
 	zend_string *lc = zend_string_tolower(symbol);
