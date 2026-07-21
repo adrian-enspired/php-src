@@ -8147,7 +8147,7 @@ ZEND_METHOD(ReflectionModule, getName)
 	zend_class_entry *ce = reflection_module_backing_ce(ZEND_THIS);
 	if (!ce) {
 		zend_throw_exception_ex(reflection_exception_ptr, 0,
-			"The ReflectionModule object is not initialized or its module is no longer available");
+			"The ReflectionModule target is not initialized");
 		RETURN_THROWS();
 	}
 	RETURN_STR_COPY(ce->name);
@@ -8273,7 +8273,7 @@ ZEND_METHOD(ReflectionModule, getSymbolVisibility)
 	zend_class_entry *bce = reflection_module_backing_ce(ZEND_THIS);
 	if (!bce) {
 		zend_throw_exception_ex(reflection_exception_ptr, 0,
-			"The ReflectionModule object is not initialized or its module is no longer available");
+			"The ReflectionModule target is not initialized");
 		RETURN_THROWS();
 	}
 

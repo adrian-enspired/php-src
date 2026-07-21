@@ -11,4 +11,4 @@ module Billing {
 }
 ?>
 --EXPECTF--
-Fatal error: Module-level static functions are not supported (deferred to a future proposal); a module may declare classes, interfaces, enums, traits, constants, and nested modules in %s on line %d
+Fatal error: Module-level static functions are not supported in %s on line %d

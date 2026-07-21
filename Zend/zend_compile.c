@@ -11019,9 +11019,8 @@ static void zend_compile_module(const zend_ast *ast) /* {{{ */
 	 * is an inline definition, which remains valid. */
 	if (!stmt_ast && parent_module) {
 		zend_error_noreturn(E_COMPILE_ERROR,
-			"This file already declares membership in module \"%s\"; join a nested module "
-			"directly with \"module %s::%s;\" instead of a second module statement",
-			ZSTR_VAL(parent_module), ZSTR_VAL(parent_module), ZSTR_VAL(raw_name));
+			"This file already declares membership in module \"%s\"",
+			ZSTR_VAL(parent_module));
 	}
 
 	/* A membership declaration ("module Foo;", no block) must be the first statement in the
@@ -11037,7 +11036,7 @@ static void zend_compile_module(const zend_ast *ast) /* {{{ */
 	 && FAILURE == zend_is_first_statement(ast, /* allow_nop */ true, /* allow_leading_module */ false)) {
 		zend_error_noreturn(E_COMPILE_ERROR,
 			"A module membership declaration (\"module %s;\") must be the first statement in "
-			"the file (only a leading declare() may precede it)", ZSTR_VAL(raw_name));
+			"the file", ZSTR_VAL(raw_name));
 	}
 
 	/* PHP Modules: a membership file ("module M;") owns the file's remaining top-level
@@ -11064,25 +11063,11 @@ static void zend_compile_module(const zend_ast *ast) /* {{{ */
 				case ZEND_AST_GROUP_USE:
 				case ZEND_AST_DECLARE:
 					break;
-				case ZEND_AST_CONST_DECL:
-					zend_error_noreturn(E_COMPILE_ERROR,
-						"A top-level const declaration is not allowed in a module membership "
-						"file (\"module %s;\"): it would not be scoped to the module. Declare "
-						"module constants inline in the module definition block instead",
-						ZSTR_VAL(raw_name));
-					break;
-				case ZEND_AST_FUNC_DECL:
-					zend_error_noreturn(E_COMPILE_ERROR,
-						"A function declaration is not allowed in a module membership file "
-						"(\"module %s;\"): it would not be scoped to the module",
-						ZSTR_VAL(raw_name));
-					break;
 				default:
 					zend_error_noreturn(E_COMPILE_ERROR,
-						"Only class-like declarations (class, interface, enum, trait), use "
-						"imports, and declare()/namespace/nested-module blocks are allowed in a "
-						"module membership file (\"module %s;\"); other statements would run in "
-						"the global scope rather than the module", ZSTR_VAL(raw_name));
+						"Only class-like declarations (module, class, interface, enum, trait), use, "
+						"declare, and namespace blocks are allowed in a module membership "
+						"file (\"module %s;\")", ZSTR_VAL(raw_name));
 			}
 		}
 	}
@@ -11244,15 +11229,11 @@ static void zend_compile_module(const zend_ast *ast) /* {{{ */
 			 * class is still created (module identity), just without these members. */
 			if (decl->kind == ZEND_AST_METHOD) {
 				zend_error_noreturn(E_COMPILE_ERROR,
-					"Module-level static functions are not supported "
-					"(deferred to a future proposal); a module may declare classes, "
-					"interfaces, enums, traits, constants, and nested modules");
+					"Module-level static functions are not supported");
 			}
 			if (decl->kind == ZEND_AST_PROP_GROUP) {
 				zend_error_noreturn(E_COMPILE_ERROR,
-					"Module-level static properties are not supported "
-					"(deferred to a future proposal); a module may declare classes, "
-					"interfaces, enums, traits, constants, and nested modules");
+					"Module-level static properties are not supported");
 			}
 
 			/* Record the member's canonical name -> visibility before compiling, so
