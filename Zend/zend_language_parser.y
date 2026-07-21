@@ -1570,7 +1570,7 @@ module_member:
 				  $$ = $2;
 			  } else if (d->kind == ZEND_AST_MODULE || d->kind == ZEND_AST_MODULE_CLAIM) {
 				  zend_error_noreturn(E_COMPILE_ERROR,
-					  "Attributes are not supported on a forward-declared or nested module claim; "
+					  "Attributes are not supported on a module's forward declaration; "
 					  "place them on the member's definition instead");
 			  } else {
 				  $2->child[0] = zend_ast_with_attributes(d, $1);

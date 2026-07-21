@@ -25,11 +25,11 @@ function allow(string $label, string $code): void {
 }
 
 // --- rejected: non-class-like content in a membership file ---
-reject('const',       "module M;\nconst K = 1;\n",              'const declaration is not allowed');
-reject('function',    "module M;\nfunction f() {}\n",           'function declaration is not allowed');
-reject('variable',    "module M;\n\$x = 5;\n",                  'the global scope rather than the module');
-reject('echo',        "module M;\necho \"hi\";\n",              'the global scope rather than the module');
-reject('if-block',    "module M;\nif (true) { class C {} }\n",  'the global scope rather than the module');
+reject('const',       "module M;\nconst K = 1;\n",              'allowed in a module membership file');
+reject('function',    "module M;\nfunction f() {}\n",           'allowed in a module membership file');
+reject('variable',    "module M;\n\$x = 5;\n",                  'allowed in a module membership file');
+reject('echo',        "module M;\necho \"hi\";\n",              'allowed in a module membership file');
+reject('if-block',    "module M;\nif (true) { class C {} }\n",  'allowed in a module membership file');
 
 // --- allowed: class-like declarations, use, declare, nested module, namespace ---
 allow('class',        "module M;\nclass C {}\n");
