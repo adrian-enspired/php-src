@@ -34,8 +34,9 @@ file_put_contents($dir . '/svc.php', <<<'PHP'
 module Shop;
 class Service {
     public function check(): string {
-        // Inside the module: the internal claimed member is reachable.
-        return (new \Shop::Auth\PasswordChecker)->ok() ? "ok-inside" : "no";
+        // Inside the module: the internal claimed member is reachable by its canonical
+        // (module-rooted, tail) name.
+        return (new \Shop::PasswordChecker)->ok() ? "ok-inside" : "no";
     }
 }
 PHP);
@@ -52,7 +53,7 @@ echo (new Shop::GuestUser)->tag(), "\n";   // public claim -> reachable
 echo (new Shop::Service)->check(), "\n";   // sibling inside the module reaches the internal claim
 
 // The internal claimed member is denied from outside the module.
-try { new Shop::Auth\PasswordChecker(); echo "LEAKED\n"; }
+try { new Shop::PasswordChecker(); echo "LEAKED\n"; }
 catch (\Error $e) { echo $e->getMessage(), "\n"; }
 ?>
 --CLEAN--
@@ -65,4 +66,4 @@ $dir = __DIR__ . '/claims_tmp';
 cart
 guest
 ok-inside
-Cannot access internal module member "Shop::Auth\PasswordChecker" from outside its module
+Cannot access internal module member "Shop::PasswordChecker" from outside its module

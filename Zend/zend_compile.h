@@ -147,6 +147,9 @@ typedef struct _zend_php_module {
 	/* member visibility map (canonical-lc symbol name -> visibility flag) is added
 	 * in a later increment; increment 1 only records module existence + ownership. */
 	HashTable members;      /* lc member FQN -> (void*)(uintptr_t) visibility */
+	HashTable member_aliases; /* PHP Modules (Decision B, `as`): lc projection source name
+	                           * ("c\d\foo") -> chosen alias zend_string ("Foo2"), so a
+	                           * member-file class can adopt "M::Foo2" as its canonical. */
 } zend_php_module;
 
 #define ZEND_MODULE_MEMBER_PUBLIC   1
@@ -158,6 +161,7 @@ ZEND_API zend_php_module *zend_lookup_module(zend_string *lc_name);
  * DECLARE_MODULE opline. Runs every request, including opcache cache hits where
  * the compiler never ran, so the per-request registry is always rebuilt. */
 ZEND_API void zend_declare_module_runtime(zend_string *name, HashTable *members);
+ZEND_API void zend_declare_module_member_alias_runtime(zend_string *projection, zend_string *canonical);
 /* True if class scope `scope` may access an internal member declared in `member_ce`
  * (same-module check). Used for internal methods and internal backing-class members. */
 ZEND_API bool zend_module_scope_allows(const zend_class_entry *member_ce, const zend_class_entry *scope);

@@ -2,13 +2,15 @@
 Modules: ReflectionModule introspects a declared module
 --FILE--
 <?php
-module Vendor\Shop {
+namespace Vendor;
+
+module Shop {
     public class Cart {}
     public class Order {}
     internal class Ledger {}
 }
 
-$r = new ReflectionModule('Vendor\Shop');
+$r = new \ReflectionModule('Vendor\Shop');
 echo $r->getName(), "\n";
 echo $r->name, "\n";
 
@@ -21,7 +23,7 @@ echo $r->getSymbolVisibility('Vendor\Shop::Ledger'), "\n";
 
 // Unknown module -> ReflectionException
 try {
-    new ReflectionModule('Does\NotExist');
+    new \ReflectionModule('Does\NotExist');
 } catch (\ReflectionException $e) {
     echo $e->getMessage(), "\n";
 }

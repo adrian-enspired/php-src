@@ -2,7 +2,9 @@
 Modules: manifest block declares classes under the canonical "::" boundary key
 --FILE--
 <?php
-module Vendor\User {
+namespace Vendor;
+
+module User {
     public class Profile {
         public function __construct(public string $name) {}
     }
