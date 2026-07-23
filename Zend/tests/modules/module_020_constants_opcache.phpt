@@ -18,7 +18,8 @@ $cache = $dir . '/cache';
 
 file_put_contents($dir . '/mod.inc', <<<'PHP'
 <?php
-module Vendor\App {
+namespace Vendor;
+module App {
     public const VERSION = "1.2.3";
 }
 PHP);

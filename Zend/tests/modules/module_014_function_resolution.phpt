@@ -2,11 +2,11 @@
 Modules: function/constant name resolution keeps global fallback inside a module
 --FILE--
 <?php
-module Vendor\App {
+module App {
     public class Service {
         public function bare(): string {
             // Bare global function calls must fall back to the root namespace,
-            // NOT be module-prefixed (which would look for Vendor\App::strtoupper).
+            // NOT be module-prefixed (which would look for App::strtoupper).
             return strtoupper(trim("  ok  ")) . strlen("abcd");
         }
         public function rooted(): string {
@@ -18,7 +18,7 @@ module Vendor\App {
     }
 }
 
-$s = new Vendor\App::Service();
+$s = new App::Service();
 echo $s->bare(), "\n";
 echo $s->rooted(), "\n";
 echo $s->globalConst(), "\n";

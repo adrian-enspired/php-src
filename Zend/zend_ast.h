@@ -155,6 +155,9 @@ enum _zend_ast_kind {
 	ZEND_AST_MATCH_ARM,
 	ZEND_AST_NAMED_ARG,
 	ZEND_AST_PIPE,
+	ZEND_AST_MODULE_CLAIM_AS,  /* PHP Modules: child[0]=source name, child[1]=alias; a claim
+	                            * "Full\Name as Alias" — canonical handle uses Alias, the
+	                            * source name supplies the outward projection */
 
 	/* 3 child nodes */
 	ZEND_AST_METHOD_CALL = 3 << ZEND_AST_NUM_CHILDREN_SHIFT,

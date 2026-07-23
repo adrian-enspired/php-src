@@ -6,17 +6,18 @@ require __DIR__ . '/module_002_def.inc';         // claims (public) — loaded b
 require __DIR__ . '/module_002_member_ns.inc';
 require __DIR__ . '/module_002_member_root.inc';
 
-var_dump(class_exists('Vendor\User::Auth\PasswordChecker'));
+// The member declared under "namespace Auth" is canonically Vendor\User::PasswordChecker
+// (module-rooted on its simple tail) and ALSO projects its namespace name Auth\PasswordChecker.
+var_dump(class_exists('Vendor\User::PasswordChecker'));
 var_dump(class_exists('Vendor\User::GuestUser'));
-// The bare (non-module) namespace forms must not exist.
-var_dump(class_exists('Auth\PasswordChecker'));
-var_dump(class_exists('GuestUser'));
+var_dump(class_exists('Auth\PasswordChecker'));   // the outward projection alias
+var_dump(class_exists('GuestUser'));               // GuestUser has no namespace -> no projection
 
-echo (new ('Vendor\User::Auth\PasswordChecker'))->tag(), "\n";
+echo (new ('Vendor\User::PasswordChecker'))->tag(), "\n";
 ?>
 --EXPECT--
 bool(true)
 bool(true)
-bool(false)
+bool(true)
 bool(false)
 checker

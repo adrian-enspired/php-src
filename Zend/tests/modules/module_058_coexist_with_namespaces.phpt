@@ -1,28 +1,15 @@
 --TEST--
-Modules: a module block coexists with bracketed namespaces in the same file (any order); the module stays in root
+Modules: with bracketed namespaces, a bare module between blocks is rejected (no code outside namespace {})
+--DESCRIPTION--
+Under Decision A a module is namespace-positioned, so it obeys the same "no code outside
+namespace {}" rule as any other declaration. With bracketed namespaces it must live inside
+a block — `namespace X { module Z { … } }` (module X\Z, see module_087) or the global
+`namespace { module R { … } }` for a root module — not bare between blocks.
 --FILE--
 <?php
-namespace A {
-    class D {}
-}
-
-module X\Y {
-    public class C {}
-    public const V = 1;
-}
-
-namespace B {
-    // The module is in the ROOT namespace (X\Y::C), not A\ or B\.
-    var_dump(class_exists('X\\Y::C'));
-    var_dump(class_exists('A\\X\\Y::C'));
-    echo (new \X\Y::C) instanceof \X\Y::C ? "module ok\n" : "no\n";
-    echo \X\Y::V, "\n";
-    echo (new \A\D) instanceof \A\D ? "ns A ok\n" : "no\n";
-}
+namespace A { class D {} }
+module Xy { public class C {} }
+namespace B { }
 ?>
---EXPECT--
-bool(true)
-bool(false)
-module ok
-1
-ns A ok
+--EXPECTF--
+Fatal error: No code may exist outside of namespace {} in %s on line %d

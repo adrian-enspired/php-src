@@ -1165,16 +1165,20 @@ static zend_string *zend_prefix_with_ns(zend_string *name) {
  * resolution, including their global fallback, so a bare "strtoupper()" inside a
  * module still resolves to the global function. */
 static zend_string *zend_prefix_class_with_module_and_ns(zend_string *name) {
-	zend_string *ns_prefixed = zend_prefix_with_ns(name);
-	if (FC(current_module)) {
+	/* PHP Modules (Decision B): inside a module a class is named module-relative on its
+	 * SIMPLE (unqualified) form — "M::C". The file's namespace does NOT nest into the
+	 * canonical name (no more "M::A\B\C"); it instead supplies a separate outward
+	 * *projection* alias ("A\B\C"), registered at class declaration. A qualified name
+	 * (A\B\C) is a namespace reference and resolves through the normal namespace path
+	 * below — landing on a projection alias or a plain global class — never "M::A\B\C". */
+	if (FC(current_module)
+	 && memchr(ZSTR_VAL(name), '\\', ZSTR_LEN(name)) == NULL) {
 		const zend_string *mod = FC(current_module);
-		zend_string *result = zend_string_concat3(
+		return zend_string_concat3(
 			ZSTR_VAL(mod), ZSTR_LEN(mod), "::", 2,
-			ZSTR_VAL(ns_prefixed), ZSTR_LEN(ns_prefixed));
-		zend_string_release(ns_prefixed);
-		return result;
+			ZSTR_VAL(name), ZSTR_LEN(name));
 	}
-	return ns_prefixed;
+	return zend_prefix_with_ns(name);
 }
 
 static zend_string *zend_resolve_non_class_name(
@@ -7786,7 +7790,7 @@ bool zend_handle_encoding_declaration(zend_ast *ast) /* {{{ */
 /* }}} */
 
 /* Check whether this is the first statement, not counting declares. */
-static zend_result zend_is_first_statement(const zend_ast *ast, bool allow_nop, bool allow_leading_module) /* {{{ */
+static zend_result zend_is_first_statement(const zend_ast *ast, bool allow_nop, bool allow_leading_module, bool allow_leading_namespace) /* {{{ */
 {
 	uint32_t i = 0;
 	const zend_ast_list *file_ast = zend_ast_get_list(CG(ast));
@@ -7799,7 +7803,13 @@ static zend_result zend_is_first_statement(const zend_ast *ast, bool allow_nop, 
 				return FAILURE;
 			}
 		} else if (file_ast->child[i]->kind != ZEND_AST_DECLARE
-				&& !(allow_leading_module && file_ast->child[i]->kind == ZEND_AST_MODULE)) {
+				&& !(allow_leading_module && file_ast->child[i]->kind == ZEND_AST_MODULE)
+				/* Only an UNBRACKETED (semicolon) namespace may precede a membership claim
+				 * (the B-order "namespace A\B; module M;" member file). A bracketed
+				 * `namespace A { … }` block is a self-contained form, so a membership
+				 * mode-switch after it stays rejected. child[1] is the namespace body. */
+				&& !(allow_leading_namespace && file_ast->child[i]->kind == ZEND_AST_NAMESPACE
+					&& file_ast->child[i]->child[1] == NULL)) {
 			/* A leading module membership declaration (`module Foo;`) is permitted before a
 			 * namespace, exactly like `declare` (allow_leading_module). But a membership
 			 * declaration is itself required to be first — only `declare` may precede it —
@@ -7837,14 +7847,14 @@ static void zend_compile_declare(const zend_ast *ast) /* {{{ */
 			zval_ptr_dtor_nogc(&value_zv);
 		} else if (zend_string_equals_literal_ci(name, "encoding")) {
 
-			if (FAILURE == zend_is_first_statement(ast, /* allow_nop */ false, /* allow_leading_module */ true)) {
+			if (FAILURE == zend_is_first_statement(ast, /* allow_nop */ false, /* allow_leading_module */ true, /* allow_leading_namespace */ false)) {
 				zend_error_noreturn(E_COMPILE_ERROR, "Encoding declaration pragma must be "
 					"the very first statement in the script");
 			}
 		} else if (zend_string_equals_literal_ci(name, "strict_types")) {
 			zval value_zv;
 
-			if (FAILURE == zend_is_first_statement(ast, /* allow_nop */ true, /* allow_leading_module */ true)) {
+			if (FAILURE == zend_is_first_statement(ast, /* allow_nop */ true, /* allow_leading_module */ true, /* allow_leading_namespace */ false)) {
 				zend_error_noreturn(E_COMPILE_ERROR, "strict_types declaration must be "
 					"the very first statement in the script");
 			}
@@ -10112,6 +10122,21 @@ static void zend_compile_enum_backing_type(zend_class_entry *ce, zend_ast *enum_
 	zend_type_release(type, 0);
 }
 
+/* PHP Modules (Decision B): emit the runtime op that registers a member class's outward
+ * namespace projection ("A\B\C") as an alias to its canonical "M::C". Called on every exit
+ * path of zend_compile_class_decl — including the early-binding early-returns — so the op
+ * lands in the enclosing op_array and runs at runtime after the member class is available,
+ * whether it was runtime-declared or compile-time early-bound (opcache/preload-safe). */
+static void zend_emit_module_member_projection(zend_string *projection, zend_string *name)
+{
+	znode proj_node, canon_node;
+	proj_node.op_type = IS_CONST;
+	ZVAL_STR_COPY(&proj_node.u.constant, projection);
+	canon_node.op_type = IS_CONST;
+	ZVAL_STR_COPY(&canon_node.u.constant, name);
+	zend_emit_op(NULL, ZEND_DECLARE_MODULE_MEMBER_ALIAS, &proj_node, &canon_node);
+}
+
 static void zend_compile_class_decl(znode *result, const zend_ast *ast, bool toplevel) /* {{{ */
 {
 	const zend_ast_decl *decl = (const zend_ast_decl *) ast;
@@ -10120,6 +10145,7 @@ static void zend_compile_class_decl(znode *result, const zend_ast *ast, bool top
 	zend_ast *stmt_ast = decl->child[2];
 	zend_ast *enum_backing_type_ast = decl->child[4];
 	zend_string *name, *lcname;
+	zend_string *projection = NULL;   /* PHP Modules (Decision B): member's outward namespace alias */
 	zend_class_entry *ce = zend_arena_alloc(&CG(arena), sizeof(zend_class_entry));
 	zend_op *opline;
 
@@ -10149,6 +10175,31 @@ static void zend_compile_class_decl(znode *result, const zend_ast *ast, bool top
 			name = zend_string_copy(unqualified_name);
 		} else {
 			name = zend_prefix_class_with_module_and_ns(unqualified_name);
+			/* A member declared in a MEMBER FILE (module scope active AND the file carries
+			 * a namespace) projects its outward namespace name "A\B\C" as an alias to the
+			 * canonical "M::C". Inline manifest members have the namespace suppressed
+			 * (Decision A), so FC(current_namespace) is NULL there and they never project. */
+			if (FC(current_module) && FC(current_namespace)) {
+				projection = zend_prefix_with_ns(unqualified_name);
+				/* `as`: if the module claimed this projection under an alias
+				 * ("C\D\Foo as Foo2"), adopt "M::Foo2" as the canonical handle in place of
+				 * the simple tail "M::Foo". Keyed by the projection, so the member file need
+				 * only declare `namespace C\D; class Foo {}`. */
+				zend_string *lc_mod = zend_string_tolower(FC(current_module));
+				zend_php_module *am = zend_lookup_module(lc_mod);
+				zend_string_release(lc_mod);
+				if (am) {
+					zend_string *lc_proj = zend_string_tolower(projection);
+					zend_string *alias = zend_hash_find_ptr(&am->member_aliases, lc_proj);
+					zend_string_release(lc_proj);
+					if (alias) {
+						zend_string_release(name);
+						name = zend_string_concat3(
+							ZSTR_VAL(FC(current_module)), ZSTR_LEN(FC(current_module)),
+							"::", 2, ZSTR_VAL(alias), ZSTR_LEN(alias));
+					}
+				}
+			}
 		}
 		name = zend_new_interned_string(name);
 		lcname = zend_string_tolower(name);
@@ -10210,6 +10261,23 @@ static void zend_compile_class_decl(znode *result, const zend_ast *ast, bool top
 		zend_php_module *m = zend_lookup_module(lc_mod);
 		if (m) {
 			void *vis = zend_hash_find_ptr(&m->members, lc_member);
+			/* Projection consistency (Decision B): the manifest is authoritative for a
+			 * member's outward projection. A NAMESPACED member (projection != NULL) that the
+			 * module claims must have declared the SAME projection the manifest claimed —
+			 * otherwise the file put the member under a namespace the module did not ask for.
+			 * Simple/root members (no projection) place no such constraint. */
+			if (vis && projection) {
+				zend_string *lc_proj = zend_string_tolower(projection);
+				bool claimed = zend_hash_exists(&m->members, lc_proj);
+				zend_string_release(lc_proj);
+				if (!claimed) {
+					zend_error_noreturn(E_COMPILE_ERROR,
+						"Module member \"%s\" is declared with projection \"%s\", which module "
+						"\"%s\" does not claim; claim it as \"%s\" in the module definition",
+						ZSTR_VAL(ce->name), ZSTR_VAL(projection),
+						ZSTR_VAL(FC(current_module)), ZSTR_VAL(projection));
+				}
+			}
 			if (!vis || (uintptr_t) vis == ZEND_MODULE_MEMBER_INTERNAL) {
 				ce->ce_flags2 |= ZEND_ACC2_MODULE_INTERNAL;
 			}
@@ -10368,6 +10436,10 @@ static void zend_compile_class_decl(znode *result, const zend_ast *ast, bool top
 				 && !zend_compile_ignore_class(parent_ce, ce->info.user.filename)) {
 					if (zend_try_early_bind(ce, parent_ce, lcname, NULL)) {
 						zend_string_release(lcname);
+						if (projection) {
+							zend_emit_module_member_projection(projection, name);
+							zend_string_release(projection);
+						}
 						return;
 					}
 				}
@@ -10377,6 +10449,10 @@ static void zend_compile_class_decl(znode *result, const zend_ast *ast, bool top
 				zend_inheritance_check_override(ce);
 				ce->ce_flags |= ZEND_ACC_LINKED;
 				zend_observer_class_linked_notify(ce, lcname);
+				if (projection) {
+					zend_emit_module_member_projection(projection, name);
+					zend_string_release(projection);
+				}
 				return;
 			} else {
 				goto link_unbound;
@@ -10446,6 +10522,16 @@ link_unbound:
 			opline->result_type = IS_UNUSED;
 			opline->result.opline_num = -1;
 		}
+	}
+
+	/* PHP Modules (Decision B): after the member's class-declaration op, register its
+	 * outward namespace projection ("A\B\C") as an alias to the canonical "M::C" via a
+	 * runtime op, so the alias survives an opcache cache hit and preloading. `projection`
+	 * is set only for a namespaced member-file class (see above), so this is a no-op for
+	 * ordinary classes, inline manifest members, anon classes, and the backing class. */
+	if (projection) {
+		zend_emit_module_member_projection(projection, name);
+		zend_string_release(projection);
 	}
 }
 /* }}} */
@@ -10775,7 +10861,7 @@ static void zend_compile_namespace(const zend_ast *ast) /* {{{ */
 
 	bool is_first_namespace = (!with_bracket && !FC(current_namespace))
 		|| (with_bracket && !FC(has_bracketed_namespaces));
-	if (is_first_namespace && FAILURE == zend_is_first_statement(ast, /* allow_nop */ true, /* allow_leading_module */ true)) {
+	if (is_first_namespace && FAILURE == zend_is_first_statement(ast, /* allow_nop */ true, /* allow_leading_module */ true, /* allow_leading_namespace */ false)) {
 		zend_error_noreturn(E_COMPILE_ERROR, "Namespace declaration statement has to be "
 			"the very first statement or after any declare call in the script");
 	}
@@ -10811,11 +10897,16 @@ static void zend_compile_namespace(const zend_ast *ast) /* {{{ */
 /* }}} */
 
 /* {{{ PHP Modules (experimental) registry */
+static void zend_module_alias_dtor(zval *zv) {
+	zend_string_release((zend_string *) Z_PTR_P(zv));
+}
+
 static void zend_php_module_dtor(zval *zv) {
 	zend_php_module *mod = Z_PTR_P(zv);
 	zend_string_release(mod->name);
 	zend_string_release(mod->lc_name);
 	zend_hash_destroy(&mod->members);
+	zend_hash_destroy(&mod->member_aliases);
 	efree(mod);
 }
 
@@ -10847,6 +10938,7 @@ ZEND_API zend_php_module *zend_register_module(zend_string *name) {
 	mod->name = zend_string_copy(name);
 	mod->lc_name = lc_name;
 	zend_hash_init(&mod->members, 8, NULL, NULL, 0);
+	zend_hash_init(&mod->member_aliases, 8, NULL, zend_module_alias_dtor, 0);
 	zend_hash_add_ptr(EG(module_registry), lc_name, mod);
 	return mod;
 }
@@ -10866,8 +10958,38 @@ ZEND_API void zend_declare_module_runtime(zend_string *name, HashTable *members)
 		zend_string *mkey;
 		zval *mval;
 		ZEND_HASH_FOREACH_STR_KEY_VAL(members, mkey, mval) {
-			zend_hash_add_ptr(&mod->members, mkey, (void*)(uintptr_t) Z_LVAL_P(mval));
+			if (ZSTR_LEN(mkey) > 0 && ZSTR_VAL(mkey)[0] == '@') {
+				/* PHP Modules (`as`): "@<lc projection>" -> alias STRING; rebuild the
+				 * projection->alias map so a member-file class compiled on this (cache-hit)
+				 * request still adopts "M::Alias". */
+				zend_string *proj = zend_string_init(ZSTR_VAL(mkey) + 1, ZSTR_LEN(mkey) - 1, 0);
+				zend_hash_update_ptr(&mod->member_aliases, proj, zend_string_copy(Z_STR_P(mval)));
+				zend_string_release(proj);
+			} else {
+				zend_hash_add_ptr(&mod->members, mkey, (void*)(uintptr_t) Z_LVAL_P(mval));
+			}
 		} ZEND_HASH_FOREACH_END();
+	}
+}
+
+/* PHP Modules (Decision B): register a member class's outward namespace *projection*
+ * ("A\B\C") as a class alias to its canonical module-rooted entry ("M::C"). Emitted by
+ * ZEND_DECLARE_MODULE_MEMBER_ALIAS right after the member's class-declaration op, so the
+ * canonical class already exists (no autoload needed). Runtime-driven, so the alias is
+ * rebuilt on every request including opcache cache hits; under preload the alias lands in
+ * the class table and is persisted like any other. A projection may not collide with an
+ * existing symbol — one name resolves to one class. */
+ZEND_API void zend_declare_module_member_alias_runtime(zend_string *projection, zend_string *canonical) {
+	zend_class_entry *ce = zend_lookup_class_ex(canonical, NULL, ZEND_FETCH_CLASS_NO_AUTOLOAD);
+	if (!ce) {
+		zend_error_noreturn(E_ERROR,
+			"Module member \"%s\" is not available to project as \"%s\"",
+			ZSTR_VAL(canonical), ZSTR_VAL(projection));
+		return;
+	}
+	if (zend_register_class_alias_ex(
+			ZSTR_VAL(projection), ZSTR_LEN(projection), ce, /* persistent */ false) != SUCCESS) {
+		zend_class_redeclaration_error_ex(E_ERROR, projection, ce);
 	}
 }
 
@@ -10943,6 +11065,20 @@ ZEND_API zend_ast *zend_ast_create_module_backing_name(void) /* {{{ */
  * class and are not module members, so they are skipped. Runs once at the outermost
  * module (see the guard at the call site); zend_register_module is idempotent, so a
  * nested module's later real compilation reuses these entries. */
+/* PHP Modules (Decision B): a member's canonical handle is module-rooted on its SIMPLE
+ * tail — the segment after the last "\". A claim may name a member by a namespaced source
+ * name ("Auth\Checker"), whose namespace supplies the outward projection; the membership
+ * key and the "M::" handle use only the tail ("Checker"). Simple names come back unchanged. */
+static zend_string *zend_module_member_tail(zend_string *source)
+{
+	const char *bs = zend_memrchr(ZSTR_VAL(source), '\\', ZSTR_LEN(source));
+	if (bs) {
+		size_t off = (size_t) (bs - ZSTR_VAL(source)) + 1;
+		return zend_string_init(ZSTR_VAL(source) + off, ZSTR_LEN(source) - off, 0);
+	}
+	return zend_string_copy(source);
+}
+
 static void zend_preregister_module_subtree(zend_string *mod_name, const zend_ast *stmt_ast)
 {
 	if (!stmt_ast) {
@@ -10960,6 +11096,8 @@ static void zend_preregister_module_subtree(zend_string *mod_name, const zend_as
 
 		if (decl->kind == ZEND_AST_MODULE_CLAIM) {
 			simple = zend_ast_get_str(decl->child[0]);
+		} else if (decl->kind == ZEND_AST_MODULE_CLAIM_AS) {
+			simple = zend_ast_get_str(decl->child[1]);   /* the alias is the canonical tail */
 		} else if (decl->kind == ZEND_AST_MODULE) {
 			simple = zend_ast_get_str(decl->child[0]);
 			nested_inline = (decl->child[1] != NULL);   /* has a body: recurse into it */
@@ -10973,8 +11111,10 @@ static void zend_preregister_module_subtree(zend_string *mod_name, const zend_as
 		if (!simple) {
 			continue;
 		}
+		zend_string *tail = zend_module_member_tail(simple);
 		zend_string *canonical = zend_string_concat3(
-			ZSTR_VAL(mod_name), ZSTR_LEN(mod_name), "::", 2, ZSTR_VAL(simple), ZSTR_LEN(simple));
+			ZSTR_VAL(mod_name), ZSTR_LEN(mod_name), "::", 2, ZSTR_VAL(tail), ZSTR_LEN(tail));
+		zend_string_release(tail);
 		zend_string *lc = zend_string_tolower(canonical);
 		zend_hash_update_ptr(&mod->members, lc, (void*)(uintptr_t) visibility);
 		zend_string_release(lc);
@@ -10999,10 +11139,37 @@ static void zend_compile_module(const zend_ast *ast) /* {{{ */
 	bool module_is_internal = FC(current_member_internal);
 	FC(current_member_internal) = false;
 
-	/* Module manifests and membership declarations live in the root namespace. */
+	/* PHP Modules: a module's namespace comes from a preceding `namespace X\Y;` statement.
+	 * An unqualified *definition block* ("namespace X\Y; module Z { … }") takes that
+	 * namespace as its prefix, forming the FQMN "X\Y\Z" — the same identity the (now
+	 * removed) fused "module X\Y\Z { … }" produced. Membership declarations
+	 * ("module X\Y\Z;") and the "::"-canonical nested definition forms must still live in
+	 * the root namespace: a member file may not sit under a top-level namespace (a
+	 * *following* `namespace` is additive, inside the module). A definition block's name is
+	 * unqualified, so a "::" in raw_name marks a canonical nested form, which keeps the
+	 * root-namespace requirement. */
+	zend_string *ns_qualified_name = NULL;   /* owned iff the namespace prefix is applied */
 	if (FC(current_namespace)) {
-		zend_error_noreturn(E_COMPILE_ERROR,
-			"Module declaration \"%s\" must be in the root namespace", ZSTR_VAL(raw_name));
+		bool is_definition_block = (stmt_ast != NULL);
+		bool is_canonical_nested = (strstr(ZSTR_VAL(raw_name), "::") != NULL);
+		if (is_definition_block) {
+			if (is_canonical_nested) {
+				/* A "::"-canonical nested definition ("module Outer::Inner { … }") names
+				 * the exact module and must live in the root namespace. */
+				zend_error_noreturn(E_COMPILE_ERROR,
+					"Module definition \"%s\" must be in the root namespace",
+					ZSTR_VAL(raw_name));
+			}
+			/* Decision A: "namespace X\Y; module Z { … }" -> the module "X\Y\Z". */
+			ns_qualified_name = zend_string_concat3(
+				ZSTR_VAL(FC(current_namespace)), ZSTR_LEN(FC(current_namespace)),
+				"\\", 1, ZSTR_VAL(raw_name), ZSTR_LEN(raw_name));
+			raw_name = ns_qualified_name;   /* the FQMN for the remainder of this function */
+		}
+		/* Decision B (B-order): a membership *claim* ("namespace A\B; module X\Y\Z;") in a
+		 * namespaced member file is allowed. The claim names the module fully (root); it is
+		 * NOT prefixed by the file's namespace. That namespace is the file's own and supplies
+		 * the outward projection of the members declared after it. No error, no prefix. */
 	}
 
 	/* Nested modules (flat boundary model): a module declared inside another is
@@ -11033,7 +11200,7 @@ static void zend_compile_module(const zend_ast *ast) /* {{{ */
 	 * false here so a preceding module node — a definition block, or ordinary code, or a
 	 * namespace — is rejected, unlike the namespace check which tolerates a leading module. */
 	if (!stmt_ast
-	 && FAILURE == zend_is_first_statement(ast, /* allow_nop */ true, /* allow_leading_module */ false)) {
+	 && FAILURE == zend_is_first_statement(ast, /* allow_nop */ true, /* allow_leading_module */ false, /* allow_leading_namespace */ true)) {
 		zend_error_noreturn(E_COMPILE_ERROR,
 			"A module membership declaration (\"module %s;\") must be the first statement in "
 			"the file", ZSTR_VAL(raw_name));
@@ -11138,6 +11305,15 @@ static void zend_compile_module(const zend_ast *ast) /* {{{ */
 	zend_ast *backing_stmts = zend_ast_create_list(0, ZEND_AST_STMT_LIST);
 
 	if (stmt_ast) {
+		/* Suppress the enclosing namespace while the member bodies compile: members are
+		 * scoped by the module (FQMN::member) and unqualified names inside resolve
+		 * module-relative — exactly as when a manifest was required to be in the root
+		 * namespace. `use` imports (FC(imports)) are left active, so aliases still resolve
+		 * in the body. Restored below, before the module-level attributes compile (those
+		 * resolve in the enclosing scope) and before the rest of the file continues. */
+		zend_string *saved_namespace = FC(current_namespace);
+		FC(current_namespace) = NULL;
+
 		/* Manifest block: a list of ZEND_AST_MODULE_MEMBER wrappers, each carrying
 		 * the member's visibility in ->attr and the real declaration as child[0]. */
 		const zend_ast_list *members = zend_ast_get_list(stmt_ast);
@@ -11166,11 +11342,19 @@ static void zend_compile_module(const zend_ast *ast) /* {{{ */
 			 * real declaration lives in a membership sub-file and inherits this visibility
 			 * when it compiles (zend_compile_class_decl looks the claim up by canonical
 			 * name). The name may be namespaced, matching a sub-file's internal namespace. */
-			if (decl->kind == ZEND_AST_MODULE_CLAIM) {
-				zend_string *simple = zend_ast_get_str(decl->child[0]);
+			if (decl->kind == ZEND_AST_MODULE_CLAIM
+			 || decl->kind == ZEND_AST_MODULE_CLAIM_AS) {
+				zend_string *source = zend_ast_get_str(decl->child[0]);
+				bool is_as = (decl->kind == ZEND_AST_MODULE_CLAIM_AS);
+				/* Canonical handle: the explicit alias if given ("Full\Name as Alias"),
+				 * else the source name's simple tail. */
+				zend_string *tail = is_as
+					? zend_string_copy(zend_ast_get_str(decl->child[1]))
+					: zend_module_member_tail(source);
 				zend_string *canonical = zend_string_concat3(
 					ZSTR_VAL(name), ZSTR_LEN(name), "::", 2,
-					ZSTR_VAL(simple), ZSTR_LEN(simple));
+					ZSTR_VAL(tail), ZSTR_LEN(tail));
+				zend_string_release(tail);
 				zend_string *lc = zend_string_tolower(canonical);
 				zend_hash_update_ptr(&mod->members, lc, (void*)(uintptr_t) visibility);
 				zval vzv;
@@ -11178,6 +11362,31 @@ static void zend_compile_module(const zend_ast *ast) /* {{{ */
 				zend_hash_update(roster, lc, &vzv);
 				zend_string_release(canonical);
 				zend_string_release(lc);
+				/* Projection-consistency: a NAMESPACED claim (or any `as` claim) records its
+				 * expected projection (the source name) as a separate "::"-less roster/member
+				 * key, so a member-file class can verify its own projection is one the module
+				 * claimed. Simple claims ("GuestUser") record no projection key — no constraint. */
+				if (is_as || zend_memrchr(ZSTR_VAL(source), '\\', ZSTR_LEN(source)) != NULL) {
+					zend_string *lc_proj = zend_string_tolower(source);
+					zend_hash_update_ptr(&mod->members, lc_proj, (void*)(uintptr_t) visibility);
+					zval pzv;
+					ZVAL_LONG(&pzv, (zend_long) visibility);
+					zend_hash_update(roster, lc_proj, &pzv);
+					/* `as`: map projection -> alias so the member-file class adopts "M::Alias".
+					 * Persisted in the roster under a "@"-prefixed key (invalid as a class name,
+					 * so it cannot collide) with the alias as a STRING value; rebuilt into
+					 * mod->member_aliases by zend_declare_module_runtime on an opcache hit. */
+					if (is_as) {
+						zend_string *alias = zend_ast_get_str(decl->child[1]);
+						zend_hash_update_ptr(&mod->member_aliases, lc_proj, zend_string_copy(alias));
+						zend_string *rkey = zend_strpprintf(0, "@%s", ZSTR_VAL(lc_proj));
+						zval azv;
+						ZVAL_STR_COPY(&azv, alias);
+						zend_hash_update(roster, rkey, &azv);
+						zend_string_release(rkey);
+					}
+					zend_string_release(lc_proj);
+				}
 				continue;
 			}
 
@@ -11287,6 +11496,9 @@ static void zend_compile_module(const zend_ast *ast) /* {{{ */
 		/* Restore the enclosing module scope (NULL at top level; the parent's
 		 * canonical name when this was a nested module). */
 		FC(current_module) = parent_module;
+		/* Restore the enclosing namespace for the module-level attributes (resolved in the
+		 * enclosing scope) and for the remainder of the file after this block. */
+		FC(current_namespace) = saved_namespace;
 
 		/* Module-level attributes (MODULE node child[2]) are written in the *enclosing*
 		 * scope, lexically before "module Foo { … }", so their class names must resolve
@@ -11327,6 +11539,9 @@ static void zend_compile_module(const zend_ast *ast) /* {{{ */
 	zend_emit_op(NULL, ZEND_DECLARE_MODULE, &name_node, &roster_node);
 
 	zend_string_release(name);
+	if (ns_qualified_name) {
+		zend_string_release(ns_qualified_name);
+	}
 }
 /* }}} */
 
@@ -13248,14 +13463,13 @@ void zend_compile_top_stmt(zend_ast *ast) /* {{{ */
 	} else {
 		zend_compile_stmt(ast);
 	}
-	/* A `module` declaration is a root-namespace structural element (it may not be
-	 * wrapped by a namespace, and it registers its members under the module's own
-	 * canonical root). Like a namespace declaration, it is therefore exempt from the
-	 * "no code outside namespace {}" rule, so a module block may sit alongside bracketed
-	 * namespaces in a file regardless of order (a leading module is already permitted
-	 * before a namespace by zend_is_first_statement). */
-	if (ast->kind != ZEND_AST_NAMESPACE && ast->kind != ZEND_AST_HALT_COMPILER
-			&& ast->kind != ZEND_AST_MODULE) {
+	/* A `module` obeys the same "no code outside namespace {}" rule as any other
+	 * declaration: under bracketed namespaces it must live *inside* a namespace block
+	 * (`namespace X { module Z { … } }` → module X\Z, or the global `namespace { module
+	 * R { … } }` for a root module), not bare between blocks. Code compiled *inside* a
+	 * module stays exempt — zend_verify_namespace() returns early while FC(current_module)
+	 * is set. NAMESPACE and HALT_COMPILER remain structurally exempt. */
+	if (ast->kind != ZEND_AST_NAMESPACE && ast->kind != ZEND_AST_HALT_COMPILER) {
 		zend_verify_namespace();
 	}
 }

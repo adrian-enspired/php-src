@@ -1,5 +1,6 @@
 <?php
-module Vendor\App {
+namespace Vendor;
+module App {
     public class Service { public function ok(): string { return "svc"; } }
     internal class Secret { public function ping(): string { return "secret"; } }
     public const OPEN = 1;

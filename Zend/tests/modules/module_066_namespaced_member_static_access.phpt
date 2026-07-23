@@ -1,49 +1,53 @@
 --TEST--
-Modules: static-access chains reach a NAMESPACED member (Module::Ns\Member::CONST/method/prop/::class)
+Modules (B): static-access chains reach a member by its canonical (tail) name; its namespace projects outward
 --FILE--
 <?php
 $dir = __DIR__ . '/nsm_tmp';
 @mkdir($dir);
 @mkdir("$dir/Vendor");
 @mkdir("$dir/Vendor/User");
-@mkdir("$dir/Vendor/User/Auth");
 
-// Module definition claims two namespaced members (public + internal), split into files.
-file_put_contents("$dir/Vendor/User.php", "<?php\nmodule Vendor\\User {\n    public Auth\\Checker;\n    internal Auth\\Secret;\n}\n");
-file_put_contents("$dir/Vendor/User/Auth/Checker.php", "<?php\nmodule Vendor\\User;\nnamespace Auth;\nclass Checker { const OK = 'checker-ok'; public static int \$count = 41; public static function run(): string { return 'ran'; } }\n");
-file_put_contents("$dir/Vendor/User/Auth/Secret.php", "<?php\nmodule Vendor\\User;\nnamespace Auth;\nclass Secret { const KEY = 'secret'; }\n");
+// Module claims two members (public + internal). Their bodies live in split files under
+// "namespace Auth", so each is canonically Vendor\User::<tail> AND projects as Auth\<tail>.
+file_put_contents("$dir/Vendor/User.php", "<?php\nnamespace Vendor;\nmodule User {\n    public Auth\\Checker;\n    internal Auth\\Secret;\n}\n");
+file_put_contents("$dir/Vendor/User/Checker.php", "<?php\nmodule Vendor\\User;\nnamespace Auth;\nclass Checker { const OK = 'checker-ok'; public static int \$count = 41; public static function run(): string { return 'ran'; } }\n");
+file_put_contents("$dir/Vendor/User/Secret.php", "<?php\nmodule Vendor\\User;\nnamespace Auth;\nclass Secret { const KEY = 'secret'; }\n");
 
 spl_autoload_register(function ($name) use ($dir) {
     $f = "$dir/" . str_replace('\\', '/', $name) . '.php';
     if (is_file($f)) require $f;
 });
 
-// Cold: this file compiled before the module loaded; the member name is namespaced
-// (Auth\Checker). Reference forms below were parse errors before the grammar fix.
-echo Vendor\User::Auth\Checker::OK, "\n";        // namespaced member constant
-echo Vendor\User::Auth\Checker::run(), "\n";     // namespaced member static method
-echo Vendor\User::Auth\Checker::$count, "\n";    // namespaced member static property
-echo Vendor\User::Auth\Checker::class, "\n";     // ::class on a namespaced member
-echo (new Vendor\User::Auth\Checker()) instanceof Vendor\User::Auth\Checker ? "instanceof-ok\n" : "no\n";
+// Cold static-access chains reach the member by its canonical, module-rooted name.
+echo Vendor\User::Checker::OK, "\n";        // member constant
+echo Vendor\User::Checker::run(), "\n";     // member static method
+echo Vendor\User::Checker::$count, "\n";    // member static property
+echo Vendor\User::Checker::class, "\n";     // ::class -> canonical
+echo (new Vendor\User::Checker()) instanceof Vendor\User::Checker ? "instanceof-ok\n" : "no\n";
 
-// Internal namespaced member: identity ungated, use denied from outside.
-echo Vendor\User::Auth\Secret::class, "\n";
-try { echo Vendor\User::Auth\Secret::KEY; }
+// The member also projects its namespace name (registered when its file loaded above).
+echo \Auth\Checker::OK, "\n";               // reachable via the projection too
+var_dump((new Vendor\User::Checker()) instanceof \Auth\Checker);   // identity through both names
+
+// Internal member: identity (::class) is ungated; use (::KEY) is denied from outside.
+echo Vendor\User::Secret::class, "\n";
+try { echo Vendor\User::Secret::KEY; }
 catch (\Error $e) { echo $e->getMessage(), "\n"; }
 ?>
 --CLEAN--
 <?php
 $dir = __DIR__ . '/nsm_tmp';
-@array_map('unlink', glob("$dir/Vendor/User/Auth/*"));
 @array_map('unlink', glob("$dir/Vendor/User/*.php"));
 @array_map('unlink', glob("$dir/Vendor/*.php"));
-@rmdir("$dir/Vendor/User/Auth"); @rmdir("$dir/Vendor/User"); @rmdir("$dir/Vendor"); @rmdir($dir);
+@rmdir("$dir/Vendor/User"); @rmdir("$dir/Vendor"); @rmdir($dir);
 ?>
 --EXPECT--
 checker-ok
 ran
 41
-Vendor\User::Auth\Checker
+Vendor\User::Checker
 instanceof-ok
-Vendor\User::Auth\Secret
-Cannot access internal module member "Vendor\User::Auth\Secret" from outside its module
+checker-ok
+bool(true)
+Vendor\User::Secret
+Cannot access internal module member "Vendor\User::Secret" from outside its module

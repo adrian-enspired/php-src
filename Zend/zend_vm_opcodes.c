@@ -21,7 +21,7 @@
 #include <zend.h>
 #include <zend_vm_opcodes.h>
 
-static const char *zend_vm_opcodes_names[215] = {
+static const char *zend_vm_opcodes_names[216] = {
 	"ZEND_NOP",
 	"ZEND_ADD",
 	"ZEND_SUB",
@@ -237,9 +237,10 @@ static const char *zend_vm_opcodes_names[215] = {
 	"ZEND_CALLABLE_CONVERT_PARTIAL",
 	"ZEND_SEND_PLACEHOLDER",
 	"ZEND_DECLARE_MODULE",
+	"ZEND_DECLARE_MODULE_MEMBER_ALIAS",
 };
 
-static uint32_t zend_vm_opcodes_flags[215] = {
+static uint32_t zend_vm_opcodes_flags[216] = {
 	0x00000000,
 	0x00000b0b,
 	0x00000b0b,
@@ -454,6 +455,7 @@ static uint32_t zend_vm_opcodes_flags[215] = {
 	0x01000003,
 	0x010003a0,
 	0x00001301,
+	0x00000303,
 	0x00000303,
 };
 
