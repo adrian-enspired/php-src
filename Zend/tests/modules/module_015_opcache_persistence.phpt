@@ -20,7 +20,8 @@ $cache = $dir . '/cache';
 
 file_put_contents($dir . '/mod.inc', <<<'PHP'
 <?php
-module Vendor\App {
+namespace Vendor;
+module App {
     public class Service {}
     internal class Secret { public function ping() { return "secret"; } }
 }

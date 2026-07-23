@@ -437,13 +437,17 @@ top_statement:
 			 * "module Outer::Inner;". The "::" canonical name is permitted only in these
 			 * standalone top-level positions, where there is no enclosing definition to
 			 * imply the parent — it names the exact module this file joins/defines. */
-	|	T_MODULE namespace_declaration_name { RESET_DOC_COMMENT(); }
+	|	T_MODULE identifier { RESET_DOC_COMMENT(); }
 		'{' module_member_list '}'
 			{ $$ = zend_ast_create(ZEND_AST_MODULE, $2, $5, NULL); }
+			/* PHP Modules: a definition block takes an *unqualified* name; its namespace
+			 * comes from a preceding `namespace X\Y;` statement, like any other declaration
+			 * (`class`/`interface`/…). A qualified `module X\Y\Z { … }` is therefore a
+			 * syntax error — the namespace and the module name are separate statements. */
 	|	T_MODULE module_qualified_name { RESET_DOC_COMMENT(); }
 		'{' module_member_list '}'
 			{ $$ = zend_ast_create(ZEND_AST_MODULE, $2, $5, NULL); }
-	|	attributes T_MODULE namespace_declaration_name { RESET_DOC_COMMENT(); }
+	|	attributes T_MODULE identifier { RESET_DOC_COMMENT(); }
 		'{' module_member_list '}'
 			{ $$ = zend_ast_create(ZEND_AST_MODULE, $3, $6, $1); }
 			/* PHP Modules: attributes on a top-level module *definition* block,
@@ -1568,7 +1572,8 @@ module_member:
 			  if (d->kind == ZEND_AST_MODULE && d->child[1] != NULL) {
 				  d->child[2] = $1;
 				  $$ = $2;
-			  } else if (d->kind == ZEND_AST_MODULE || d->kind == ZEND_AST_MODULE_CLAIM) {
+			  } else if (d->kind == ZEND_AST_MODULE || d->kind == ZEND_AST_MODULE_CLAIM
+					  || d->kind == ZEND_AST_MODULE_CLAIM_AS) {
 				  zend_error_noreturn(E_COMPILE_ERROR,
 					  "Attributes are not supported on a module's forward declaration; "
 					  "place them on the member's definition instead");
@@ -1616,6 +1621,13 @@ module_member_inner:
 			 * NULL member list distinguishes it from the block form above. */
 	|	member_visibility namespace_name ';'
 			{ zend_ast *c = zend_ast_create(ZEND_AST_MODULE_CLAIM, $2);
+			  $$ = zend_ast_create_ex(ZEND_AST_MODULE_MEMBER, $1, c); }
+	|	member_visibility namespace_name T_AS identifier ';'
+			/* PHP Modules (Decision B): "Full\Name as Alias;" — the canonical membership
+			 * handle uses the Alias (module-rooted, "M::Alias"); the source name supplies the
+			 * member's outward projection. Resolves same-tail collisions between members from
+			 * different namespaces. */
+			{ zend_ast *c = zend_ast_create(ZEND_AST_MODULE_CLAIM_AS, $2, $4);
 			  $$ = zend_ast_create_ex(ZEND_AST_MODULE_MEMBER, $1, c); }
 			/* PHP Modules: a body-less "claim" — the definition block forward-declares a
 			 * split-file member by name (and visibility); the body lives in a membership

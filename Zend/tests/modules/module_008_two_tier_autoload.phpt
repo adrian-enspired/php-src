@@ -3,21 +3,24 @@ Modules: two-tier autoload (module manifest, then "::"->"\" sub-file) with a PSR
 --FILE--
 <?php
 $dir = __DIR__ . '/mod008';
-@mkdir($dir . '/src/User/Auth', 0777, true);
+@mkdir($dir . '/src/User', 0777, true);
 
 // Manifest: module Vendor\User maps to src/User.php; Profile is defined inline.
 file_put_contents($dir . '/src/User.php', <<<'PHP'
 <?php
-module Vendor\User {
+namespace Vendor;
+module User {
     public class Profile {
         public function __construct(public string $name = "anon") {}
     }
-    public Auth\PasswordChecker;   // claim the split-file member public so it is reachable from outside
+    public Auth\PasswordChecker;   // claim keys on the tail -> Vendor\User::PasswordChecker
 }
 PHP);
 
-// Membership sub-file: Vendor\User\Auth\PasswordChecker -> src/User/Auth/PasswordChecker.php
-file_put_contents($dir . '/src/User/Auth/PasswordChecker.php', <<<'PHP'
+// Membership sub-file. The member is canonically Vendor\User::PasswordChecker (module-rooted
+// on its simple tail), so its autoload name is "Vendor\User\PasswordChecker" -> src/User/
+// PasswordChecker.php. Its own "namespace Auth" projects it outward as Auth\PasswordChecker.
+file_put_contents($dir . '/src/User/PasswordChecker.php', <<<'PHP'
 <?php
 module Vendor\User;
 namespace Auth;
@@ -40,17 +43,15 @@ spl_autoload_register(function (string $name) use ($dir): void {
 $p = new Vendor\User::Profile("adrian");
 echo $p->name, " ", $p::class, "\n";
 
-// Tier 2: resolved from the separate membership sub-file.
-$c = new Vendor\User::Auth\PasswordChecker();
+// Tier 2: resolved from the separate membership sub-file (canonical, module-rooted name).
+$c = new Vendor\User::PasswordChecker();
 echo $c->tag(), " ", $c::class, "\n";
 ?>
 --CLEAN--
 <?php
 $dir = __DIR__ . '/mod008';
-@unlink($dir . '/src/User/Auth/PasswordChecker.php');
+@unlink($dir . '/src/User/PasswordChecker.php');
 @unlink($dir . '/src/User.php');
-@rmdir($dir . '/src/User/Auth');
-@rmdir($dir . '/src/User/Auth');
 @rmdir($dir . '/src/User');
 @rmdir($dir . '/src');
 @rmdir($dir);
@@ -58,5 +59,5 @@ $dir = __DIR__ . '/mod008';
 --EXPECT--
 [autoload] Vendor\User
 adrian Vendor\User::Profile
-[autoload] Vendor\User\Auth\PasswordChecker
-checker Vendor\User::Auth\PasswordChecker
+[autoload] Vendor\User\PasswordChecker
+checker Vendor\User::PasswordChecker

@@ -7,7 +7,7 @@ module Billing {
     public class Invoice { public function tag(): string { return "invoice"; } }
     internal class Secret { public function s(): string { return "secret"; } }
 }
-module VendorName\User {
+module Account {
     public class Profile { public function tag(): string { return "profile"; } }
 }
 module Outer {
@@ -18,7 +18,7 @@ module Outer {
 
 use Billing::Ledger;              // default alias "Ledger"
 use Billing::Invoice as Inv;      // explicit alias
-use VendorName\User::Profile;     // namespaced module name
+use Account::Profile;     // another module member via "::"
 use Outer::Inner::Gadget;         // chained, default alias "Gadget"
 
 echo (new Ledger)->tag(), "\n";

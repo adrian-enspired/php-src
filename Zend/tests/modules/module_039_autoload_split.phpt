@@ -19,7 +19,8 @@ spl_autoload_register(function ($name) use ($dir) {
     $map = [
         'Shop'               => "$dir/Shop.def.php",
         'Shop\\GuestUser'    => "$dir/Shop.GuestUser.php",
-        'Shop\\Auth\\Checker'=> "$dir/Shop.Auth.Checker.php",
+        'Shop\\Checker'      => "$dir/Shop.Auth.Checker.php",   // canonical (tail) autoload name
+        'Auth\\Checker'      => "$dir/Shop.Auth.Checker.php",   // its outward projection name
         'Outer'              => "$dir/Outer.def.php",
         'Outer\\Inner\\Gadget' => "$dir/Outer.Inner.Gadget.php",
         'Outer\\Inner\\Secret' => "$dir/Outer.Inner.Secret.php",
@@ -33,7 +34,7 @@ echo (new Outer::Inner::Gadget)->w(), "\n";
 
 // Internal split-file members are denied from outside — the claim's visibility is
 // applied because tier-1 loads the definition (claims) before tier-2 loads the body.
-try { new Shop::Auth\Checker(); echo "LEAKED\n"; }
+try { new Shop::Checker(); echo "LEAKED\n"; }
 catch (\Error $e) { echo $e->getMessage(), "\n"; }
 try { new Outer::Inner::Secret(); echo "LEAKED\n"; }
 catch (\Error $e) { echo $e->getMessage(), "\n"; }
@@ -47,5 +48,5 @@ $dir = __DIR__ . '/al_tmp';
 --EXPECT--
 guest
 gadget
-Cannot access internal module member "Shop::Auth\Checker" from outside its module
+Cannot access internal module member "Shop::Checker" from outside its module
 Cannot access internal module member "Outer::Inner::Secret" from outside its module
