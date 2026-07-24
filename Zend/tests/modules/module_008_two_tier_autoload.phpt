@@ -17,9 +17,11 @@ module User {
 }
 PHP);
 
-// Membership sub-file. The member is canonically Vendor\User::PasswordChecker (module-rooted
-// on its simple tail), so its autoload name is "Vendor\User\PasswordChecker" -> src/User/
-// PasswordChecker.php. Its own "namespace Auth" projects it outward as Auth\PasswordChecker.
+// Membership sub-file (Decision C: module-first, relative sub-namespace). The member's flat
+// HANDLE is Vendor\User::PasswordChecker (the claim's tail), so tier-2 autoloads
+// "Vendor\User\PasswordChecker" -> src/User/PasswordChecker.php; the member registers that
+// handle as an alias to its canonical Vendor\User::Auth\PasswordChecker (and projects
+// Vendor\User\Auth\PasswordChecker).
 file_put_contents($dir . '/src/User/PasswordChecker.php', <<<'PHP'
 <?php
 module Vendor\User;
@@ -60,4 +62,4 @@ $dir = __DIR__ . '/mod008';
 [autoload] Vendor\User
 adrian Vendor\User::Profile
 [autoload] Vendor\User\PasswordChecker
-checker Vendor\User::PasswordChecker
+checker Vendor\User::Auth\PasswordChecker
