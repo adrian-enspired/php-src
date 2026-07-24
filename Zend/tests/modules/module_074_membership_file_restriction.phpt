@@ -38,7 +38,7 @@ allow('enum',         "module M;\nenum E { case A; }\n");
 allow('trait',        "module M;\ntrait T {}\n");
 allow('declare+use',  "declare(strict_types=1);\nmodule M;\nuse Other::Thing;\nclass C {}\n");
 allow('nested module',"module Outer;\nmodule Inner { public class G {} }\nclass Top {}\n");
-allow('namespace',    "module M;\nnamespace Bar { class D {} }\n");
+allow('namespace',    "module M;\nnamespace Bar;\nclass D {}\n");   // Decision C: relative sub-namespace after the directive
 ?>
 --EXPECT--
 reject ok: const

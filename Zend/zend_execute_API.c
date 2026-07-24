@@ -1982,19 +1982,58 @@ static zend_class_entry *zend_module_current_user_scope(void)
 	return (ex && ex->func) ? ex->func->common.scope : NULL;
 }
 
+ZEND_API bool zend_module_member_is_internal(const zend_class_entry *ce)
+{
+	uint32_t f = ce->ce_flags2;
+	if (EXPECTED(!(f & ZEND_ACC2_MODULE_VIS_UNKNOWN))) {
+		/* Common (warm/preloaded) path: visibility is baked onto the CE. */
+		return (f & ZEND_ACC2_MODULE_INTERNAL) != 0;
+	}
+	/* Cold member: visibility was not knowable when this class compiled (its module's
+	 * manifest was not loaded). Resolve from the per-request module registry, which the
+	 * membership directive's runtime ensure-load has populated by the time this member is
+	 * accessed. The owning module is the canonical name's prefix up to its LAST "::"
+	 * ("X\Y\Z::N\C" -> "X\Y\Z"; nested "X\Y\Z::Inner::C" -> "X\Y\Z::Inner"); the member
+	 * key is the full canonical name. Fails CLOSED (internal) if the module is still
+	 * unavailable — safer than leaking an internal member as public. */
+	const char *val = ZSTR_VAL(ce->name);
+	const char *end = val + ZSTR_LEN(ce->name);
+	const char *last = NULL;
+	for (const char *p = zend_memnstr(val, "::", 2, end); p;
+			p = zend_memnstr(p + 2, "::", 2, end)) {
+		last = p;
+	}
+	if (!last) {
+		return true;
+	}
+	zend_string *lc_mod = zend_string_alloc((size_t) (last - val), 0);
+	zend_str_tolower_copy(ZSTR_VAL(lc_mod), val, (size_t) (last - val));
+	zend_php_module *mod = zend_lookup_module(lc_mod);
+	zend_string_release(lc_mod);
+	if (!mod) {
+		return true;
+	}
+	zend_string *lc_canon = zend_string_tolower(ce->name);
+	void *vis = zend_hash_find_ptr(&mod->members, lc_canon);
+	zend_string_release(lc_canon);
+	/* Absent (unclaimed) or explicitly internal -> internal; only a public claim is public. */
+	return (!vis || (uintptr_t) vis == ZEND_MODULE_MEMBER_INTERNAL);
+}
+
 ZEND_API bool zend_module_runtime_access_denied(const zend_class_entry *ce)
 {
 	bool have_scope = false;
 	zend_class_entry *scope = NULL;
 
-	/* Case 1: ce is itself an internal member. CE-resident internal-ness
-	 * (ZEND_ACC2_MODULE_INTERNAL) persists on the class entry (opcache/preload), so no
-	 * per-request registry lookup is needed. Two sub-cases with different rules:
+	/* Case 1: ce is itself an internal member. Internal-ness is normally baked onto the
+	 * class entry (ZEND_ACC2_MODULE_INTERNAL, opcache/preload-durable); a COLD-compiled
+	 * member instead resolves it from the module registry — zend_module_member_is_internal
+	 * hides both. Two sub-cases with different rules:
 	 *  - an internal *member class*: the accessor must be in that member's own module
 	 *    (strict same-module check);
 	 *  - the backing class of an internal *nested module*: the accessor must be able to
 	 *    "see" the module — inside its own subtree, or a direct member of its parent. */
-	if (UNEXPECTED(ce->ce_flags2 & ZEND_ACC2_MODULE_INTERNAL)) {
+	if (UNEXPECTED(zend_module_member_is_internal(ce))) {
 		scope = zend_module_current_user_scope();
 		have_scope = true;
 		bool ok = (ce->ce_flags & ZEND_ACC_MODULE)

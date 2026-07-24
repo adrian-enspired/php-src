@@ -121,6 +121,13 @@ typedef struct _zend_file_context {
 	/* PHP Modules: transient — true while compiling an `internal` module member, so
 	 * zend_compile_class_decl can stamp ZEND_ACC2_MODULE_INTERNAL onto the member CE. */
 	bool current_member_internal;
+	/* PHP Modules: true while compiling the members *inside* a `module { … }` definition
+	 * block (inline members), false at file scope under a `module M;` membership directive.
+	 * Inline members are module-only (no outward projection); member-file members project
+	 * their file-namespace name — at the root namespace, simply their bare name. This flag
+	 * is what distinguishes the two (both have current_module set and, for a root member,
+	 * a NULL current_namespace, so current_namespace alone cannot tell them apart). */
+	bool in_module_block;
 
 	HashTable *imports;
 	HashTable *imports_function;
@@ -146,10 +153,11 @@ typedef struct _zend_php_module {
 	zend_string *lc_name;   /* lowercased key */
 	/* member visibility map (canonical-lc symbol name -> visibility flag) is added
 	 * in a later increment; increment 1 only records module existence + ownership. */
-	HashTable members;      /* lc member FQN -> (void*)(uintptr_t) visibility */
-	HashTable member_aliases; /* PHP Modules (Decision B, `as`): lc projection source name
-	                           * ("c\d\foo") -> chosen alias zend_string ("Foo2"), so a
-	                           * member-file class can adopt "M::Foo2" as its canonical. */
+	HashTable members;      /* lc member canonical FQN ("m::n\c") -> (void*)(uintptr_t) visibility */
+	HashTable member_handles; /* PHP Modules (Decision C): lc member canonical ("m::n\k") ->
+	                           * flat public handle zend_string ("K" or the `as` alias), so the
+	                           * member registers "M::K" as an alias to its canonical "M::N\K".
+	                           * Absent for a root member whose handle equals its canonical. */
 } zend_php_module;
 
 #define ZEND_MODULE_MEMBER_PUBLIC   1
@@ -172,6 +180,12 @@ ZEND_API bool zend_module_scope_can_see_module(const zend_class_entry *module_ce
  * class, or a public member of an internal nested module). Used to gate name-based fetch
  * and object-based construction ("new $escaped") uniformly. */
 ZEND_API bool zend_module_runtime_access_denied(const zend_class_entry *ce);
+/* PHP Modules (Decision C cold projection): true if member class `ce` is internal. The
+ * common path is a single CE-flag test (baked at compile). If the member carries
+ * ZEND_ACC2_MODULE_VIS_UNKNOWN (compiled COLD, manifest absent), its visibility is
+ * resolved from the per-request module registry — populated by the directive's runtime
+ * ensure-load — and it fails CLOSED (internal) if the module is still unavailable. */
+ZEND_API bool zend_module_member_is_internal(const zend_class_entry *ce);
 /* PHP Modules: if `module_ce` is a module backing class and `member_name` names a
  * declared member, return the canonical "Module::Member" name (owned); else NULL.
  * Lets an autoloaded "Module::Member::..." chain resolve at runtime (see B1 fix). */
@@ -417,6 +431,15 @@ typedef struct _zend_oparray_context {
 /* it rides the persisted/preloaded class entry — the CE-resident source of truth  */
 /* for internal-ness, replacing the per-request module registry roster at runtime. */
 #define ZEND_ACC2_MODULE_INTERNAL        (1 << 0) /*   X  |     |     |     */
+/*                                                        |     |     |     */
+/* PHP Modules (experimental, Decision C cold projection): this member's visibility */
+/* could not be baked at compile time because its module's manifest was not loaded  */
+/* when the member compiled COLD (accessed via its namespaced name before the       */
+/* module). Its real public/internal status is resolved at runtime from the module  */
+/* registry (populated by the directive's ensure-load) — see                        */
+/* zend_module_member_is_internal(). Warm/preloaded members never carry this: their */
+/* visibility is baked, and the bake IS their cache.                                */
+#define ZEND_ACC2_MODULE_VIS_UNKNOWN     (1 << 1) /*   X  |     |     |     */
 /*                                                        |     |     |     */
 /* Function Flags (unused: none — 30 now ZEND_ACC_MODULE_INTERNAL)         */
 /* ==============                                         |     |     |     */
