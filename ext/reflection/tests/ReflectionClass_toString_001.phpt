@@ -30,7 +30,7 @@ Class [ <internal:Reflection> class ReflectionClass implements Stringable, Refle
     Property [ public string $name ]
   }
 
-  - Methods [65] {
+  - Methods [64] {
     Method [ <internal:Reflection> private method __clone ] {
 
       - Parameters [0] {
@@ -513,13 +513,6 @@ Class [ <internal:Reflection> class ReflectionClass implements Stringable, Refle
         Parameter #1 [ <optional> int $flags = 0 ]
       }
       - Return [ array ]
-    }
-
-    Method [ <internal:Reflection> public method isModuleInternal ] {
-
-      - Parameters [0] {
-      }
-      - Tentative return [ bool ]
     }
   }
 }
