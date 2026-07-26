@@ -1366,12 +1366,39 @@ ZEND_API zend_class_entry *zend_lookup_class_ex(zend_string *name, zend_string *
 				 * them may have defined it inline), autoload its sub-file under the
 				 * transformed "\\" name; it registers under the canonical "::" key. */
 				if (!zv) {
+					/* Naive "::"->"\\" transform: correct for a canonical name and for a root member
+					 * (flat name == canonical), and it also serves layouts that map the flat member-name
+					 * transform directly onto the member file. Tried FIRST so existing setups are
+					 * unchanged. */
 					zend_string *bs_name = zend_module_autoload_name(nval, ZSTR_LEN(lc_name));
 					zend_string *bs_lc = zend_string_tolower(bs_name);
 					zend_autoload(bs_name, bs_lc);
 					zend_string_release_ex(bs_name, 0);
 					zend_string_release_ex(bs_lc, 0);
 					zv = zend_hash_find(EG(class_table), lc_name);
+					if (!zv) {
+						/* Fallback (Decision C): a sub-namespaced member reached by its flat MEMBER NAME
+						 * ("M::K") — the naive transform ("M\\K") misses its "M\\N\\K" file. After the
+						 * module loaded above, consult its member-name -> namespaced-name map and load it. */
+						const char *last_sep = first_sep;
+						for (const char *p = first_sep; p != NULL;
+								p = zend_memnstr(p + 2, "::", 2, lend)) {
+							last_sep = p;
+						}
+						zend_string *cmod_lc = zend_string_init(val, (size_t) (last_sep - val), 0);
+						zend_php_module *cmod = zend_lookup_module(cmod_lc);
+						zend_string_release_ex(cmod_lc, 0);
+						zend_string *nsname = cmod
+							? zend_hash_find_ptr(&cmod->member_projections, lc_name) : NULL;
+						if (nsname) {
+							zend_string *ns = zend_string_copy(nsname);
+							zend_string *ns_lc = zend_string_tolower(ns);
+							zend_autoload(ns, ns_lc);
+							zend_string_release_ex(ns, 0);
+							zend_string_release_ex(ns_lc, 0);
+							zv = zend_hash_find(EG(class_table), lc_name);
+						}
+					}
 				}
 				zend_hash_del(&EG(autoload_current_classnames), lc_name);
 				if (!key) {
@@ -1985,17 +2012,18 @@ static zend_class_entry *zend_module_current_user_scope(void)
 ZEND_API bool zend_module_member_is_internal(const zend_class_entry *ce)
 {
 	uint32_t f = ce->ce_flags2;
-	if (EXPECTED(!(f & ZEND_ACC2_MODULE_VIS_UNKNOWN))) {
-		/* Common (warm/preloaded) path: visibility is baked onto the CE. */
+	bool is_module = (ce->ce_flags & ZEND_ACC_MODULE) != 0;
+	/* A leaf member class's visibility is its container's decision, cached (baked) onto the CE —
+	 * the common, fast path. A nested-module BACKING never caches its own visibility: a module has
+	 * no concept of its external visibility; its container decides and records it. So a backing —
+	 * and a COLD leaf whose manifest was absent at compile (VIS_UNKNOWN) — always resolves from the
+	 * container's member table. */
+	if (!is_module && EXPECTED(!(f & ZEND_ACC2_MODULE_VIS_UNKNOWN))) {
 		return (f & ZEND_ACC2_MODULE_INTERNAL) != 0;
 	}
-	/* Cold member: visibility was not knowable when this class compiled (its module's
-	 * manifest was not loaded). Resolve from the per-request module registry, which the
-	 * membership directive's runtime ensure-load has populated by the time this member is
-	 * accessed. The owning module is the canonical name's prefix up to its LAST "::"
-	 * ("X\Y\Z::N\C" -> "X\Y\Z"; nested "X\Y\Z::Inner::C" -> "X\Y\Z::Inner"); the member
-	 * key is the full canonical name. Fails CLOSED (internal) if the module is still
-	 * unavailable — safer than leaking an internal member as public. */
+	/* Resolve from the CONTAINER's member table. The container is the name's prefix up to the LAST
+	 * "::" ("Outer::Inner" -> "Outer"; "M::N\C" -> "M"). A top-level module (no "::") has no
+	 * container and is always public. Fails CLOSED (internal) if the container is not loaded. */
 	const char *val = ZSTR_VAL(ce->name);
 	const char *end = val + ZSTR_LEN(ce->name);
 	const char *last = NULL;
@@ -2004,7 +2032,7 @@ ZEND_API bool zend_module_member_is_internal(const zend_class_entry *ce)
 		last = p;
 	}
 	if (!last) {
-		return true;
+		return !is_module;
 	}
 	zend_string *lc_mod = zend_string_alloc((size_t) (last - val), 0);
 	zend_str_tolower_copy(ZSTR_VAL(lc_mod), val, (size_t) (last - val));
@@ -2022,53 +2050,62 @@ ZEND_API bool zend_module_member_is_internal(const zend_class_entry *ce)
 
 ZEND_API bool zend_module_runtime_access_denied(const zend_class_entry *ce)
 {
+	/* PHP Modules (perf): only a class whose canonical name carries the "::" module boundary
+	 * can ever be gated. ZEND_ACC2_MODULE_MEMBER is set at class creation for exactly those
+	 * classes and is a superset of MODULE_INTERNAL / MODULE_VIS_UNKNOWN (both imply a "::"
+	 * name), so this single predicted-not-taken flag test replaces the per-call name scan for
+	 * all non-module code. The flag is baked on the CE, so it stays correct under opcache and
+	 * preload (where the per-request module registry may be empty). */
+	if (EXPECTED(!(ce->ce_flags2 &
+			(ZEND_ACC2_MODULE_MEMBER | ZEND_ACC2_MODULE_INTERNAL | ZEND_ACC2_MODULE_VIS_UNKNOWN)))) {
+		return false;
+	}
+
+	/* Walk the containment chain OUTERMOST -> innermost, exactly like the n-tier autoload. To
+	 * reach "A::B::…::leaf" the accessor must cross each "::" boundary in turn: at each one, ask
+	 * the CONTAINER whether it exposes its child to the accessor's scope. The FIRST boundary that
+	 * denies short-circuits the whole access — the inner boundaries are never consulted (a public
+	 * member of an internal module is unreachable from outside, because you cannot cross into the
+	 * internal module to name it). Each child's visibility is its container's decision, resolved by
+	 * zend_module_member_is_internal (which for a nested-module backing reads the container's
+	 * registry, never a self-flag). Public children are free; an internal child is crossable only
+	 * if the scope can cross it: same-module for a leaf member, or "can see the module" for a nested
+	 * module (its own subtree, or a direct member of the module's parent). */
+	const char *val = ZSTR_VAL(ce->name);
+	const char *end = val + ZSTR_LEN(ce->name);
+	size_t full_len = ZSTR_LEN(ce->name);
 	bool have_scope = false;
 	zend_class_entry *scope = NULL;
 
-	/* Case 1: ce is itself an internal member. Internal-ness is normally baked onto the
-	 * class entry (ZEND_ACC2_MODULE_INTERNAL, opcache/preload-durable); a COLD-compiled
-	 * member instead resolves it from the module registry — zend_module_member_is_internal
-	 * hides both. Two sub-cases with different rules:
-	 *  - an internal *member class*: the accessor must be in that member's own module
-	 *    (strict same-module check);
-	 *  - the backing class of an internal *nested module*: the accessor must be able to
-	 *    "see" the module — inside its own subtree, or a direct member of its parent. */
-	if (UNEXPECTED(zend_module_member_is_internal(ce))) {
-		scope = zend_module_current_user_scope();
-		have_scope = true;
-		bool ok = (ce->ce_flags & ZEND_ACC_MODULE)
-			? zend_module_scope_can_see_module(ce, scope)
-			: zend_module_scope_allows(ce, scope);
-		if (!ok) {
-			return true;
-		}
-	}
+	for (const char *sep = zend_memnstr(val, "::", 2, end); sep;
+			sep = zend_memnstr(sep + 2, "::", 2, end)) {
+		const char *next = zend_memnstr(sep + 2, "::", 2, end);
+		size_t child_len = next ? (size_t) (next - val) : full_len;
+		bool is_leaf = (child_len == full_len);
 
-	/* Case 2: ce lives under an internal nested module. Even a public member of an
-	 * internal module is hidden outside that module's parent, so walk the "::" ancestor
-	 * prefixes and gate against any that is an internal module. Only names with two or
-	 * more "::" can have such an ancestor — a single-"::" member's only ancestor is a
-	 * top-level module, which never carries visibility — so the common path is free. */
-	const char *val = ZSTR_VAL(ce->name);
-	const char *end = val + ZSTR_LEN(ce->name);
-	const char *first = zend_memnstr(val, "::", 2, end);
-	if (UNEXPECTED(first && zend_memnstr(first + 2, "::", 2, end))) {
-		for (const char *p = first; p; p = zend_memnstr(p + 2, "::", 2, end)) {
-			size_t plen = (size_t)(p - val);
-			zend_string *lc = zend_string_alloc(plen, 0);
-			zend_str_tolower_copy(ZSTR_VAL(lc), val, plen);
-			zend_class_entry *anc = zend_hash_find_ptr(EG(class_table), lc);
+		zend_class_entry *child_ce;
+		if (is_leaf) {
+			child_ce = (zend_class_entry *) ce;
+		} else {
+			zend_string *lc = zend_string_alloc(child_len, 0);
+			zend_str_tolower_copy(ZSTR_VAL(lc), val, child_len);
+			child_ce = zend_hash_find_ptr(EG(class_table), lc);
 			zend_string_release(lc);
-			if (anc && (anc->ce_flags & ZEND_ACC_MODULE)
-			 && (anc->ce_flags2 & ZEND_ACC2_MODULE_INTERNAL)) {
-				if (!have_scope) {
-					scope = zend_module_current_user_scope();
-					have_scope = true;
-				}
-				/* The accessor must be able to see this internal nested module. */
-				if (!zend_module_scope_can_see_module(anc, scope)) {
-					return true;
-				}
+			if (!child_ce) {
+				continue; /* an intermediate module not loaded — cannot check here; skip */
+			}
+		}
+
+		if (UNEXPECTED(zend_module_member_is_internal(child_ce))) {
+			if (!have_scope) {
+				scope = zend_module_current_user_scope();
+				have_scope = true;
+			}
+			bool ok = (child_ce->ce_flags & ZEND_ACC_MODULE)
+				? zend_module_scope_can_see_module(child_ce, scope)
+				: zend_module_scope_allows(child_ce, scope);
+			if (!ok) {
+				return true; /* outermost denial wins; short-circuit */
 			}
 		}
 	}

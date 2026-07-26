@@ -36,7 +36,6 @@ var_dump(new M::Inner::G() instanceof M::Inner::G);
 // reflection: an unmarked member reports public; an explicit internal one reports internal
 $r = new ReflectionModule("M");
 echo $r->getSymbolVisibility("M::A"), " ", $r->getSymbolVisibility("M::X"), "\n";
-var_dump((new ReflectionClass("M::A"))->isModuleInternal());
 
 // explicit internal is still enforced from outside
 try { new M::X(); echo "X LEAK\n"; }
@@ -50,5 +49,4 @@ hi
 41
 bool(true)
 public internal
-bool(false)
 Cannot access internal module member "M::X" from outside its module

@@ -37,7 +37,7 @@ echo tagOf((new ReflectionClass(App::UsesLocal::class))->getAttributes()), "\n";
 // Attribute composes with `internal` visibility: the reflection sees the attribute,
 // but the class remains gated from outside.
 $sec = new ReflectionClass(App::Secret::class);
-echo tagOf($sec->getAttributes()), " internal=", var_export($sec->isModuleInternal(), true), "\n";
+echo tagOf($sec->getAttributes()), " visibility=", (new ReflectionModule("App"))->getSymbolVisibility("App::Secret"), "\n";
 try { new App::Secret(); echo "LEAK\n"; } catch (\Error $e) { echo "internal still denied\n"; }
 ?>
 --EXPECT--
@@ -47,5 +47,5 @@ Tag:trait
 Tag:enum
 Tag:const
 App::Local:bare
-Tag:intern internal=true
+Tag:intern visibility=internal
 internal still denied

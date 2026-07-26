@@ -8098,17 +8098,11 @@ ZEND_METHOD(ReflectionConstant, __toString)
 	RETURN_STR(smart_str_extract(&str));
 }
 
-/* PHP Modules (experimental): isModuleInternal() on the existing reflection targets.
- * Distinct from isInternal() (which means "defined by an extension/core"). */
-ZEND_METHOD(ReflectionClass, isModuleInternal)
-{
-	reflection_object *intern;
-	zend_class_entry *ce;
-	ZEND_PARSE_PARAMETERS_NONE();
-	GET_REFLECTION_OBJECT_PTR(ce);
-	RETURN_BOOL(ce->ce_flags2 & ZEND_ACC2_MODULE_INTERNAL);
-}
-
+/* PHP Modules (experimental): isModuleInternal() reports the `internal` access MODIFIER on a
+ * member — a method, property, or class constant — parallel to isPrivate()/isProtected(). It is
+ * deliberately NOT defined on ReflectionClass: a class's visibility *as a module member* is its
+ * containing module's claim, queried via ReflectionModule::getSymbolVisibility(), never
+ * self-reported by the class. Distinct from isInternal() ("defined by an extension/core"). */
 ZEND_METHOD(ReflectionMethod, isModuleInternal)
 {
 	_function_check_flag(INTERNAL_FUNCTION_PARAM_PASSTHRU, ZEND_ACC_MODULE_INTERNAL);
@@ -8333,7 +8327,10 @@ ZEND_METHOD(ReflectionModule, getSymbolVisibility)
 			"Symbol \"%s\" is not a member of module \"%s\"", ZSTR_VAL(symbol), ZSTR_VAL(bce->name));
 		RETURN_THROWS();
 	}
-	RETURN_STRING((member_ce->ce_flags2 & ZEND_ACC2_MODULE_INTERNAL) ? "internal" : "public");
+	/* Resolve visibility the same way the access gate does: a member class reports its baked
+	 * flag, while a nested-module backing carries no self-visibility and resolves from its
+	 * container's member table (its container decides its visibility). */
+	RETURN_STRING(zend_module_member_is_internal(member_ce) ? "internal" : "public");
 }
 
 /* Returns the attributes declared on the module's `module { }` block (stored on the

@@ -158,6 +158,12 @@ typedef struct _zend_php_module {
 	                           * flat public handle zend_string ("K" or the `as` alias), so the
 	                           * member registers "M::K" as an alias to its canonical "M::N\K".
 	                           * Absent for a root member whose handle equals its canonical. */
+	HashTable member_projections; /* PHP Modules (Decision C): lc flat member name ("m::k") ->
+	                           * namespaced name zend_string ("M\N\K", the autoload path). Lets a
+	                           * COLD access by a sub-namespaced member's flat name ("M::K") load
+	                           * the member file via the n-tier, since the naive "::"->"\" of the
+	                           * member name ("M\K") misses its "M\N\K" file. Populated only for a
+	                           * member whose flat name differs from its canonical. */
 } zend_php_module;
 
 #define ZEND_MODULE_MEMBER_PUBLIC   1
@@ -440,6 +446,15 @@ typedef struct _zend_oparray_context {
 /* zend_module_member_is_internal(). Warm/preloaded members never carry this: their */
 /* visibility is baked, and the bake IS their cache.                                */
 #define ZEND_ACC2_MODULE_VIS_UNKNOWN     (1 << 1) /*   X  |     |     |     */
+/*                                                        |     |     |     */
+/* PHP Modules (perf): this class's canonical name carries the "::" module boundary — i.e.  */
+/* it is a module member or a nested-module backing class, the only classes the runtime     */
+/* access gate and the json/(array)-cast internal-property filter can ever gate. Set once    */
+/* at class creation (baked, so it rides opcache/preload). Lets both hot paths early-out on   */
+/* a single predicted-not-taken flag test instead of scanning the class name for "::", so     */
+/* non-module code (which never carries this bit) pays nothing. It is a superset of           */
+/* ZEND_ACC2_MODULE_INTERNAL and ZEND_ACC2_MODULE_VIS_UNKNOWN (both imply a "::" name).        */
+#define ZEND_ACC2_MODULE_MEMBER          (1 << 2) /*   X  |     |     |     */
 /*                                                        |     |     |     */
 /* Function Flags (unused: none — 30 now ZEND_ACC_MODULE_INTERNAL)         */
 /* ==============                                         |     |     |     */

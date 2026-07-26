@@ -238,8 +238,6 @@ class ReflectionMethod extends ReflectionFunctionAbstract
 /** @not-serializable */
 class ReflectionClass implements Reflector
 {
-    /** PHP Modules: distinct from isInternal() (extension/core-defined). */
-    public function isModuleInternal(): bool {}
     /**
      * @cvalue ZEND_ACC_IMPLICIT_ABSTRACT_CLASS
      * @todo deprecate

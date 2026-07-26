@@ -10378,6 +10378,18 @@ static void zend_compile_class_decl(znode *result, const zend_ast *ast, bool top
 		zend_string_release(lc_member);
 		zend_string_release(lc_mod);
 	}
+	/* PHP Modules (perf): flag any class whose canonical name carries the "::" module
+	 * boundary so the runtime access gate and the json/(array)-cast internal-property filter
+	 * early-out on one flag test instead of scanning the name. Member and inline members
+	 * (FC(current_module) set, not the backing) always qualify — their canonical is "M::...";
+	 * a module backing class qualifies only when nested (its own name is "::"-qualified).
+	 * Non-module classes have FC(current_module) == NULL here, so they are never flagged and
+	 * pay no scan. */
+	if (FC(current_module)
+	 && (!(decl->flags & ZEND_ACC_MODULE)
+	  || zend_memnstr(ZSTR_VAL(ce->name), "::", 2, ZSTR_VAL(ce->name) + ZSTR_LEN(ce->name)) != NULL)) {
+		ce->ce_flags2 |= ZEND_ACC2_MODULE_MEMBER;
+	}
 	ce->info.user.filename = zend_string_copy(zend_get_compiled_filename());
 	ce->info.user.line_start = decl->start_lineno;
 	ce->info.user.line_end = decl->end_lineno;
@@ -11025,6 +11037,7 @@ static void zend_php_module_dtor(zval *zv) {
 	zend_string_release(mod->lc_name);
 	zend_hash_destroy(&mod->members);
 	zend_hash_destroy(&mod->member_handles);
+	zend_hash_destroy(&mod->member_projections);
 	efree(mod);
 }
 
@@ -11057,6 +11070,7 @@ ZEND_API zend_php_module *zend_register_module(zend_string *name) {
 	mod->lc_name = lc_name;
 	zend_hash_init(&mod->members, 8, NULL, NULL, 0);
 	zend_hash_init(&mod->member_handles, 8, NULL, zend_module_alias_dtor, 0);
+	zend_hash_init(&mod->member_projections, 8, NULL, zend_module_alias_dtor, 0);
 	zend_hash_add_ptr(EG(module_registry), lc_name, mod);
 	return mod;
 }
@@ -11099,6 +11113,13 @@ ZEND_API void zend_declare_module_runtime(zend_string *name, HashTable *members)
 				zend_string *canon = zend_string_init(ZSTR_VAL(mkey) + 1, ZSTR_LEN(mkey) - 1, 0);
 				zend_hash_update_ptr(&mod->member_handles, canon, zend_string_copy(Z_STR_P(mval)));
 				zend_string_release(canon);
+			} else if (ZSTR_LEN(mkey) > 0 && ZSTR_VAL(mkey)[0] == '#') {
+				/* PHP Modules (Decision C): "#<lc member name>" -> namespaced name string; rebuild
+				 * the member-name->namespaced-name map so a COLD "::"-member-name access resolves
+				 * to the member's autoload path on an opcache cache hit (compiler skipped). */
+				zend_string *mn = zend_string_init(ZSTR_VAL(mkey) + 1, ZSTR_LEN(mkey) - 1, 0);
+				zend_hash_update_ptr(&mod->member_projections, mn, zend_string_copy(Z_STR_P(mval)));
+				zend_string_release(mn);
 			} else {
 				zend_hash_add_ptr(&mod->members, mkey, (void*)(uintptr_t) Z_LVAL_P(mval));
 			}
@@ -11322,7 +11343,12 @@ static void zend_compile_module(const zend_ast *ast) /* {{{ */
 	 * transient signal before dispatching here; capture it now and clear it so it
 	 * does not leak into this module's own member compilation below. It is only
 	 * meaningful when nested — a top-level module carries no visibility. */
-	bool module_is_internal = FC(current_member_internal);
+	/* Clear any inherited member-internal signal so it does not leak into this module's own member
+	 * compilation. A module never records its OWN external visibility on its backing — that is its
+	 * container's decision, stored in the container's member table (the manifest loop records an
+	 * inline nested module there just like any other member; a split-out one is recorded by its
+	 * parent's claim). The access gate always resolves a nested module's visibility from the
+	 * container, walking boundaries outermost-first. */
 	FC(current_member_internal) = false;
 
 	/* PHP Modules: a module's namespace comes from a preceding `namespace X\Y;` statement.
@@ -11457,34 +11483,6 @@ static void zend_compile_module(const zend_ast *ast) /* {{{ */
 
 	zend_php_module *mod = zend_register_module(name);
 
-	/* A nested module defined outside its parent's block — a standalone file
-	 * ("module Outer::Inner { … }") or a membership + block ("module Outer; module
-	 * Inner { … }") — carries no FC(current_member_internal) signal. Inherit its
-	 * visibility from the enclosing module's claim ("internal module Inner;"), keyed by
-	 * this module's canonical name in the parent module's member table. */
-	if (!module_is_internal) {
-		const char *nv = ZSTR_VAL(name);
-		const char *last_sep = NULL;
-		for (const char *p = nv; (p = strstr(p, "::")) != NULL; p += 2) {
-			last_sep = p;
-		}
-		if (last_sep) {
-			size_t plen = (size_t)(last_sep - nv);
-			zend_string *lc_parent = zend_string_alloc(plen, 0);
-			zend_str_tolower_copy(ZSTR_VAL(lc_parent), nv, plen);
-			zend_string *lc_self = zend_string_tolower(name);
-			zend_php_module *pm = zend_lookup_module(lc_parent);
-			if (pm) {
-				void *vis = zend_hash_find_ptr(&pm->members, lc_self);
-				if (vis && (uintptr_t) vis == ZEND_MODULE_MEMBER_INTERNAL) {
-					module_is_internal = true;
-				}
-			}
-			zend_string_release(lc_parent);
-			zend_string_release(lc_self);
-		}
-	}
-
 	FC(current_module) = zend_string_copy(name);
 
 	/* PHP Modules (Decision C): a membership directive establishes the file's base namespace =
@@ -11614,6 +11612,19 @@ static void zend_compile_module(const zend_ast *ast) /* {{{ */
 						zval hzv;
 						ZVAL_LONG(&hzv, (zend_long) visibility);
 						zend_hash_update(roster, lc_hf2, &hzv);
+						/* PHP Modules (Decision C): member name -> namespaced name ("M\\<source>"), so a
+						 * COLD access by the flat member name loads the member file via the n-tier — the
+						 * naive "M::<tail>"->"M\\<tail>" transform misses its "M\\<sub>\\<tail>" file.
+						 * Persisted under a "#<lc member name>" roster key for opcache rebuild. */
+						zend_string *nsname = zend_string_concat3(
+							ZSTR_VAL(name), ZSTR_LEN(name), "\\", 1, ZSTR_VAL(source), ZSTR_LEN(source));
+						zend_hash_update_ptr(&mod->member_projections, lc_hf2, zend_string_copy(nsname));
+						zend_string *pkey = zend_strpprintf(0, "#%s", ZSTR_VAL(lc_hf2));
+						zval pzv;
+						ZVAL_STR_COPY(&pzv, nsname);
+						zend_hash_update(roster, pkey, &pzv);
+						zend_string_release(pkey);
+						zend_string_release(nsname);
 						zend_string_release(lc_hf2);
 				}
 				zend_string_release(handle_full);
@@ -11705,9 +11716,31 @@ static void zend_compile_module(const zend_ast *ast) /* {{{ */
 				}
 			}
 
+			/* An INLINE nested module definition ("public module Inner { … }") records its
+			 * visibility in THIS (container) module's member table — exactly like a member class
+			 * or a split-out nested-module claim. A nested module has no concept of its own
+			 * external visibility: its container decides and stores it, and the access gate reads
+			 * it from here. (child[1] != NULL distinguishes a definition from a body-less claim,
+			 * handled above.) */
+			if (decl->kind == ZEND_AST_MODULE && decl->child[1] != NULL) {
+				zend_string *nsimple = zend_ast_get_str(decl->child[0]);
+				zend_string *ncanon = zend_string_concat3(
+					ZSTR_VAL(name), ZSTR_LEN(name), "::", 2, ZSTR_VAL(nsimple), ZSTR_LEN(nsimple));
+				zend_string *nlc = zend_string_tolower(ncanon);
+				zend_hash_update_ptr(&mod->members, nlc, (void*)(uintptr_t) visibility);
+				zval nvz;
+				ZVAL_LONG(&nvz, (zend_long) visibility);
+				zend_hash_update(roster, nlc, &nvz);
+				zend_string_release(ncanon);
+				zend_string_release(nlc);
+			}
+
 			/* Stamp member class-likes with ZEND_ACC2_MODULE_INTERNAL (CE-resident
-			 * internal-ness) via a transient signal read in zend_compile_class_decl. */
-			FC(current_member_internal) = (visibility == ZEND_MODULE_MEMBER_INTERNAL);
+			 * internal-ness) via a transient signal read in zend_compile_class_decl. A nested
+			 * module's backing carries NO self-visibility (see above), so the signal is suppressed
+			 * for it — the module never decides its own external visibility. */
+			FC(current_member_internal) =
+				(visibility == ZEND_MODULE_MEMBER_INTERNAL && decl->kind != ZEND_AST_MODULE);
 			zend_compile_top_stmt(decl);
 			FC(current_member_internal) = false;
 		}
@@ -11727,11 +11760,10 @@ static void zend_compile_module(const zend_ast *ast) /* {{{ */
 			zend_ast *backing = zend_ast_create_decl(ZEND_AST_CLASS,
 				ZEND_ACC_MODULE, ast->lineno, NULL,
 				backing_name, NULL, NULL, backing_stmts, NULL, NULL);
-			/* If this is an internal nested module, mark its backing class as an
-			 * internal member of the enclosing module (gated against the parent). */
-			FC(current_member_internal) = module_is_internal;
+			/* The backing class carries NO self-visibility: a module's external visibility is its
+			 * container's decision, recorded in the container's member table and resolved there by
+			 * the access gate. The signal is left cleared. */
 			zend_compile_top_stmt(backing);
-			FC(current_member_internal) = false;
 			zend_string_release(backing_name);
 		}
 

@@ -129,8 +129,11 @@ ZEND_API bool zend_module_property_hidden(const zend_property_info *prop_info, c
  * filtered — the RFC states an escaped internal object may be serialized. */
 static HashTable *zend_module_filter_internal_properties(zend_class_entry *ce, HashTable *ht)
 {
-	/* Only module member classes (name carries "::") can declare internal properties. */
-	if (zend_memnstr(ZSTR_VAL(ce->name), "::", 2, ZSTR_VAL(ce->name) + ZSTR_LEN(ce->name)) == NULL) {
+	/* PHP Modules (perf): only module member classes can declare internal properties, and
+	 * ZEND_ACC2_MODULE_MEMBER is set at class creation for exactly those ("::"-qualified) names.
+	 * A single predicted-not-taken flag test replaces a per-object name scan on the json/(array)
+	 * -cast path — non-module objects (json_encode / (array) casts) pay nothing here. */
+	if (EXPECTED(!(ce->ce_flags2 & ZEND_ACC2_MODULE_MEMBER))) {
 		return NULL;
 	}
 	const zend_class_entry *scope = get_fake_or_executed_scope();
@@ -2095,6 +2098,17 @@ static const char *zend_module_owner_last_sep(const char *val, size_t len)
 ZEND_API bool zend_module_scope_allows(
 		const zend_class_entry *member_ce, const zend_class_entry *scope)
 {
+	/* PHP Modules (perf): a class always sees its own internal members — the dominant
+	 * intra-class internal access (a member's own method touching its own internal method /
+	 * property / constant). Resolve it with a pointer compare, before any name derivation.
+	 * Global / non-class scope (scope == NULL) is never inside a module, so it is denied. */
+	if (member_ce == scope) {
+		return true;
+	}
+	if (!scope) {
+		return false;
+	}
+
 	const char *mval = ZSTR_VAL(member_ce->name);
 	size_t mlen;
 	if (member_ce->ce_flags & ZEND_ACC_MODULE) {
