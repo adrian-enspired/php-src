@@ -114,7 +114,7 @@ static zend_always_inline const zend_class_entry *get_fake_or_executed_scope(voi
 ZEND_API bool zend_module_property_hidden(const zend_property_info *prop_info, const zend_class_entry *scope)
 {
 	return (prop_info->flags & ZEND_ACC_MODULE_INTERNAL_MEMBER)
-		&& !zend_module_scope_allows(prop_info->ce, scope);
+		&& !zend_module_scope_or_caller_allows(prop_info->ce, scope);
 }
 
 /* PHP Modules: for enumeration/serialization purposes that expose properties by (public)
@@ -474,7 +474,7 @@ dynamic:
 	 * private/protected block below does not cover it) is reachable only from code
 	 * inside the same module. */
 	if (UNEXPECTED(flags & ZEND_ACC_MODULE_INTERNAL_MEMBER)
-			&& !zend_module_scope_allows(property_info->ce, get_fake_or_executed_scope())) {
+			&& !zend_module_scope_or_caller_allows(property_info->ce, get_fake_or_executed_scope())) {
 		if (!silent) {
 			zend_throw_error(NULL, "Cannot access internal module property %s::$%s from outside its module",
 				ZSTR_VAL(ce->name), ZSTR_VAL(member));
@@ -584,7 +584,7 @@ dynamic:
 
 	/* PHP Modules: internal instance property — same-module access only. */
 	if (UNEXPECTED(flags & ZEND_ACC_MODULE_INTERNAL_MEMBER)
-			&& !zend_module_scope_allows(property_info->ce, get_fake_or_executed_scope())) {
+			&& !zend_module_scope_or_caller_allows(property_info->ce, get_fake_or_executed_scope())) {
 		if (!silent) {
 			zend_throw_error(NULL, "Cannot access internal module property %s::$%s from outside its module",
 				ZSTR_VAL(ce->name), ZSTR_VAL(member));
@@ -695,7 +695,7 @@ ZEND_API bool ZEND_FASTCALL zend_asymmetric_property_has_set_access(const zend_p
 	 * only by code inside the module that declares it (the set path's analogue of
 	 * ZEND_ACC_MODULE_INTERNAL_MEMBER). */
 	if (prop_info->flags & ZEND_ACC_MODULE_INTERNAL_SET) {
-		return zend_module_scope_allows(prop_info->ce, scope);
+		return zend_module_scope_or_caller_allows(prop_info->ce, scope);
 	}
 	if (prop_info->ce == scope) {
 		return true;
@@ -2095,6 +2095,37 @@ static const char *zend_module_owner_last_sep(const char *val, size_t len)
 	return last;
 }
 
+/* PHP Modules: the runtime variant of zend_module_scope_allows — when there is no class
+ * scope, the caller may STILL be module code: a MODULE FUNCTION or a module-born closure
+ * (both scope-less, both carrying their module in their name — see
+ * ZEND_ACC2_FN_MODULE_MEMBER). Derive the caller's module from the executing frame and
+ * apply the same flat same-module rule. Use this at RUNTIME access gates only; link-time
+ * and optimizer checks keep the pure CE form (they must not consult the live stack). */
+ZEND_API bool zend_module_scope_or_caller_allows(
+		const zend_class_entry *member_ce, const zend_class_entry *scope)
+{
+	if (EXPECTED(scope != NULL)) {
+		return zend_module_scope_allows(member_ce, scope);
+	}
+	const char *cv;
+	size_t clen;
+	if (!zend_module_current_caller_module(&cv, &clen)) {
+		return false;
+	}
+	const char *mval = ZSTR_VAL(member_ce->name);
+	size_t mlen;
+	if (member_ce->ce_flags & ZEND_ACC_MODULE) {
+		mlen = ZSTR_LEN(member_ce->name);
+	} else {
+		const char *sep = zend_module_owner_last_sep(mval, ZSTR_LEN(member_ce->name));
+		if (!sep) {
+			return true; /* not in a module — nothing to gate */
+		}
+		mlen = (size_t) (sep - mval);
+	}
+	return clen == mlen && zend_binary_strncasecmp(cv, clen, mval, mlen, mlen) == 0;
+}
+
 ZEND_API bool zend_module_scope_allows(
 		const zend_class_entry *member_ce, const zend_class_entry *scope)
 {
@@ -2239,7 +2270,7 @@ ZEND_API zend_function *zend_std_get_method(zend_object **obj_ptr, zend_string *
 	/* PHP Modules: gate an "internal" method to same-module callers. */
 	if (UNEXPECTED(fbc->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)) {
 		const zend_class_entry *scope = zend_get_executed_scope();
-		if (!zend_module_scope_allows(fbc->common.scope, scope)) {
+		if (!zend_module_scope_or_caller_allows(fbc->common.scope, scope)) {
 			if (zobj->ce->__call) {
 				fbc = zend_get_call_trampoline_func(zobj->ce->__call, method_name);
 			} else {
@@ -2324,7 +2355,7 @@ ZEND_API zend_function *zend_std_get_static_method(const zend_class_entry *ce, z
 		/* PHP Modules: gate an "internal" static method to same-module callers. */
 		if (UNEXPECTED(fbc->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)) {
 			const zend_class_entry *scope = zend_get_executed_scope();
-			if (!zend_module_scope_allows(fbc->common.scope, scope)) {
+			if (!zend_module_scope_or_caller_allows(fbc->common.scope, scope)) {
 				zend_function *fallback_fbc = get_static_method_fallback(ce, function_name);
 				if (!fallback_fbc) {
 					zend_bad_module_method_call(fbc);
@@ -2346,6 +2377,36 @@ ZEND_API zend_function *zend_std_get_static_method(const zend_class_entry *ce, z
 		}
 module_checked: ;
 	} else {
+		/* PHP Modules: a MODULE FUNCTION spelled through its module — "M::f()",
+		 * "module::f()", a "M::f" string callable, "use function M::f". A module backing
+		 * class has no methods, so a method miss on it consults the function table for
+		 * the canonical "M::f" (a claimed handle's alias key answers the same probe, so
+		 * `Sub\f as g` resolves via "M::g" too). Visibility is gated here, at resolution
+		 * — the call site then caches the result exactly like a static method, so the
+		 * gate runs once per call site. Returns directly: a module function has no class
+		 * scope, so the trait/abstract tail below must not run for it. */
+		if (UNEXPECTED(ce->ce_flags & ZEND_ACC_MODULE)) {
+			zend_string *lc_canonical = zend_string_alloc(
+				ZSTR_LEN(ce->name) + 2 + ZSTR_LEN(lc_function_name), 0);
+			zend_str_tolower_copy(ZSTR_VAL(lc_canonical), ZSTR_VAL(ce->name), ZSTR_LEN(ce->name));
+			memcpy(ZSTR_VAL(lc_canonical) + ZSTR_LEN(ce->name), "::", 2);
+			memcpy(ZSTR_VAL(lc_canonical) + ZSTR_LEN(ce->name) + 2,
+				ZSTR_VAL(lc_function_name), ZSTR_LEN(lc_function_name) + 1);
+			zend_function *mfn = zend_hash_find_ptr(EG(function_table), lc_canonical);
+			zend_string_release(lc_canonical);
+			if (mfn && (mfn->common.fn_flags2 & ZEND_ACC2_FN_MODULE_MEMBER)) {
+				if (UNEXPECTED(!key)) {
+					zend_string_release_ex(lc_function_name, 0);
+				}
+				if (UNEXPECTED(zend_module_function_access_denied(mfn))) {
+					zend_throw_error(NULL,
+						"Cannot call internal module function %s() from outside its module",
+						ZSTR_VAL(mfn->common.function_name));
+					return NULL;
+				}
+				return mfn;
+			}
+		}
 		fbc = get_static_method_fallback(ce, function_name);
 	}
 
@@ -2430,7 +2491,7 @@ ZEND_API zval *zend_std_get_static_property_with_info(zend_class_entry *ce, zend
 	 * its own module (it is public at the class level, so the check above does not
 	 * cover it). Same slow path as private/protected, so cache-slot reuse is fine. */
 	if (UNEXPECTED(property_info->flags & ZEND_ACC_MODULE_INTERNAL_MEMBER)
-			&& !zend_module_scope_allows(property_info->ce, get_fake_or_executed_scope())) {
+			&& !zend_module_scope_or_caller_allows(property_info->ce, get_fake_or_executed_scope())) {
 		if (type != BP_VAR_IS) {
 			zend_throw_error(NULL, "Cannot access internal module property %s::$%s from outside its module",
 				ZSTR_VAL(ce->name), ZSTR_VAL(property_name));
@@ -2524,7 +2585,7 @@ ZEND_API zend_function *zend_std_get_constructor(zend_object *zobj) /* {{{ */
 			/* PHP Modules: a public class with an `internal` constructor is visible
 			 * everywhere but instantiable only from inside its module. */
 			const zend_class_entry *scope = get_fake_or_executed_scope();
-			if (!zend_module_scope_allows(constructor->common.scope, scope)) {
+			if (!zend_module_scope_or_caller_allows(constructor->common.scope, scope)) {
 				zend_throw_error(NULL,
 					"Cannot instantiate class %s via internal constructor from outside its module",
 					ZSTR_VAL(zobj->ce->name));

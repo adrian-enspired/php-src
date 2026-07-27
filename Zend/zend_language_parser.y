@@ -1599,6 +1599,14 @@ module_member_inner:
 			   * does for a class-body constant — no special-casing, no leak. */
 			  zend_ast *g = zend_ast_create(ZEND_AST_CLASS_CONST_GROUP, $3, NULL, NULL);
 			  $$ = zend_ast_create_ex(ZEND_AST_MODULE_MEMBER, $1, g); }
+	|	member_visibility function_declaration_statement
+			/* PHP Modules: an INLINE module function — a real user function (canonical name
+			 * "M::f", registered in the function table), NOT a backing-class method. Plain
+			 * `function` (no `static`): module functions are ordinary functions; the
+			 * `static function` form below stays reserved (and rejected) for a future
+			 * static/instance distinction under instantiable modules. Like every inline
+			 * member it is module-only: no projected namespaced name. */
+			{ $$ = zend_ast_create_ex(ZEND_AST_MODULE_MEMBER, $1, $2); }
 	|	member_visibility T_STATIC function returns_ref identifier backup_doc_comment '(' parameter_list ')'
 		return_type backup_fn_flags method_body backup_fn_flags
 			{ zend_ast *m = zend_ast_create_decl(ZEND_AST_METHOD,

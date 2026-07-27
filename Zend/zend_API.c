@@ -4221,6 +4221,22 @@ again:
 					return 0;
 				}
 
+				zend_function *func = zend_fetch_function(Z_STR_P(callable));
+				if (EXPECTED(func != NULL)) {
+					/* PHP Modules: gate an internal module function reached as a string callable
+					* (call_user_func('M\f'), array_map, is_callable, Closure::fromCallable). */
+					if (UNEXPECTED(zend_module_function_access_denied(func))) {
+						if (error) {
+							zend_spprintf(error, 0,
+								"cannot call internal module function %s() from outside its module",
+								ZSTR_VAL(func->common.function_name));
+						}
+						return false;
+					}
+					fcc->function_handler = func;
+					return true;
+				}
+
 				if (Z_TYPE_P(obj) == IS_STRING) {
 					if (check_flags & IS_CALLABLE_CHECK_SYNTAX_ONLY) {
 						return 1;

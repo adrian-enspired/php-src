@@ -1,11 +1,12 @@
 --TEST--
-Modules: a module membership file ("module M;") may only contain class-like declarations; non-class-like statements (const, function, variables, imperative code) are a compile error (they would leak to global scope)
+Modules: a module membership file ("module M;") may only contain declarations; non-declaration statements (variables, imperative code) are a compile error (they would leak to global scope)
 --DESCRIPTION--
-The module boundary only scopes class-like declarations to the module. A top-level
-const, function, variable, or any imperative statement in a membership file is not
-module-scoped and would silently land in the global scope. Such a file is rejected
-at compile time. Class-like declarations, use imports, declare(), and nested
-module/namespace blocks remain allowed.
+The module boundary scopes declarations to the module. A top-level variable or any
+imperative statement in a membership file is not module-scoped and would silently
+land in the global scope. Such a file is rejected at compile time.
+Class-like declarations, FUNCTIONS (module functions, canonical "M::f"),
+CONSTANTS (module constants, canonical "M::K"), use imports, declare(), and nested
+module/namespace blocks are allowed.
 --FILE--
 <?php
 function lint(string $code): string {
@@ -25,14 +26,14 @@ function allow(string $label, string $code): void {
 }
 
 // --- rejected: non-class-like content in a membership file ---
-reject('const',       "module M;\nconst K = 1;\n",              'allowed in a module membership file');
-reject('function',    "module M;\nfunction f() {}\n",           'allowed in a module membership file');
 reject('variable',    "module M;\n\$x = 5;\n",                  'allowed in a module membership file');
 reject('echo',        "module M;\necho \"hi\";\n",              'allowed in a module membership file');
 reject('if-block',    "module M;\nif (true) { class C {} }\n",  'allowed in a module membership file');
 
 // --- allowed: class-like declarations, use, declare, nested module, namespace ---
 allow('class',        "module M;\nclass C {}\n");
+allow('function',     "module M;\nfunction f() {}\n");
+allow('const',        "module M;\nconst K = 1;\n");
 allow('interface',    "module M;\ninterface I {}\n");
 allow('enum',         "module M;\nenum E { case A; }\n");
 allow('trait',        "module M;\ntrait T {}\n");
@@ -41,12 +42,12 @@ allow('nested module',"module Outer;\nmodule Inner { public class G {} }\nclass 
 allow('namespace',    "module M;\nnamespace Bar;\nclass D {}\n");   // Decision C: relative sub-namespace after the directive
 ?>
 --EXPECT--
-reject ok: const
-reject ok: function
 reject ok: variable
 reject ok: echo
 reject ok: if-block
 allow ok:  class
+allow ok:  function
+allow ok:  const
 allow ok:  interface
 allow ok:  enum
 allow ok:  trait

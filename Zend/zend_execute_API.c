@@ -2048,6 +2048,9 @@ ZEND_API bool zend_module_member_is_internal(const zend_class_entry *ce)
 	return (!vis || (uintptr_t) vis == ZEND_MODULE_MEMBER_INTERNAL);
 }
 
+static bool zend_module_prefix_can_see_module(
+		const char *cval, size_t clen, const char *mval, size_t mlen); /* defined below */
+
 ZEND_API bool zend_module_runtime_access_denied(const zend_class_entry *ce)
 {
 	/* PHP Modules (perf): only a class whose canonical name carries the "::" module boundary
@@ -2101,11 +2104,221 @@ ZEND_API bool zend_module_runtime_access_denied(const zend_class_entry *ce)
 				scope = zend_module_current_user_scope();
 				have_scope = true;
 			}
-			bool ok = (child_ce->ce_flags & ZEND_ACC_MODULE)
-				? zend_module_scope_can_see_module(child_ce, scope)
-				: zend_module_scope_allows(child_ce, scope);
+			/* PHP Modules (functions): the accessor may be scope-less module code — a
+			 * MODULE FUNCTION or a module-born closure (`new module::C()` from a function
+			 * body). The *_or_caller_* variant falls back to the executing frame's module;
+			 * for the nested-module crossing the same fallback runs on the prefix form. */
+			bool ok;
+			if (child_ce->ce_flags & ZEND_ACC_MODULE) {
+				if (scope) {
+					ok = zend_module_scope_can_see_module(child_ce, scope);
+				} else {
+					const char *cv;
+					size_t clen;
+					ok = zend_module_current_caller_module(&cv, &clen)
+						&& zend_module_prefix_can_see_module(cv, clen,
+							ZSTR_VAL(child_ce->name), ZSTR_LEN(child_ce->name));
+				}
+			} else {
+				ok = zend_module_scope_or_caller_allows(child_ce, scope);
+			}
 			if (!ok) {
 				return true; /* outermost denial wins; short-circuit */
+			}
+		}
+	}
+	return false;
+}
+
+/* PHP Modules: the owning-module prefix of a module-owned function's name. A module
+ * closure is "M::{closure:...}" — its module ends at the FIRST "::{closure" (the display
+ * name after it may itself contain "::" from an enclosing canonical name). A module
+ * function's canonical is "M::f" / "M::Sub\f" / "Outer::Inner::f" — its module is the
+ * prefix before the LAST "::". */
+ZEND_API bool zend_module_function_owner_prefix(const zend_function *fn, const char **prefix, size_t *prefix_len)
+{
+	const zend_string *name = fn->common.function_name;
+	if (!name) {
+		return false;
+	}
+	const char *val = ZSTR_VAL(name);
+	const char *end = val + ZSTR_LEN(name);
+	const char *cl = zend_memnstr(val, "::{closure", sizeof("::{closure") - 1, end);
+	if (cl) {
+		if (cl == val) {
+			return false;
+		}
+		*prefix = val;
+		*prefix_len = (size_t) (cl - val);
+		return true;
+	}
+	const char *last = NULL;
+	for (const char *p = zend_memnstr(val, "::", 2, end); p;
+			p = zend_memnstr(p + 2, "::", 2, end)) {
+		last = p;
+	}
+	if (!last) {
+		return false;
+	}
+	*prefix = val;
+	*prefix_len = (size_t) (last - val);
+	return true;
+}
+
+/* PHP Modules: the calling code's owning-module prefix, derived from the nearest USER
+ * frame — its class scope's name when it has one (a member method; a backing class), else
+ * the frame function's own module prefix when it is module-owned (a module function, or a
+ * closure born inside a module). False = the caller is not module code. */
+ZEND_API bool zend_module_current_caller_module(const char **pval, size_t *plen)
+{
+	zend_execute_data *ex = EG(current_execute_data);
+	while (ex && (!ex->func || !ZEND_USER_CODE(ex->func->common.type))) {
+		ex = ex->prev_execute_data;
+	}
+	if (!ex || !ex->func) {
+		return false;
+	}
+	const zend_class_entry *scope = ex->func->common.scope;
+	if (scope) {
+		const char *v = ZSTR_VAL(scope->name);
+		const char *e = v + ZSTR_LEN(scope->name);
+		if (scope->ce_flags & ZEND_ACC_MODULE) {
+			*pval = v;
+			*plen = ZSTR_LEN(scope->name);
+			return true;
+		}
+		const char *last = NULL;
+		for (const char *p = zend_memnstr(v, "::", 2, e); p;
+				p = zend_memnstr(p + 2, "::", 2, e)) {
+			last = p;
+		}
+		if (!last) {
+			return false;
+		}
+		*pval = v;
+		*plen = (size_t) (last - v);
+		return true;
+	}
+	if (ex->func->common.fn_flags2 & ZEND_ACC2_FN_MODULE_MEMBER) {
+		return zend_module_function_owner_prefix(ex->func, pval, plen);
+	}
+	return false;
+}
+
+/* String-core of zend_module_scope_can_see_module: may code whose owning module is
+ * (cval,clen) cross into the internal module (mval,mlen)? Yes iff it is inside that
+ * module's own subtree (the module itself, or below it), or it is a direct member of the
+ * module's parent. */
+static bool zend_module_prefix_can_see_module(
+		const char *cval, size_t clen, const char *mval, size_t mlen)
+{
+	if (clen >= mlen && zend_binary_strncasecmp(cval, mlen, mval, mlen, mlen) == 0
+	 && (clen == mlen || (cval[mlen] == ':' && cval[mlen + 1] == ':'))) {
+		return true; /* inside the module's subtree */
+	}
+	const char *last = NULL;
+	const char *mend = mval + mlen;
+	for (const char *p = zend_memnstr(mval, "::", 2, mend); p;
+			p = zend_memnstr(p + 2, "::", 2, mend)) {
+		last = p;
+	}
+	if (last) {
+		size_t parent_len = (size_t) (last - mval);
+		if (clen == parent_len
+		 && zend_binary_strncasecmp(cval, clen, mval, parent_len, parent_len) == 0) {
+			return true; /* a direct member of the module's parent */
+		}
+	}
+	return false;
+}
+
+/* PHP Modules: true if module function `fn` is `internal` — its claim visibility, baked
+ * onto fn_flags at compile (unclaimed defaults internal). A COLD compile (manifest absent,
+ * ZEND_ACC2_FN_MODULE_VIS_UNKNOWN) resolves from the per-request registry and fails CLOSED.
+ * The function-side twin of zend_module_member_is_internal(). */
+ZEND_API bool zend_module_function_is_internal(const zend_function *fn)
+{
+	if (UNEXPECTED(fn->common.fn_flags2 & ZEND_ACC2_FN_MODULE_VIS_UNKNOWN)) {
+		const char *mod;
+		size_t mlen;
+		if (!zend_module_function_owner_prefix(fn, &mod, &mlen)) {
+			return true;
+		}
+		zend_string *lc_mod = zend_string_alloc(mlen, 0);
+		zend_str_tolower_copy(ZSTR_VAL(lc_mod), mod, mlen);
+		zend_php_module *m = zend_lookup_module(lc_mod);
+		zend_string_release(lc_mod);
+		if (!m) {
+			return true;
+		}
+		zend_string *lc_name = zend_string_tolower(fn->common.function_name);
+		void *vis = zend_hash_find_ptr(&m->members, lc_name);
+		zend_string_release(lc_name);
+		return (!vis || (uintptr_t) vis == ZEND_MODULE_MEMBER_INTERNAL);
+	}
+	return (fn->common.fn_flags & ZEND_ACC_MODULE_INTERNAL) != 0;
+}
+
+/* PHP Modules: true if the currently-executing code may NOT call module function `fn`.
+ * One predicted-not-taken flag test for every non-module function. Called only at call-
+ * RESOLUTION points (INIT_*FCALL cache-fill, dynamic-call / callable resolution, the
+ * backing-class static-call fallback) — never on a cached call path, so a call site that
+ * resolves once pays this once, mirroring the internal-method gate's caching discipline.
+ * Applies the same outermost-first boundary walk as class access: an internal ancestor
+ * module denies even a public leaf function; the leaf itself is denied unless the caller
+ * is in exactly its module. */
+ZEND_API bool zend_module_function_access_denied(const zend_function *fn)
+{
+	uint32_t f2 = fn->common.fn_flags2;
+	if (EXPECTED(!(f2 & ZEND_ACC2_FN_MODULE_MEMBER))) {
+		return false;
+	}
+
+	const char *mod;
+	size_t mlen;
+	if (!zend_module_function_owner_prefix(fn, &mod, &mlen)) {
+		return false;
+	}
+
+	bool internal = zend_module_function_is_internal(fn);
+
+	const char *cval = NULL;
+	size_t clen = 0;
+	bool have_caller = zend_module_current_caller_module(&cval, &clen);
+
+	if (internal) {
+		/* The leaf boundary: an internal function is callable only from EXACTLY its
+		 * module (the boundary is flat, never transitive). */
+		if (!have_caller || clen != mlen
+		 || zend_binary_strncasecmp(cval, clen, mod, mlen, mlen) != 0) {
+			return true;
+		}
+	}
+
+	/* Ancestor boundaries, outermost-first (only a nested owner — "::" in the module
+	 * prefix — can have them): a public function of an internal nested module is denied
+	 * at the outer boundary, exactly like a public class of an internal nested module. */
+	const char *mend = mod + mlen;
+	if (UNEXPECTED(zend_memnstr(mod, "::", 2, mend) != NULL)) {
+		for (const char *sep = zend_memnstr(mod, "::", 2, mend); ;
+				sep = zend_memnstr(sep + 2, "::", 2, mend)) {
+			/* Each prefix — including the full owner module — is a crossable boundary.
+			 * The top-level (first) prefix has no container, so its backing CE always
+			 * resolves public and the check is a no-op for it. */
+			size_t child_len = sep ? (size_t) (sep - mod) : mlen;
+			zend_string *lc = zend_string_alloc(child_len, 0);
+			zend_str_tolower_copy(ZSTR_VAL(lc), mod, child_len);
+			zend_class_entry *child_ce = zend_hash_find_ptr(EG(class_table), lc);
+			zend_string_release(lc);
+			if (child_ce && (child_ce->ce_flags & ZEND_ACC_MODULE)
+			 && UNEXPECTED(zend_module_member_is_internal(child_ce))) {
+				if (!have_caller
+				 || !zend_module_prefix_can_see_module(cval, clen, mod, child_len)) {
+					return true; /* outermost denial wins */
+				}
+			}
+			if (!sep) {
+				break;
 			}
 		}
 	}

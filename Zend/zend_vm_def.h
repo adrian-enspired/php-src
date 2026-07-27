@@ -3837,7 +3837,10 @@ ZEND_VM_HANDLER(113, ZEND_INIT_STATIC_METHOD_CALL, UNUSED|CLASS_FETCH|CONST|VAR,
 		}
 		if (OP2_TYPE == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -3906,6 +3909,17 @@ ZEND_VM_HOT_HANDLER(59, ZEND_INIT_FCALL_BY_NAME, ANY, CONST, NUM|CACHE_SLOT)
 			ZEND_VM_DISPATCH_TO_HELPER(zend_undefined_function_helper);
 		}
 		fbc = Z_FUNC_P(func);
+		/* PHP Modules: gate an internal module function at call RESOLUTION (this branch
+		 * runs once per call site; the cached fast path above is untouched). One
+		 * predicted-not-taken flag test for every non-module function. A denied site
+		 * never caches (it always throws). */
+		if (UNEXPECTED(zend_module_function_access_denied(fbc))) {
+			SAVE_OPLINE();
+			zend_throw_error(NULL,
+				"Cannot call internal module function %s() from outside its module",
+				ZSTR_VAL(fbc->common.function_name));
+			HANDLE_EXCEPTION();
+		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
 			init_func_run_time_cache(&fbc->op_array);
 		}
@@ -4063,6 +4077,16 @@ ZEND_VM_HOT_HANDLER(69, ZEND_INIT_NS_FCALL_BY_NAME, ANY, CONST, NUM|CACHE_SLOT)
 			}
 		}
 		fbc = Z_FUNC_P(func);
+		/* PHP Modules: gate an internal module function at call RESOLUTION — this is the
+		 * path a member file's bare f() (ns fallback "M\f") and an inline body's lowered
+		 * "M::f" probe take. Once per call site; cached fast path untouched. */
+		if (UNEXPECTED(zend_module_function_access_denied(fbc))) {
+			SAVE_OPLINE();
+			zend_throw_error(NULL,
+				"Cannot call internal module function %s() from outside its module",
+				ZSTR_VAL(fbc->common.function_name));
+			HANDLE_EXCEPTION();
+		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
 			init_func_run_time_cache(&fbc->op_array);
 		}
@@ -4091,6 +4115,17 @@ ZEND_VM_HOT_HANDLER(61, ZEND_INIT_FCALL, NUM, CONST, NUM|CACHE_SLOT)
 		func = zend_hash_find_known_hash(EG(function_table), Z_STR_P(fname));
 		ZEND_ASSERT(func != NULL && "Function existence must be checked at compile time");
 		fbc = Z_FUNC_P(func);
+		/* PHP Modules: the compiler emits INIT_FCALL when the callee was already declared
+		 * at compile time — which a module function's projected name can be. Same
+		 * resolution-time gate as INIT_FCALL_BY_NAME; ordinary calls pay one
+		 * predicted-not-taken test, once per call site. */
+		if (UNEXPECTED(zend_module_function_access_denied(fbc))) {
+			SAVE_OPLINE();
+			zend_throw_error(NULL,
+				"Cannot call internal module function %s() from outside its module",
+				ZSTR_VAL(fbc->common.function_name));
+			HANDLE_EXCEPTION();
+		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
 			init_func_run_time_cache(&fbc->op_array);
 		}
@@ -4114,6 +4149,16 @@ ZEND_VM_HOT_TYPE_SPEC_HANDLER(ZEND_INIT_FCALL, Z_EXTRA_P(RT_CONSTANT(op, op->op2
 	fbc = CACHED_PTR(opline->result.num);
 	if (UNEXPECTED(fbc == NULL)) {
 		fbc = Z_PTR(EG(function_table)->arData[Z_EXTRA_P(RT_CONSTANT(opline, opline->op2))].val);
+		/* PHP Modules: the optimizer sets the bucket offset for any function resolvable
+		 * at optimization time — under preloading that includes module functions, so this
+		 * specialization must apply the same resolution-time gate as plain INIT_FCALL. */
+		if (UNEXPECTED(zend_module_function_access_denied(fbc))) {
+			SAVE_OPLINE();
+			zend_throw_error(NULL,
+				"Cannot call internal module function %s() from outside its module",
+				ZSTR_VAL(fbc->common.function_name));
+			HANDLE_EXCEPTION();
+		}
 		CACHE_PTR(opline->result.num, fbc);
 	}
 	call = _zend_vm_stack_push_call_frame_ex(
@@ -6139,7 +6184,7 @@ ZEND_VM_COLD_CONST_HANDLER(110, ZEND_CLONE, CONST|TMP|UNUSED|THIS|CV, ANY)
 	/* PHP Modules: an "internal" __clone() gates cloning to same-module callers,
 	 * mirroring how a private __clone() prevents cloning from outside. */
 	if (clone && (clone->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
-			&& !zend_module_scope_allows(clone->common.scope, EX(func)->op_array.scope)) {
+			&& !zend_module_scope_or_caller_allows(clone->common.scope, EX(func)->op_array.scope)) {
 		zend_throw_error(NULL,
 			"Cannot call internal method %s::__clone() from outside its module",
 			ZSTR_VAL(clone->common.scope->name));
@@ -6247,7 +6292,7 @@ ZEND_VM_HANDLER(181, ZEND_FETCH_CLASS_CONSTANT, VAR|CONST|UNUSED|CLASS_FETCH, CO
 			/* PHP Modules: a module-internal constant is reachable only from inside
 			 * its own module (it is public at the class level). */
 			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
-					&& !zend_module_scope_allows(c->ce, scope)) {
+					&& !zend_module_scope_or_caller_allows(c->ce, scope)) {
 				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP2();
@@ -6308,6 +6353,22 @@ ZEND_VM_HANDLER(181, ZEND_FETCH_CLASS_CONSTANT, VAR|CONST|UNUSED|CLASS_FETCH, CO
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
 			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
+				 * in EG(zend_constants) under its canonical key, not on the backing class
+				 * (inline module constants — backing class constants — answered above).
+				 * A real constant wins over the member-name identity fallback below,
+				 * matching the inline precedence. Resolution gates internal visibility. */
+				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
+				if (mc) {
+					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
+					FREE_OP2();
+					ZEND_VM_NEXT_OPCODE();
+				}
+				if (UNEXPECTED(EG(exception))) {
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+					FREE_OP2();
+					HANDLE_EXCEPTION();
+				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
 					ZVAL_STR(EX_VAR(opline->result.var), canonical);
 					FREE_OP2();
@@ -8455,6 +8516,59 @@ ZEND_VM_HANDLER(215, ZEND_DECLARE_MODULE_MEMBER_ALIAS, CONST, CONST)
 	projection = GET_OP1_ZVAL_PTR(BP_VAR_R);
 	canonical  = GET_OP2_ZVAL_PTR(BP_VAR_R);
 	zend_declare_module_member_alias_runtime(Z_STR_P(projection), Z_STR_P(canonical));
+	FREE_OP1();
+	FREE_OP2();
+	ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();
+}
+
+ZEND_VM_HANDLER(217, ZEND_DECLARE_MODULE_CONST, CONST, CONST)
+{
+	/* PHP Modules: declare a member-file MODULE CONSTANT — op1 = canonical name
+	 * ("M::K" / "M::Sub\K"), op2 = value. Mirrors ZEND_DECLARE_CONST's value handling,
+	 * then registers the canonical entry (claim visibility; cold = VIS_UNKNOWN) plus its
+	 * projected namespaced-name alias. Runtime-driven, so both entries and the resolved
+	 * visibility replay on an opcache hit. */
+	USE_OPLINE
+	zval *name;
+	zval *val;
+	zval value;
+
+	SAVE_OPLINE();
+	name  = GET_OP1_ZVAL_PTR(BP_VAR_R);
+	val   = GET_OP2_ZVAL_PTR(BP_VAR_R);
+
+	ZVAL_COPY(&value, val);
+	if (Z_OPT_TYPE(value) == IS_CONSTANT_AST) {
+		if (UNEXPECTED(zval_update_constant_ex(&value, EX(func)->op_array.scope) != SUCCESS)) {
+			zval_ptr_dtor_nogc(&value);
+			FREE_OP1();
+			FREE_OP2();
+			HANDLE_EXCEPTION();
+		}
+	}
+	zend_declare_module_const_runtime(Z_STR_P(name), &value);
+	zval_ptr_dtor_nogc(&value);
+
+	FREE_OP1();
+	FREE_OP2();
+	ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();
+}
+
+ZEND_VM_HANDLER(216, ZEND_DECLARE_MODULE_FUNCTION, CONST, CONST)
+{
+	/* PHP Modules: register a member-file MODULE FUNCTION's extra function-table keys —
+	 * op1 = canonical name (the compile-time-bound primary key), op2 = alias key (the
+	 * projected namespaced name), or empty = the handle sentinel (resolve "M::handle"
+	 * from the module registry). Runtime-driven so the keys replay on an opcache hit,
+	 * exactly like ZEND_DECLARE_MODULE_MEMBER_ALIAS for member classes. */
+	USE_OPLINE
+	zval *canonical;
+	zval *alias;
+
+	SAVE_OPLINE();
+	canonical = GET_OP1_ZVAL_PTR(BP_VAR_R);
+	alias     = GET_OP2_ZVAL_PTR(BP_VAR_R);
+	zend_declare_module_function_runtime(Z_STR_P(canonical), Z_STR_P(alias));
 	FREE_OP1();
 	FREE_OP2();
 	ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();

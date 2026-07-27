@@ -905,6 +905,64 @@ const zend_class_constant *zend_fetch_class_const_info(
 	return const_info;
 }
 
+/* PHP Modules: may the optimizer treat module function `func` as a known callee of code
+ * in `op_array`? An `internal` module function is callable only from its own module, and
+ * a COLD (VIS_UNKNOWN) one is undecidable — assuming either across the boundary would let
+ * SCCP/inlining fold a call the runtime gate must reject (observed under preloading,
+ * where a trivial internal function constant-folds into an outside caller). Public
+ * functions of a NESTED owner are also skipped (outer boundaries may gate). A
+ * conservative false merely disables optimization; the runtime call still works where
+ * allowed. */
+static bool zend_optimizer_module_function_usable(
+		const zend_function *func, const zend_op_array *op_array)
+{
+	if (EXPECTED(!(func->common.fn_flags2 & ZEND_ACC2_FN_MODULE_MEMBER))) {
+		return true;
+	}
+	if (func->common.fn_flags2 & ZEND_ACC2_FN_MODULE_VIS_UNKNOWN) {
+		return false;
+	}
+	const char *mv;
+	size_t mlen;
+	if (!zend_module_function_owner_prefix(func, &mv, &mlen)) {
+		return false;
+	}
+	if (!(func->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
+	 && zend_memnstr(mv, "::", 2, mv + mlen) == NULL) {
+		return true; /* public function of a top-level module: callable from anywhere */
+	}
+	/* internal (or nested-owned): usable only when op_array is provably in the SAME module */
+	const char *cv = NULL;
+	size_t clen = 0;
+	if (op_array->scope) {
+		const zend_class_entry *scope = op_array->scope;
+		const char *sv = ZSTR_VAL(scope->name);
+		const char *send = sv + ZSTR_LEN(scope->name);
+		if (scope->ce_flags & ZEND_ACC_MODULE) {
+			cv = sv;
+			clen = ZSTR_LEN(scope->name);
+		} else {
+			const char *lastsep = NULL;
+			for (const char *p = zend_memnstr(sv, "::", 2, send); p;
+					p = zend_memnstr(p + 2, "::", 2, send)) {
+				lastsep = p;
+			}
+			if (!lastsep) {
+				return false;
+			}
+			cv = sv;
+			clen = (size_t) (lastsep - sv);
+		}
+	} else if (op_array->fn_flags2 & ZEND_ACC2_FN_MODULE_MEMBER) {
+		if (!zend_module_function_owner_prefix((const zend_function *) op_array, &cv, &clen)) {
+			return false;
+		}
+	} else {
+		return false;
+	}
+	return clen == mlen && zend_binary_strncasecmp(cv, clen, mv, mlen, mlen) == 0;
+}
+
 zend_function *zend_optimizer_get_called_func(
 		const zend_script *script, const zend_op_array *op_array, zend_op *opline, bool *is_prototype)
 {
@@ -916,9 +974,13 @@ zend_function *zend_optimizer_get_called_func(
 			zend_function *func;
 			zval *func_zv;
 			if (script && (func = zend_hash_find_ptr(&script->function_table, function_name)) != NULL) {
+				if (!zend_optimizer_module_function_usable(func, op_array)) {
+					break;
+				}
 				return func;
 			} else if ((func_zv = zend_hash_find(EG(function_table), function_name)) != NULL) {
-				if (!zend_optimizer_ignore_function(func_zv, op_array->filename)) {
+				if (!zend_optimizer_ignore_function(func_zv, op_array->filename)
+				 && zend_optimizer_module_function_usable(Z_PTR_P(func_zv), op_array)) {
 					return Z_PTR_P(func_zv);
 				}
 			}
@@ -931,9 +993,13 @@ zend_function *zend_optimizer_get_called_func(
 				zend_function *func;
 				zval *func_zv;
 				if (script && (func = zend_hash_find_ptr(&script->function_table, Z_STR_P(function_name)))) {
+					if (!zend_optimizer_module_function_usable(func, op_array)) {
+						break;
+					}
 					return func;
 				} else if ((func_zv = zend_hash_find(EG(function_table), Z_STR_P(function_name))) != NULL) {
-					if (!zend_optimizer_ignore_function(func_zv, op_array->filename)) {
+					if (!zend_optimizer_ignore_function(func_zv, op_array->filename)
+					 && zend_optimizer_module_function_usable(Z_PTR_P(func_zv), op_array)) {
 						return Z_PTR_P(func_zv);
 					}
 				}
@@ -1541,11 +1607,25 @@ static void zend_foreach_op_array_helper(
 void zend_foreach_op_array(zend_script *script, zend_op_array_func_t func, void *context)
 {
 	zval *zv;
+	zend_string *key;
 	zend_op_array *op_array;
 
 	zend_foreach_op_array_helper(&script->main_op_array, func, context);
 
-	ZEND_HASH_MAP_FOREACH_PTR(&script->function_table, op_array) {
+	ZEND_HASH_MAP_FOREACH_STR_KEY_PTR(&script->function_table, key, op_array) {
+		/* PHP Modules: a member-file MODULE FUNCTION sits in the table under extra alias
+		 * keys (its projected namespaced name; its flat member name) sharing ONE
+		 * zend_op_array — visible here during preloading, where the executed alias
+		 * registrations are snapshotted into the script. Walk each op_array exactly once
+		 * (via its canonical entry, whose key IS its lowercased name): a second optimizer
+		 * pass over the same op_array corrupts it (e.g. literal compaction applied
+		 * twice). Mirrors the IS_ALIAS_PTR skip for classes below; persistence already
+		 * dedupes these via the xlat table. */
+		if (UNEXPECTED(op_array->fn_flags2 & ZEND_ACC2_FN_MODULE_MEMBER)
+		 && key && op_array->function_name
+		 && !zend_string_equals_ci(key, op_array->function_name)) {
+			continue;
+		}
 		zend_foreach_op_array_helper(op_array, func, context);
 	} ZEND_HASH_FOREACH_END();
 

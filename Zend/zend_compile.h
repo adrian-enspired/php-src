@@ -179,6 +179,10 @@ ZEND_API void zend_declare_module_member_alias_runtime(zend_string *projection, 
 /* True if class scope `scope` may access an internal member declared in `member_ce`
  * (same-module check). Used for internal methods and internal backing-class members. */
 ZEND_API bool zend_module_scope_allows(const zend_class_entry *member_ce, const zend_class_entry *scope);
+/* PHP Modules: runtime variant — a NULL scope may still be module code (a MODULE FUNCTION
+ * or a module-born closure); derives the caller's module from the executing frame. Used at
+ * RUNTIME access gates only; link-time and optimizer checks keep the pure CE form. */
+ZEND_API bool zend_module_scope_or_caller_allows(const zend_class_entry *member_ce, const zend_class_entry *scope);
 /* True if `scope` may see the internal nested module whose backing class is `module_ce`
  * — i.e. scope is inside that module's own subtree, or is a direct member of its parent. */
 ZEND_API bool zend_module_scope_can_see_module(const zend_class_entry *module_ce, const zend_class_entry *scope);
@@ -196,6 +200,30 @@ ZEND_API bool zend_module_member_is_internal(const zend_class_entry *ce);
  * declared member, return the canonical "Module::Member" name (owned); else NULL.
  * Lets an autoloaded "Module::Member::..." chain resolve at runtime (see B1 fix). */
 ZEND_API zend_string *zend_module_member_canonical_name(const zend_class_entry *module_ce, zend_string *member_name);
+/* PHP Modules: the owning-module prefix of a module-owned function's name (see the
+ * ZEND_ACC2_FN_MODULE_MEMBER flag). Writes [*prefix, *prefix_len); returns false for a
+ * function that carries no module prefix (never true for a flagged function). */
+ZEND_API bool zend_module_function_owner_prefix(const zend_function *fn, const char **prefix, size_t *prefix_len);
+/* PHP Modules: true if the currently-executing code may NOT call module function `fn`
+ * (an `internal` module function called from outside its module). One flag test for
+ * non-module functions. Called at call-RESOLUTION points only (INIT_*FCALL cache-fill,
+ * dynamic-call / callable checks, the backing-class static-call fallback), never on a
+ * cached call path. */
+ZEND_API bool zend_module_function_access_denied(const zend_function *fn);
+/* PHP Modules: a module function's `internal`-ness (claim visibility; cold resolves from
+ * the registry, failing closed) — the fn-side twin of zend_module_member_is_internal. */
+ZEND_API bool zend_module_function_is_internal(const zend_function *fn);
+/* PHP Modules: the calling code's owning-module prefix (nearest user frame: class scope's
+ * module, else a module-owned function's own prefix). False = caller is not module code. */
+ZEND_API bool zend_module_current_caller_module(const char **pval, size_t *plen);
+/* PHP Modules: runtime registrar for a member-file MODULE CONSTANT — registers the
+ * canonical "M::K" entry (claim visibility; cold = VIS_UNKNOWN) and its projected
+ * namespaced-name alias entry. */
+ZEND_API void zend_declare_module_const_runtime(zend_string *canonical, zval *value);
+/* PHP Modules: runtime registrar for a member-file module function's extra function-table
+ * keys — its projected namespaced name, and (when claimed with a differing handle) its flat
+ * member name. `alias` empty = resolve the handle from the module registry (sentinel). */
+ZEND_API void zend_declare_module_function_runtime(zend_string *canonical, zend_string *alias);
 ZEND_API zend_ast *zend_ast_create_module_qualified_name(zend_ast *module_ast, zend_ast *member_ast);
 /* "module::Member": a class-like reference to a member of the current module,
  * resolved at compile time against FC(current_module). */
@@ -531,11 +559,27 @@ typedef struct _zend_oparray_context {
 /* op_array uses strict mode types                        |     |     |     */
 #define ZEND_ACC_STRICT_TYPES            (1U << 31) /*    |  X  |     |     */
 /*                                                        |     |     |     */
-/* Function Flags 2 (fn_flags2) (unused: 1-31)            |     |     |     */
+/* Function Flags 2 (fn_flags2) (unused: 3-31)            |     |     |     */
 /* ============================                           |     |     |     */
 /*                                                        |     |     |     */
 /* Function forbids dynamic calls                         |     |     |     */
 #define ZEND_ACC2_FORBID_DYN_CALLS       (1 << 0)  /*     |  X  |     |     */
+/*                                                        |     |     |     */
+/* PHP Modules: this function is module-owned — a module function (canonical name       */
+/* "M::f" / "M::Sub\f", registered in the function table under its canonical key and,   */
+/* for a member-file function, under its projected namespaced / member-name alias keys) */
+/* or a closure compiled lexically inside a module (name "M::{closure:...}"). Baked at  */
+/* compile, so it rides opcache/preload. The call-resolution gates early-out on this    */
+/* single predicted-not-taken flag test, so non-module functions pay nothing. The       */
+/* owning module is recovered from the name: the prefix before "::{closure" for a       */
+/* module closure, else before the LAST "::" (see zend_module_function_owner_prefix).   */
+#define ZEND_ACC2_FN_MODULE_MEMBER       (1 << 1)  /*     |  X  |     |     */
+/*                                                        |     |     |     */
+/* PHP Modules (Decision C cold): this module function compiled while its module's      */
+/* manifest was not loaded, so its claim visibility could not be baked. Resolved from   */
+/* the per-request module registry at gate time; fails CLOSED (internal). The exact     */
+/* fn-side twin of ZEND_ACC2_MODULE_VIS_UNKNOWN on classes.                             */
+#define ZEND_ACC2_FN_MODULE_VIS_UNKNOWN  (1 << 2)  /*     |  X  |     |     */
 
 #define ZEND_ACC_PPP_MASK  (ZEND_ACC_PUBLIC | ZEND_ACC_PROTECTED | ZEND_ACC_PRIVATE)
 #define ZEND_ACC_PPP_SET_MASK  (ZEND_ACC_PUBLIC_SET | ZEND_ACC_PROTECTED_SET | ZEND_ACC_PRIVATE_SET)
