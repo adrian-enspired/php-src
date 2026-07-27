@@ -3578,6 +3578,12 @@ ZEND_VM_HANDLER(109, ZEND_FETCH_CLASS, UNUSED|CLASS_FETCH, CONST|TMP|UNUSED|CV, 
 			class_name = GET_OP2_ZVAL_PTR_UNDEF(BP_VAR_R);
 			ce = zend_fetch_class_by_name(Z_STR_P(class_name), Z_STR_P(class_name + 1), opline->op1.num);
 			CACHE_PTR(opline->extended_value, ce);
+		} else if (!(opline->op1.num & ZEND_FETCH_CLASS_SILENT)
+				&& UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			ZVAL_UNDEF(EX_VAR(opline->result.var));
+			HANDLE_EXCEPTION();
 		}
 		Z_CE_P(EX_VAR(opline->result.var)) = ce;
 	} else {
@@ -3783,6 +3789,11 @@ ZEND_VM_HANDLER(113, ZEND_INIT_STATIC_METHOD_CALL, UNUSED|CLASS_FETCH|CONST|VAR,
 			if (OP2_TYPE != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			FREE_OP2();
+			HANDLE_EXCEPTION();
 		}
 	} else if (OP1_TYPE == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -6064,6 +6075,11 @@ ZEND_VM_HANDLER(68, ZEND_NEW, UNUSED|CLASS_FETCH|CONST|VAR, UNUSED|CACHE_SLOT, N
 				HANDLE_EXCEPTION();
 			}
 			CACHE_PTR(opline->op2.num, ce);
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			ZVAL_UNDEF(EX_VAR(opline->result.var));
+			HANDLE_EXCEPTION();
 		}
 	} else if (OP1_TYPE == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -6237,6 +6253,13 @@ ZEND_VM_HANDLER(181, ZEND_FETCH_CLASS_CONSTANT, VAR|CONST|UNUSED|CLASS_FETCH, CO
 		if (OP1_TYPE == IS_CONST) {
 			if (EXPECTED(CACHED_PTR(opline->extended_value))) {
 				ce = CACHED_PTR(opline->extended_value);
+				if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+					/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+					zend_throw_module_access_error(ce);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+					FREE_OP2();
+					HANDLE_EXCEPTION();
+				}
 			} else {
 				ce = zend_fetch_class_by_name(Z_STR_P(RT_CONSTANT(opline, opline->op1)), Z_STR_P(RT_CONSTANT(opline, opline->op1) + 1), ZEND_FETCH_CLASS_DEFAULT | ZEND_FETCH_CLASS_EXCEPTION);
 				if (UNEXPECTED(ce == NULL)) {

@@ -1,0 +1,192 @@
+diff a/Zend/Optimizer/zend_optimizer.c b/Zend/Optimizer/zend_optimizer.c	(rejected hunks)
+@@ -810,16 +810,113 @@ static bool zend_optimizer_ignore_function(zval *fbc_zv, const zend_string *file
+ 	}
+ }
+ 
++/* PHP Modules: the module path of the code being optimized, if any. A method takes its
++ * class's owning module; a module FUNCTION (scope-less) carries its module in its name. */
++static bool zend_optimizer_accessor_module(
++		const zend_op_array *op_array, const char **cv, size_t *clen)
++{
++	if (!op_array) {
++		return false;
++	}
++	/* PHP Modules: a CLOSURE's scope is not fixed -- Closure::bind() can move it out of
++	 * the module after compilation, which would leave any binding made on the strength of
++	 * the declaring scope stale and over-permissive. Treat a closure's module as
++	 * unprovable so module members are never bound into one at compile time. (Non-module
++	 * classes are unaffected: they never reach this check.) */
++	if (op_array->fn_flags & ZEND_ACC_CLOSURE) {
++		return false;
++	}
++	if (op_array->scope) {
++		const zend_class_entry *scope = op_array->scope;
++		const char *sv = ZSTR_VAL(scope->name);
++		const char *send = sv + ZSTR_LEN(scope->name);
++		if (scope->ce_flags & ZEND_ACC_MODULE) {
++			*cv = sv;
++			*clen = ZSTR_LEN(scope->name);
++			return true;
++		}
++		const char *lastsep = NULL;
++		for (const char *q = zend_memnstr(sv, "::", 2, send); q;
++				q = zend_memnstr(q + 2, "::", 2, send)) {
++			lastsep = q;
++		}
++		if (!lastsep) {
++			return false;
++		}
++		*cv = sv;
++		*clen = (size_t) (lastsep - sv);
++		return true;
++	}
++	if (op_array->fn_flags2 & ZEND_ACC2_FN_MODULE_MEMBER) {
++		return zend_module_function_owner_prefix((const zend_function *) op_array, cv, clen);
++	}
++	return false;
++}
++
++/* PHP Modules: may code in `op_array` reach an `internal` MEMBER (method, constant,
++ * property) declared in `decl_ce`? Same rule as the runtime gate, asked at optimization
++ * time so that binding/folding cannot outrun it. */
++static bool zend_optimizer_module_member_reachable(
++		const zend_class_entry *decl_ce, const zend_op_array *op_array)
++{
++	const char *mv = ZSTR_VAL(decl_ce->name);
++	size_t nlen = ZSTR_LEN(decl_ce->name);
++	size_t mlen;
++	if (decl_ce->ce_flags & ZEND_ACC_MODULE) {
++		mlen = nlen;                        /* the module's own internal statics */
++	} else {
++		const char *lastsep = NULL;
++		for (const char *q = zend_memnstr(mv, "::", 2, mv + nlen); q;
++				q = zend_memnstr(q + 2, "::", 2, mv + nlen)) {
++			lastsep = q;
++		}
++		if (!lastsep) {
++			return true;                    /* declaring class is not in a module */
++		}
++		mlen = (size_t) (lastsep - mv);
++	}
++	const char *cv;
++	size_t clen;
++	if (!zend_optimizer_accessor_module(op_array, &cv, &clen)) {
++		return false;
++	}
++	return zend_module_path_covers_str(mv, mlen, cv, clen);
++}
++
++/* PHP Modules: may the code in `op_array` bind to class `ce` at OPTIMIZATION time?
++ *
++ * The optimizer resolves a class name to a CE and then folds constants, inlines calls and
++ * assigns cache slots — all of which bypass the runtime gate. So it must ask the runtime's
++ * question, and ask it the same way: run the SAME containment walk, outermost boundary
++ * first, leaf last. Rolling a bespoke check here is what let three separate passes drift
++ * from the gate in the first place.
++ *
++ * Two differences from the runtime call: the accessor comes from the op_array being
++ * optimized rather than the executing frame, and an intermediate module that cannot be
++ * resolved DENIES (unknown_denies) — at runtime an unloaded module will be gated when it
++ * is crossed, but a compile-time binding would never be re-checked. */
++static bool zend_optimizer_module_class_usable(const zend_script *script,
++		const zend_class_entry *ce, const zend_op_array *op_array)
++{
++	const char *cv = NULL;
++	size_t clen = 0;
++	bool have_module = zend_optimizer_accessor_module(op_array, &cv, &clen);
++	return !zend_module_access_denied_from(ce, cv, clen, have_module, true,
++		script ? &script->class_table : NULL);
++}
++
+ zend_class_entry *zend_optimizer_get_class_entry(
+ 		const zend_script *script, const zend_op_array *op_array, zend_string *lcname) {
+ 	zend_class_entry *ce = script ? zend_hash_find_ptr(&script->class_table, lcname) : NULL;
+ 	if (ce) {
+-		return ce;
++		/* PHP Modules: never hand back a class the accessor could not reach at runtime. */
++		return zend_optimizer_module_class_usable(script, ce, op_array) ? ce : NULL;
+ 	}
+ 
+ 	zval *ce_zv = zend_hash_find(CG(class_table), lcname);
+ 	if (ce_zv && !zend_optimizer_ignore_class(ce_zv, op_array ? op_array->filename : NULL)) {
+-		return Z_PTR_P(ce_zv);
++		return zend_optimizer_module_class_usable(script, Z_PTR_P(ce_zv), op_array)
++			? Z_PTR_P(ce_zv) : NULL;
+ 	}
+ 
+ 	if (op_array && op_array->scope && zend_string_equals_ci(op_array->scope->name, lcname)) {
+@@ -861,7 +958,8 @@ const zend_class_constant *zend_fetch_class_const_info(
+ 				ce = zend_optimizer_get_class_entry(script, op_array, Z_STR_P(op1 + 1));
+ 			} else {
+ 				zval *ce_zv = zend_hash_find(EG(class_table), Z_STR_P(op1 + 1));
+-				if (ce_zv && !zend_optimizer_ignore_class(ce_zv, op_array->filename)) {
++				if (ce_zv && !zend_optimizer_ignore_class(ce_zv, op_array->filename)
++				 && zend_optimizer_module_class_usable(script, Z_PTR_P(ce_zv), op_array)) {
+ 					ce = Z_PTR_P(ce_zv);
+ 				}
+ 			}
+@@ -896,7 +994,7 @@ const zend_class_constant *zend_fetch_class_const_info(
+ 	 * not be folded into code outside its module (that would bypass the runtime gate,
+ 	 * e.g. when the const's class is preloaded/immutable). */
+ 	if ((ZEND_CLASS_CONST_FLAGS(const_info) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
+-		&& !zend_module_scope_allows(const_info->ce, op_array->scope)) {
++		&& !zend_optimizer_module_member_reachable(const_info->ce, op_array)) {
+ 		return NULL;
+ 	}
+ 	*is_prototype = is_static_reference
+@@ -931,36 +1029,13 @@ static bool zend_optimizer_module_function_usable(
+ 	 && zend_memnstr(mv, "::", 2, mv + mlen) == NULL) {
+ 		return true; /* public function of a top-level module: callable from anywhere */
+ 	}
+-	/* internal (or nested-owned): usable only when op_array is provably in the SAME module */
++	/* internal (or nested-owned): usable when op_array is in that module or beneath it */
+ 	const char *cv = NULL;
+ 	size_t clen = 0;
+-	if (op_array->scope) {
+-		const zend_class_entry *scope = op_array->scope;
+-		const char *sv = ZSTR_VAL(scope->name);
+-		const char *send = sv + ZSTR_LEN(scope->name);
+-		if (scope->ce_flags & ZEND_ACC_MODULE) {
+-			cv = sv;
+-			clen = ZSTR_LEN(scope->name);
+-		} else {
+-			const char *lastsep = NULL;
+-			for (const char *p = zend_memnstr(sv, "::", 2, send); p;
+-					p = zend_memnstr(p + 2, "::", 2, send)) {
+-				lastsep = p;
+-			}
+-			if (!lastsep) {
+-				return false;
+-			}
+-			cv = sv;
+-			clen = (size_t) (lastsep - sv);
+-		}
+-	} else if (op_array->fn_flags2 & ZEND_ACC2_FN_MODULE_MEMBER) {
+-		if (!zend_module_function_owner_prefix((const zend_function *) op_array, &cv, &clen)) {
+-			return false;
+-		}
+-	} else {
++	if (!zend_optimizer_accessor_module(op_array, &cv, &clen)) {
+ 		return false;
+ 	}
+-	return clen == mlen && zend_binary_strncasecmp(cv, clen, mv, mlen, mlen) == 0;
++	return zend_module_path_covers_str(mv, mlen, cv, clen);
+ }
+ 
+ zend_function *zend_optimizer_get_called_func(
+@@ -1015,7 +1090,14 @@ zend_function *zend_optimizer_get_called_func(
+ 					if (fbc && !(fbc->common.fn_flags & ZEND_ACC_ABSTRACT)) {
+ 						bool is_public = (fbc->common.fn_flags & ZEND_ACC_PUBLIC) != 0;
+ 						bool same_scope = fbc->common.scope == op_array->scope;
+-						if (is_public || same_scope) {
++						/* PHP Modules: an `internal` method is public at the class level;
++						 * binding it here would bypass the runtime gate. Its declaring
++						 * class must be reachable from the code being optimized. */
++						bool module_ok = !(fbc->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
++							|| (fbc->common.scope
++								&& zend_optimizer_module_member_reachable(
++										fbc->common.scope, op_array));
++						if ((is_public || same_scope) && module_ok) {
+ 							return fbc;
+ 						}
+ 					}
