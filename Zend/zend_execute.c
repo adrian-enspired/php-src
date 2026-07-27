@@ -5191,6 +5191,15 @@ static zend_never_inline zend_execute_data *zend_init_dynamic_call_string(zend_s
 			zend_throw_error(NULL, "Call to undefined function %s()", ZSTR_VAL(function));
 			return NULL;
 		}
+		/* PHP Modules: gate an internal module function reached by a dynamic name
+		 * ("$f()" with 'M\f'). This path is per-call and uncached — one
+		 * predicted-not-taken flag test for every non-module callee. */
+		if (UNEXPECTED(zend_module_function_access_denied(fbc))) {
+			zend_throw_error(NULL,
+				"Cannot call internal module function %s() from outside its module",
+				ZSTR_VAL(fbc->common.function_name));
+			return NULL;
+		}
 		called_scope = NULL;
 	}
 
@@ -5482,6 +5491,26 @@ static zend_always_inline zend_result _zend_quick_get_constant(
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
 		}
 		return FAILURE;
+	}
+
+	/* PHP Modules: a module constant resolves (alias hop) and gates (`internal`) at
+	 * RESOLUTION — the resolved entry is what gets cached below, so a call site pays this
+	 * once; non-module constants pay one predicted-not-taken flag test. */
+	if (UNEXPECTED(ZEND_CONSTANT_FLAGS(c)
+			& (CONST_MODULE_ALIAS | CONST_MODULE_INTERNAL | CONST_MODULE_VIS_UNKNOWN))) {
+		c = zend_module_constant_resolve(c, check_defined_only);
+		if (!c) {
+			if (!check_defined_only) {
+				/* zend_module_constant_resolve threw (gated) — or the alias's canonical
+				 * is gone; surface an undefined-constant error in the latter case. */
+				if (!EG(exception)) {
+					zend_throw_error(NULL, "Undefined constant \"%s\"",
+						Z_STRVAL_P(RT_CONSTANT(opline, opline->op2)));
+				}
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
+			}
+			return FAILURE;
+		}
 	}
 
 	if (!check_defined_only) {

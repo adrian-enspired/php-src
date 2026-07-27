@@ -27,6 +27,17 @@
 #define CONST_DEPRECATED		(1<<2)				/* Deprecated */
 #define CONST_OWNED				(1<<3)				/* constant should be destroyed together with class */
 #define CONST_RECURSIVE			(1<<4)				/* Recursion protection for constant evaluation */
+/* PHP Modules: a member-file MODULE CONSTANT ("const K = …;" under "module M;"), stored
+ * under its canonical "M::K" key. INTERNAL = its claim visibility (unclaimed defaults
+ * internal); VIS_UNKNOWN = compiled COLD (manifest absent), resolve from the module
+ * registry at fetch, failing closed. ALIAS marks the constant's projected namespaced-name
+ * entry ("M\K"): its value is the canonical name STRING, resolved (and gated) through the
+ * canonical entry at fetch — see zend_module_constant_resolve(). All three are tested at
+ * constant RESOLUTION only (results are cached per call site); non-module constants pay
+ * one predicted-not-taken flag test. */
+#define CONST_MODULE_INTERNAL	(1<<5)
+#define CONST_MODULE_VIS_UNKNOWN	(1<<6)
+#define CONST_MODULE_ALIAS		(1<<7)
 
 #define CONST_IS_RECURSIVE(c) (Z_CONSTANT_FLAGS((c)->value) & CONST_RECURSIVE)
 #define CONST_PROTECT_RECURSION(c) \
@@ -97,6 +108,23 @@ ZEND_API zend_constant *zend_register_double_constant(const char *name, size_t n
 ZEND_API zend_constant *zend_register_string_constant(const char *name, size_t name_len, const char *strval, int flags, int module_number);
 ZEND_API zend_constant *zend_register_stringl_constant(const char *name, size_t name_len, const char *strval, size_t strlen, int flags, int module_number);
 ZEND_API zend_constant *zend_register_constant(zend_constant *c);
+/* PHP Modules: register a constant under an explicit, pre-normalized hash key (the
+ * canonical "m::K" / projected "m\K" module keys, whose module prefix is lowercased in
+ * full — zend_register_constant's last-backslash rule cannot produce those). */
+ZEND_API zend_constant *zend_register_constant_with_key(zend_constant *c, zend_string *key);
+/* PHP Modules: the EG(zend_constants) hash key for a module constant name — everything
+ * up to and including the LAST separator ("\" or "::") lowercased, the constant's own
+ * (case-sensitive) tail preserved. */
+ZEND_API zend_string *zend_module_const_key(const zend_string *name);
+/* PHP Modules: resolve a module-flagged constant at fetch time — follow an ALIAS entry
+ * to its canonical, then apply the visibility gate (VIS_UNKNOWN resolves from the module
+ * registry, failing closed). Returns the resolved constant, or NULL when gated (an Error
+ * is thrown unless `silent`) or when an alias's canonical is missing. */
+ZEND_API zend_constant *zend_module_constant_resolve(zend_constant *c, bool silent);
+/* PHP Modules: probe for a member-file module constant "M::K" reached through module
+ * M's backing class (M::K, module::K, constant("M::K")). NULL when absent or gated
+ * (gated throws unless `silent`; check EG(exception) to distinguish). */
+ZEND_API zend_constant *zend_module_lookup_module_constant(const zend_class_entry *bce, const zend_string *const_name, bool silent);
 void zend_constant_add_attributes(zend_constant *c, HashTable *attributes);
 #ifdef ZTS
 void zend_copy_constants(HashTable *target, HashTable *source);

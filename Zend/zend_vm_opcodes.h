@@ -335,7 +335,9 @@ END_EXTERN_C()
 #define ZEND_SEND_PLACEHOLDER               213
 #define ZEND_DECLARE_MODULE                 214
 #define ZEND_DECLARE_MODULE_MEMBER_ALIAS    215
+#define ZEND_DECLARE_MODULE_FUNCTION        216
+#define ZEND_DECLARE_MODULE_CONST           217
 
-#define ZEND_VM_LAST_OPCODE                 215
+#define ZEND_VM_LAST_OPCODE                 217
 
 #endif

@@ -4076,6 +4076,17 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_I
 			ZEND_VM_TAIL_CALL(zend_undefined_function_helper_SPEC(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU));
 		}
 		fbc = Z_FUNC_P(func);
+		/* PHP Modules: gate an internal module function at call RESOLUTION (this branch
+		 * runs once per call site; the cached fast path above is untouched). One
+		 * predicted-not-taken flag test for every non-module function. A denied site
+		 * never caches (it always throws). */
+		if (UNEXPECTED(zend_module_function_access_denied(fbc))) {
+			SAVE_OPLINE();
+			zend_throw_error(NULL,
+				"Cannot call internal module function %s() from outside its module",
+				ZSTR_VAL(fbc->common.function_name));
+			HANDLE_EXCEPTION();
+		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
 			init_func_run_time_cache(&fbc->op_array);
 		}
@@ -4162,6 +4173,16 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_I
 			}
 		}
 		fbc = Z_FUNC_P(func);
+		/* PHP Modules: gate an internal module function at call RESOLUTION — this is the
+		 * path a member file's bare f() (ns fallback "M\f") and an inline body's lowered
+		 * "M::f" probe take. Once per call site; cached fast path untouched. */
+		if (UNEXPECTED(zend_module_function_access_denied(fbc))) {
+			SAVE_OPLINE();
+			zend_throw_error(NULL,
+				"Cannot call internal module function %s() from outside its module",
+				ZSTR_VAL(fbc->common.function_name));
+			HANDLE_EXCEPTION();
+		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
 			init_func_run_time_cache(&fbc->op_array);
 		}
@@ -4190,6 +4211,17 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_I
 		func = zend_hash_find_known_hash(EG(function_table), Z_STR_P(fname));
 		ZEND_ASSERT(func != NULL && "Function existence must be checked at compile time");
 		fbc = Z_FUNC_P(func);
+		/* PHP Modules: the compiler emits INIT_FCALL when the callee was already declared
+		 * at compile time — which a module function's projected name can be. Same
+		 * resolution-time gate as INIT_FCALL_BY_NAME; ordinary calls pay one
+		 * predicted-not-taken test, once per call site. */
+		if (UNEXPECTED(zend_module_function_access_denied(fbc))) {
+			SAVE_OPLINE();
+			zend_throw_error(NULL,
+				"Cannot call internal module function %s() from outside its module",
+				ZSTR_VAL(fbc->common.function_name));
+			HANDLE_EXCEPTION();
+		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
 			init_func_run_time_cache(&fbc->op_array);
 		}
@@ -4213,6 +4245,16 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_I
 	fbc = CACHED_PTR(opline->result.num);
 	if (UNEXPECTED(fbc == NULL)) {
 		fbc = Z_PTR(EG(function_table)->arData[Z_EXTRA_P(RT_CONSTANT(opline, opline->op2))].val);
+		/* PHP Modules: the optimizer sets the bucket offset for any function resolvable
+		 * at optimization time — under preloading that includes module functions, so this
+		 * specialization must apply the same resolution-time gate as plain INIT_FCALL. */
+		if (UNEXPECTED(zend_module_function_access_denied(fbc))) {
+			SAVE_OPLINE();
+			zend_throw_error(NULL,
+				"Cannot call internal module function %s() from outside its module",
+				ZSTR_VAL(fbc->common.function_name));
+			HANDLE_EXCEPTION();
+		}
 		CACHE_PTR(opline->result.num, fbc);
 	}
 	call = _zend_vm_stack_push_call_frame_ex(
@@ -5327,7 +5369,7 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_
 	/* PHP Modules: an "internal" __clone() gates cloning to same-module callers,
 	 * mirroring how a private __clone() prevents cloning from outside. */
 	if (clone && (clone->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
-			&& !zend_module_scope_allows(clone->common.scope, EX(func)->op_array.scope)) {
+			&& !zend_module_scope_or_caller_allows(clone->common.scope, EX(func)->op_array.scope)) {
 		zend_throw_error(NULL,
 			"Cannot call internal method %s::__clone() from outside its module",
 			ZSTR_VAL(clone->common.scope->name));
@@ -7613,7 +7655,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 		}
 		if (IS_CONST == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -7891,7 +7936,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			/* PHP Modules: a module-internal constant is reachable only from inside
 			 * its own module (it is public at the class level). */
 			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
-					&& !zend_module_scope_allows(c->ce, scope)) {
+					&& !zend_module_scope_or_caller_allows(c->ce, scope)) {
 				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 
@@ -7957,6 +8002,24 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
 			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
+				 * in EG(zend_constants) under its canonical key, not on the backing class
+				 * (inline module constants — backing class constants — answered above).
+				 * A real constant wins over the member-name identity fallback below,
+				 * matching the inline precedence. Resolution gates internal visibility. */
+				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
+				if (mc) {
+					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
+
+
+					ZEND_VM_NEXT_OPCODE();
+				}
+				if (UNEXPECTED(EG(exception))) {
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+					HANDLE_EXCEPTION();
+				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
 					ZVAL_STR(EX_VAR(opline->result.var), canonical);
 
@@ -8381,6 +8444,64 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_DECLARE_MODUL
 	projection = RT_CONSTANT(opline, opline->op1);
 	canonical  = RT_CONSTANT(opline, opline->op2);
 	zend_declare_module_member_alias_runtime(Z_STR_P(projection), Z_STR_P(canonical));
+
+
+
+
+	ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();
+}
+
+static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_DECLARE_MODULE_CONST_SPEC_CONST_CONST_HANDLER(ZEND_OPCODE_HANDLER_ARGS)
+{
+	/* PHP Modules: declare a member-file MODULE CONSTANT — op1 = canonical name
+	 * ("M::K" / "M::Sub\K"), op2 = value. Mirrors ZEND_DECLARE_CONST's value handling,
+	 * then registers the canonical entry (claim visibility; cold = VIS_UNKNOWN) plus its
+	 * projected namespaced-name alias. Runtime-driven, so both entries and the resolved
+	 * visibility replay on an opcache hit. */
+	USE_OPLINE
+	zval *name;
+	zval *val;
+	zval value;
+
+	SAVE_OPLINE();
+	name  = RT_CONSTANT(opline, opline->op1);
+	val   = RT_CONSTANT(opline, opline->op2);
+
+	ZVAL_COPY(&value, val);
+	if (Z_OPT_TYPE(value) == IS_CONSTANT_AST) {
+		if (UNEXPECTED(zval_update_constant_ex(&value, EX(func)->op_array.scope) != SUCCESS)) {
+			zval_ptr_dtor_nogc(&value);
+
+
+
+
+			HANDLE_EXCEPTION();
+		}
+	}
+	zend_declare_module_const_runtime(Z_STR_P(name), &value);
+	zval_ptr_dtor_nogc(&value);
+
+
+
+
+	ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();
+}
+
+static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_DECLARE_MODULE_FUNCTION_SPEC_CONST_CONST_HANDLER(ZEND_OPCODE_HANDLER_ARGS)
+{
+	/* PHP Modules: register a member-file MODULE FUNCTION's extra function-table keys —
+	 * op1 = canonical name (the compile-time-bound primary key), op2 = alias key (the
+	 * projected namespaced name), or empty = the handle sentinel (resolve "M::handle"
+	 * from the module registry). Runtime-driven so the keys replay on an opcache hit,
+	 * exactly like ZEND_DECLARE_MODULE_MEMBER_ALIAS for member classes. */
+	USE_OPLINE
+	zval *canonical;
+	zval *alias;
+
+	SAVE_OPLINE();
+	canonical = RT_CONSTANT(opline, opline->op1);
+	alias     = RT_CONSTANT(opline, opline->op2);
+	zend_declare_module_function_runtime(Z_STR_P(canonical), Z_STR_P(alias));
 
 
 
@@ -9273,7 +9394,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			/* PHP Modules: a module-internal constant is reachable only from inside
 			 * its own module (it is public at the class level). */
 			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
-					&& !zend_module_scope_allows(c->ce, scope)) {
+					&& !zend_module_scope_or_caller_allows(c->ce, scope)) {
 				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
@@ -9334,6 +9455,22 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
 			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
+				 * in EG(zend_constants) under its canonical key, not on the backing class
+				 * (inline module constants — backing class constants — answered above).
+				 * A real constant wins over the member-name identity fallback below,
+				 * matching the inline precedence. Resolution gates internal visibility. */
+				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
+				if (mc) {
+					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
+					FREE_OP(opline->op2_type, opline->op2.var);
+					ZEND_VM_NEXT_OPCODE();
+				}
+				if (UNEXPECTED(EG(exception))) {
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+					FREE_OP(opline->op2_type, opline->op2.var);
+					HANDLE_EXCEPTION();
+				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
 					ZVAL_STR(EX_VAR(opline->result.var), canonical);
 					FREE_OP(opline->op2_type, opline->op2.var);
@@ -10504,7 +10641,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 		}
 		if (IS_TMP_VAR == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -11295,7 +11435,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 		}
 		if (IS_UNUSED == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -13176,7 +13319,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 		}
 		if (IS_CV == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -17663,7 +17809,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_CLONE_SPEC_TM
 	/* PHP Modules: an "internal" __clone() gates cloning to same-module callers,
 	 * mirroring how a private __clone() prevents cloning from outside. */
 	if (clone && (clone->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
-			&& !zend_module_scope_allows(clone->common.scope, EX(func)->op_array.scope)) {
+			&& !zend_module_scope_or_caller_allows(clone->common.scope, EX(func)->op_array.scope)) {
 		zend_throw_error(NULL,
 			"Cannot call internal method %s::__clone() from outside its module",
 			ZSTR_VAL(clone->common.scope->name));
@@ -25838,7 +25984,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 		}
 		if (IS_CONST == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -26268,7 +26417,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			/* PHP Modules: a module-internal constant is reachable only from inside
 			 * its own module (it is public at the class level). */
 			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
-					&& !zend_module_scope_allows(c->ce, scope)) {
+					&& !zend_module_scope_or_caller_allows(c->ce, scope)) {
 				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 
@@ -26334,6 +26483,24 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
 			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
+				 * in EG(zend_constants) under its canonical key, not on the backing class
+				 * (inline module constants — backing class constants — answered above).
+				 * A real constant wins over the member-name identity fallback below,
+				 * matching the inline precedence. Resolution gates internal visibility. */
+				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
+				if (mc) {
+					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
+
+
+					ZEND_VM_NEXT_OPCODE();
+				}
+				if (UNEXPECTED(EG(exception))) {
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+					HANDLE_EXCEPTION();
+				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
 					ZVAL_STR(EX_VAR(opline->result.var), canonical);
 
@@ -26845,7 +27012,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			/* PHP Modules: a module-internal constant is reachable only from inside
 			 * its own module (it is public at the class level). */
 			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
-					&& !zend_module_scope_allows(c->ce, scope)) {
+					&& !zend_module_scope_or_caller_allows(c->ce, scope)) {
 				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
@@ -26906,6 +27073,22 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
 			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
+				 * in EG(zend_constants) under its canonical key, not on the backing class
+				 * (inline module constants — backing class constants — answered above).
+				 * A real constant wins over the member-name identity fallback below,
+				 * matching the inline precedence. Resolution gates internal visibility. */
+				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
+				if (mc) {
+					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
+					FREE_OP(opline->op2_type, opline->op2.var);
+					ZEND_VM_NEXT_OPCODE();
+				}
+				if (UNEXPECTED(EG(exception))) {
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+					FREE_OP(opline->op2_type, opline->op2.var);
+					HANDLE_EXCEPTION();
+				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
 					ZVAL_STR(EX_VAR(opline->result.var), canonical);
 					FREE_OP(opline->op2_type, opline->op2.var);
@@ -28607,7 +28790,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 		}
 		if (IS_TMP_VAR == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -29811,7 +29997,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 		}
 		if (IS_UNUSED == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -32494,7 +32683,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 		}
 		if (IS_CV == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -33151,7 +33343,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_CLONE_SPEC_UN
 	/* PHP Modules: an "internal" __clone() gates cloning to same-module callers,
 	 * mirroring how a private __clone() prevents cloning from outside. */
 	if (clone && (clone->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
-			&& !zend_module_scope_allows(clone->common.scope, EX(func)->op_array.scope)) {
+			&& !zend_module_scope_or_caller_allows(clone->common.scope, EX(func)->op_array.scope)) {
 		zend_throw_error(NULL,
 			"Cannot call internal method %s::__clone() from outside its module",
 			ZSTR_VAL(clone->common.scope->name));
@@ -34771,7 +34963,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 		}
 		if (IS_CONST == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -34980,7 +35175,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			/* PHP Modules: a module-internal constant is reachable only from inside
 			 * its own module (it is public at the class level). */
 			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
-					&& !zend_module_scope_allows(c->ce, scope)) {
+					&& !zend_module_scope_or_caller_allows(c->ce, scope)) {
 				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 
@@ -35046,6 +35241,24 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
 			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
+				 * in EG(zend_constants) under its canonical key, not on the backing class
+				 * (inline module constants — backing class constants — answered above).
+				 * A real constant wins over the member-name identity fallback below,
+				 * matching the inline precedence. Resolution gates internal visibility. */
+				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
+				if (mc) {
+					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
+
+
+					ZEND_VM_NEXT_OPCODE();
+				}
+				if (UNEXPECTED(EG(exception))) {
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+					HANDLE_EXCEPTION();
+				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
 					ZVAL_STR(EX_VAR(opline->result.var), canonical);
 
@@ -35398,7 +35611,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			/* PHP Modules: a module-internal constant is reachable only from inside
 			 * its own module (it is public at the class level). */
 			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
-					&& !zend_module_scope_allows(c->ce, scope)) {
+					&& !zend_module_scope_or_caller_allows(c->ce, scope)) {
 				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
@@ -35459,6 +35672,22 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
 			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
+				 * in EG(zend_constants) under its canonical key, not on the backing class
+				 * (inline module constants — backing class constants — answered above).
+				 * A real constant wins over the member-name identity fallback below,
+				 * matching the inline precedence. Resolution gates internal visibility. */
+				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
+				if (mc) {
+					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
+					FREE_OP(opline->op2_type, opline->op2.var);
+					ZEND_VM_NEXT_OPCODE();
+				}
+				if (UNEXPECTED(EG(exception))) {
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+					FREE_OP(opline->op2_type, opline->op2.var);
+					HANDLE_EXCEPTION();
+				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
 					ZVAL_STR(EX_VAR(opline->result.var), canonical);
 					FREE_OP(opline->op2_type, opline->op2.var);
@@ -36951,7 +37180,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 		}
 		if (IS_TMP_VAR == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -37372,7 +37604,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 		}
 		if (IS_UNUSED == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -39571,7 +39806,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 		}
 		if (IS_CV == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -40649,7 +40887,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_CLONE_SPEC_CV
 	/* PHP Modules: an "internal" __clone() gates cloning to same-module callers,
 	 * mirroring how a private __clone() prevents cloning from outside. */
 	if (clone && (clone->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
-			&& !zend_module_scope_allows(clone->common.scope, EX(func)->op_array.scope)) {
+			&& !zend_module_scope_or_caller_allows(clone->common.scope, EX(func)->op_array.scope)) {
 		zend_throw_error(NULL,
 			"Cannot call internal method %s::__clone() from outside its module",
 			ZSTR_VAL(clone->common.scope->name));
@@ -57312,6 +57550,17 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_F
 			ZEND_VM_TAIL_CALL(zend_undefined_function_helper_SPEC_TAILCALL(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU));
 		}
 		fbc = Z_FUNC_P(func);
+		/* PHP Modules: gate an internal module function at call RESOLUTION (this branch
+		 * runs once per call site; the cached fast path above is untouched). One
+		 * predicted-not-taken flag test for every non-module function. A denied site
+		 * never caches (it always throws). */
+		if (UNEXPECTED(zend_module_function_access_denied(fbc))) {
+			SAVE_OPLINE();
+			zend_throw_error(NULL,
+				"Cannot call internal module function %s() from outside its module",
+				ZSTR_VAL(fbc->common.function_name));
+			HANDLE_EXCEPTION();
+		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
 			init_func_run_time_cache(&fbc->op_array);
 		}
@@ -57398,6 +57647,16 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_N
 			}
 		}
 		fbc = Z_FUNC_P(func);
+		/* PHP Modules: gate an internal module function at call RESOLUTION — this is the
+		 * path a member file's bare f() (ns fallback "M\f") and an inline body's lowered
+		 * "M::f" probe take. Once per call site; cached fast path untouched. */
+		if (UNEXPECTED(zend_module_function_access_denied(fbc))) {
+			SAVE_OPLINE();
+			zend_throw_error(NULL,
+				"Cannot call internal module function %s() from outside its module",
+				ZSTR_VAL(fbc->common.function_name));
+			HANDLE_EXCEPTION();
+		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
 			init_func_run_time_cache(&fbc->op_array);
 		}
@@ -57426,6 +57685,17 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_F
 		func = zend_hash_find_known_hash(EG(function_table), Z_STR_P(fname));
 		ZEND_ASSERT(func != NULL && "Function existence must be checked at compile time");
 		fbc = Z_FUNC_P(func);
+		/* PHP Modules: the compiler emits INIT_FCALL when the callee was already declared
+		 * at compile time — which a module function's projected name can be. Same
+		 * resolution-time gate as INIT_FCALL_BY_NAME; ordinary calls pay one
+		 * predicted-not-taken test, once per call site. */
+		if (UNEXPECTED(zend_module_function_access_denied(fbc))) {
+			SAVE_OPLINE();
+			zend_throw_error(NULL,
+				"Cannot call internal module function %s() from outside its module",
+				ZSTR_VAL(fbc->common.function_name));
+			HANDLE_EXCEPTION();
+		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
 			init_func_run_time_cache(&fbc->op_array);
 		}
@@ -57449,6 +57719,16 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_F
 	fbc = CACHED_PTR(opline->result.num);
 	if (UNEXPECTED(fbc == NULL)) {
 		fbc = Z_PTR(EG(function_table)->arData[Z_EXTRA_P(RT_CONSTANT(opline, opline->op2))].val);
+		/* PHP Modules: the optimizer sets the bucket offset for any function resolvable
+		 * at optimization time — under preloading that includes module functions, so this
+		 * specialization must apply the same resolution-time gate as plain INIT_FCALL. */
+		if (UNEXPECTED(zend_module_function_access_denied(fbc))) {
+			SAVE_OPLINE();
+			zend_throw_error(NULL,
+				"Cannot call internal module function %s() from outside its module",
+				ZSTR_VAL(fbc->common.function_name));
+			HANDLE_EXCEPTION();
+		}
 		CACHE_PTR(opline->result.num, fbc);
 	}
 	call = _zend_vm_stack_push_call_frame_ex(
@@ -58563,7 +58843,7 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_CLONE
 	/* PHP Modules: an "internal" __clone() gates cloning to same-module callers,
 	 * mirroring how a private __clone() prevents cloning from outside. */
 	if (clone && (clone->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
-			&& !zend_module_scope_allows(clone->common.scope, EX(func)->op_array.scope)) {
+			&& !zend_module_scope_or_caller_allows(clone->common.scope, EX(func)->op_array.scope)) {
 		zend_throw_error(NULL,
 			"Cannot call internal method %s::__clone() from outside its module",
 			ZSTR_VAL(clone->common.scope->name));
@@ -60849,7 +61129,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 		}
 		if (IS_CONST == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -61127,7 +61410,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			/* PHP Modules: a module-internal constant is reachable only from inside
 			 * its own module (it is public at the class level). */
 			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
-					&& !zend_module_scope_allows(c->ce, scope)) {
+					&& !zend_module_scope_or_caller_allows(c->ce, scope)) {
 				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 
@@ -61193,6 +61476,24 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
 			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
+				 * in EG(zend_constants) under its canonical key, not on the backing class
+				 * (inline module constants — backing class constants — answered above).
+				 * A real constant wins over the member-name identity fallback below,
+				 * matching the inline precedence. Resolution gates internal visibility. */
+				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
+				if (mc) {
+					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
+
+
+					ZEND_VM_NEXT_OPCODE();
+				}
+				if (UNEXPECTED(EG(exception))) {
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+					HANDLE_EXCEPTION();
+				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
 					ZVAL_STR(EX_VAR(opline->result.var), canonical);
 
@@ -61617,6 +61918,64 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_DECLARE_MODULE_MEM
 	projection = RT_CONSTANT(opline, opline->op1);
 	canonical  = RT_CONSTANT(opline, opline->op2);
 	zend_declare_module_member_alias_runtime(Z_STR_P(projection), Z_STR_P(canonical));
+
+
+
+
+	ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();
+}
+
+static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_DECLARE_MODULE_CONST_SPEC_CONST_CONST_TAILCALL_HANDLER(ZEND_OPCODE_HANDLER_ARGS)
+{
+	/* PHP Modules: declare a member-file MODULE CONSTANT — op1 = canonical name
+	 * ("M::K" / "M::Sub\K"), op2 = value. Mirrors ZEND_DECLARE_CONST's value handling,
+	 * then registers the canonical entry (claim visibility; cold = VIS_UNKNOWN) plus its
+	 * projected namespaced-name alias. Runtime-driven, so both entries and the resolved
+	 * visibility replay on an opcache hit. */
+	USE_OPLINE
+	zval *name;
+	zval *val;
+	zval value;
+
+	SAVE_OPLINE();
+	name  = RT_CONSTANT(opline, opline->op1);
+	val   = RT_CONSTANT(opline, opline->op2);
+
+	ZVAL_COPY(&value, val);
+	if (Z_OPT_TYPE(value) == IS_CONSTANT_AST) {
+		if (UNEXPECTED(zval_update_constant_ex(&value, EX(func)->op_array.scope) != SUCCESS)) {
+			zval_ptr_dtor_nogc(&value);
+
+
+
+
+			HANDLE_EXCEPTION();
+		}
+	}
+	zend_declare_module_const_runtime(Z_STR_P(name), &value);
+	zval_ptr_dtor_nogc(&value);
+
+
+
+
+	ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();
+}
+
+static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_DECLARE_MODULE_FUNCTION_SPEC_CONST_CONST_TAILCALL_HANDLER(ZEND_OPCODE_HANDLER_ARGS)
+{
+	/* PHP Modules: register a member-file MODULE FUNCTION's extra function-table keys —
+	 * op1 = canonical name (the compile-time-bound primary key), op2 = alias key (the
+	 * projected namespaced name), or empty = the handle sentinel (resolve "M::handle"
+	 * from the module registry). Runtime-driven so the keys replay on an opcache hit,
+	 * exactly like ZEND_DECLARE_MODULE_MEMBER_ALIAS for member classes. */
+	USE_OPLINE
+	zval *canonical;
+	zval *alias;
+
+	SAVE_OPLINE();
+	canonical = RT_CONSTANT(opline, opline->op1);
+	alias     = RT_CONSTANT(opline, opline->op2);
+	zend_declare_module_function_runtime(Z_STR_P(canonical), Z_STR_P(alias));
 
 
 
@@ -62509,7 +62868,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			/* PHP Modules: a module-internal constant is reachable only from inside
 			 * its own module (it is public at the class level). */
 			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
-					&& !zend_module_scope_allows(c->ce, scope)) {
+					&& !zend_module_scope_or_caller_allows(c->ce, scope)) {
 				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
@@ -62570,6 +62929,22 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
 			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
+				 * in EG(zend_constants) under its canonical key, not on the backing class
+				 * (inline module constants — backing class constants — answered above).
+				 * A real constant wins over the member-name identity fallback below,
+				 * matching the inline precedence. Resolution gates internal visibility. */
+				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
+				if (mc) {
+					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
+					FREE_OP(opline->op2_type, opline->op2.var);
+					ZEND_VM_NEXT_OPCODE();
+				}
+				if (UNEXPECTED(EG(exception))) {
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+					FREE_OP(opline->op2_type, opline->op2.var);
+					HANDLE_EXCEPTION();
+				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
 					ZVAL_STR(EX_VAR(opline->result.var), canonical);
 					FREE_OP(opline->op2_type, opline->op2.var);
@@ -63740,7 +64115,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 		}
 		if (IS_TMP_VAR == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -64429,7 +64807,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 		}
 		if (IS_UNUSED == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -66310,7 +66691,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 		}
 		if (IS_CV == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -70797,7 +71181,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_CLONE_SPEC_TMP_TAI
 	/* PHP Modules: an "internal" __clone() gates cloning to same-module callers,
 	 * mirroring how a private __clone() prevents cloning from outside. */
 	if (clone && (clone->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
-			&& !zend_module_scope_allows(clone->common.scope, EX(func)->op_array.scope)) {
+			&& !zend_module_scope_or_caller_allows(clone->common.scope, EX(func)->op_array.scope)) {
 		zend_throw_error(NULL,
 			"Cannot call internal method %s::__clone() from outside its module",
 			ZSTR_VAL(clone->common.scope->name));
@@ -78872,7 +79256,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 		}
 		if (IS_CONST == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -79302,7 +79689,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			/* PHP Modules: a module-internal constant is reachable only from inside
 			 * its own module (it is public at the class level). */
 			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
-					&& !zend_module_scope_allows(c->ce, scope)) {
+					&& !zend_module_scope_or_caller_allows(c->ce, scope)) {
 				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 
@@ -79368,6 +79755,24 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
 			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
+				 * in EG(zend_constants) under its canonical key, not on the backing class
+				 * (inline module constants — backing class constants — answered above).
+				 * A real constant wins over the member-name identity fallback below,
+				 * matching the inline precedence. Resolution gates internal visibility. */
+				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
+				if (mc) {
+					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
+
+
+					ZEND_VM_NEXT_OPCODE();
+				}
+				if (UNEXPECTED(EG(exception))) {
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+					HANDLE_EXCEPTION();
+				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
 					ZVAL_STR(EX_VAR(opline->result.var), canonical);
 
@@ -79879,7 +80284,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			/* PHP Modules: a module-internal constant is reachable only from inside
 			 * its own module (it is public at the class level). */
 			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
-					&& !zend_module_scope_allows(c->ce, scope)) {
+					&& !zend_module_scope_or_caller_allows(c->ce, scope)) {
 				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
@@ -79940,6 +80345,22 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
 			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
+				 * in EG(zend_constants) under its canonical key, not on the backing class
+				 * (inline module constants — backing class constants — answered above).
+				 * A real constant wins over the member-name identity fallback below,
+				 * matching the inline precedence. Resolution gates internal visibility. */
+				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
+				if (mc) {
+					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
+					FREE_OP(opline->op2_type, opline->op2.var);
+					ZEND_VM_NEXT_OPCODE();
+				}
+				if (UNEXPECTED(EG(exception))) {
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+					FREE_OP(opline->op2_type, opline->op2.var);
+					HANDLE_EXCEPTION();
+				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
 					ZVAL_STR(EX_VAR(opline->result.var), canonical);
 					FREE_OP(opline->op2_type, opline->op2.var);
@@ -81641,7 +82062,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 		}
 		if (IS_TMP_VAR == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -82845,7 +83269,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 		}
 		if (IS_UNUSED == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -85528,7 +85955,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 		}
 		if (IS_CV == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -86185,7 +86615,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_CLONE_SPEC_UNUSED_
 	/* PHP Modules: an "internal" __clone() gates cloning to same-module callers,
 	 * mirroring how a private __clone() prevents cloning from outside. */
 	if (clone && (clone->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
-			&& !zend_module_scope_allows(clone->common.scope, EX(func)->op_array.scope)) {
+			&& !zend_module_scope_or_caller_allows(clone->common.scope, EX(func)->op_array.scope)) {
 		zend_throw_error(NULL,
 			"Cannot call internal method %s::__clone() from outside its module",
 			ZSTR_VAL(clone->common.scope->name));
@@ -87805,7 +88235,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 		}
 		if (IS_CONST == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -88014,7 +88447,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			/* PHP Modules: a module-internal constant is reachable only from inside
 			 * its own module (it is public at the class level). */
 			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
-					&& !zend_module_scope_allows(c->ce, scope)) {
+					&& !zend_module_scope_or_caller_allows(c->ce, scope)) {
 				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 
@@ -88080,6 +88513,24 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
 			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
+				 * in EG(zend_constants) under its canonical key, not on the backing class
+				 * (inline module constants — backing class constants — answered above).
+				 * A real constant wins over the member-name identity fallback below,
+				 * matching the inline precedence. Resolution gates internal visibility. */
+				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
+				if (mc) {
+					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
+
+
+					ZEND_VM_NEXT_OPCODE();
+				}
+				if (UNEXPECTED(EG(exception))) {
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+					HANDLE_EXCEPTION();
+				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
 					ZVAL_STR(EX_VAR(opline->result.var), canonical);
 
@@ -88432,7 +88883,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			/* PHP Modules: a module-internal constant is reachable only from inside
 			 * its own module (it is public at the class level). */
 			if (UNEXPECTED(ZEND_CLASS_CONST_FLAGS(c) & ZEND_ACC_MODULE_INTERNAL_MEMBER)
-					&& !zend_module_scope_allows(c->ce, scope)) {
+					&& !zend_module_scope_or_caller_allows(c->ce, scope)) {
 				zend_throw_error(NULL, "Cannot access internal module constant %s::%s from outside its module", ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP(opline->op2_type, opline->op2.var);
@@ -88493,6 +88944,22 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
 			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
+				 * in EG(zend_constants) under its canonical key, not on the backing class
+				 * (inline module constants — backing class constants — answered above).
+				 * A real constant wins over the member-name identity fallback below,
+				 * matching the inline precedence. Resolution gates internal visibility. */
+				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
+				if (mc) {
+					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
+					FREE_OP(opline->op2_type, opline->op2.var);
+					ZEND_VM_NEXT_OPCODE();
+				}
+				if (UNEXPECTED(EG(exception))) {
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+					FREE_OP(opline->op2_type, opline->op2.var);
+					HANDLE_EXCEPTION();
+				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
 					ZVAL_STR(EX_VAR(opline->result.var), canonical);
 					FREE_OP(opline->op2_type, opline->op2.var);
@@ -89985,7 +90452,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 		}
 		if (IS_TMP_VAR == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -90406,7 +90876,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 		}
 		if (IS_UNUSED == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -92605,7 +93078,10 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 		}
 		if (IS_CV == IS_CONST &&
 		    EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a MODULE FUNCTION resolved through the backing-class fallback
+			 * has no class scope — it is cacheable (the gate ran at resolution), it just
+			 * must not be dereferenced for the trait check. Slow path only. */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -93683,7 +94159,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_CLONE_SPEC_CV_TAIL
 	/* PHP Modules: an "internal" __clone() gates cloning to same-module callers,
 	 * mirroring how a private __clone() prevents cloning from outside. */
 	if (clone && (clone->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
-			&& !zend_module_scope_allows(clone->common.scope, EX(func)->op_array.scope)) {
+			&& !zend_module_scope_or_caller_allows(clone->common.scope, EX(func)->op_array.scope)) {
 		zend_throw_error(NULL,
 			"Cannot call internal method %s::__clone() from outside its module",
 			ZSTR_VAL(clone->common.scope->name));
@@ -110378,6 +110854,8 @@ ZEND_API void execute_ex(zend_execute_data *ex)
 			(void*)&&ZEND_NULL_LABEL,
 			(void*)&&ZEND_DECLARE_MODULE_SPEC_CONST_CONST_LABEL,
 			(void*)&&ZEND_DECLARE_MODULE_MEMBER_ALIAS_SPEC_CONST_CONST_LABEL,
+			(void*)&&ZEND_DECLARE_MODULE_FUNCTION_SPEC_CONST_CONST_LABEL,
+			(void*)&&ZEND_DECLARE_MODULE_CONST_SPEC_CONST_CONST_LABEL,
 			(void*)&&ZEND_INIT_FCALL_OFFSET_SPEC_CONST_LABEL,
 			(void*)&&ZEND_RECV_NOTYPE_SPEC_LABEL,
 			(void*)&&ZEND_NULL_LABEL,
@@ -112370,6 +112848,16 @@ zend_leave_helper_SPEC_LABEL:
 				VM_TRACE(ZEND_DECLARE_MODULE_MEMBER_ALIAS_SPEC_CONST_CONST)
 				ZEND_DECLARE_MODULE_MEMBER_ALIAS_SPEC_CONST_CONST_HANDLER(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU);
 				VM_TRACE_OP_END(ZEND_DECLARE_MODULE_MEMBER_ALIAS_SPEC_CONST_CONST)
+				HYBRID_BREAK();
+			HYBRID_CASE(ZEND_DECLARE_MODULE_CONST_SPEC_CONST_CONST):
+				VM_TRACE(ZEND_DECLARE_MODULE_CONST_SPEC_CONST_CONST)
+				ZEND_DECLARE_MODULE_CONST_SPEC_CONST_CONST_HANDLER(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU);
+				VM_TRACE_OP_END(ZEND_DECLARE_MODULE_CONST_SPEC_CONST_CONST)
+				HYBRID_BREAK();
+			HYBRID_CASE(ZEND_DECLARE_MODULE_FUNCTION_SPEC_CONST_CONST):
+				VM_TRACE(ZEND_DECLARE_MODULE_FUNCTION_SPEC_CONST_CONST)
+				ZEND_DECLARE_MODULE_FUNCTION_SPEC_CONST_CONST_HANDLER(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU);
+				VM_TRACE_OP_END(ZEND_DECLARE_MODULE_FUNCTION_SPEC_CONST_CONST)
 				HYBRID_BREAK();
 			HYBRID_CASE(ZEND_DECLARE_ATTRIBUTED_CONST_SPEC_CONST_CONST):
 				VM_TRACE(ZEND_DECLARE_ATTRIBUTED_CONST_SPEC_CONST_CONST)
@@ -119358,6 +119846,8 @@ void zend_vm_init(void)
 		ZEND_NULL_HANDLER,
 		ZEND_DECLARE_MODULE_SPEC_CONST_CONST_HANDLER,
 		ZEND_DECLARE_MODULE_MEMBER_ALIAS_SPEC_CONST_CONST_HANDLER,
+		ZEND_DECLARE_MODULE_FUNCTION_SPEC_CONST_CONST_HANDLER,
+		ZEND_DECLARE_MODULE_CONST_SPEC_CONST_CONST_HANDLER,
 		ZEND_INIT_FCALL_OFFSET_SPEC_CONST_HANDLER,
 		ZEND_RECV_NOTYPE_SPEC_HANDLER,
 		ZEND_NULL_HANDLER,
@@ -122848,6 +123338,8 @@ void zend_vm_init(void)
 		ZEND_NULL_TAILCALL_HANDLER,
 		ZEND_DECLARE_MODULE_SPEC_CONST_CONST_TAILCALL_HANDLER,
 		ZEND_DECLARE_MODULE_MEMBER_ALIAS_SPEC_CONST_CONST_TAILCALL_HANDLER,
+		ZEND_DECLARE_MODULE_FUNCTION_SPEC_CONST_CONST_TAILCALL_HANDLER,
+		ZEND_DECLARE_MODULE_CONST_SPEC_CONST_CONST_TAILCALL_HANDLER,
 		ZEND_INIT_FCALL_OFFSET_SPEC_CONST_TAILCALL_HANDLER,
 		ZEND_RECV_NOTYPE_SPEC_TAILCALL_HANDLER,
 		ZEND_NULL_TAILCALL_HANDLER,
@@ -123816,7 +124308,7 @@ void zend_vm_init(void)
 		1255,
 		1256 | SPEC_RULE_OP1,
 		1261 | SPEC_RULE_OP1,
-		3486,
+		3488,
 		1266 | SPEC_RULE_OP1,
 		1271 | SPEC_RULE_OP1,
 		1276 | SPEC_RULE_OP2,
@@ -123850,7 +124342,7 @@ void zend_vm_init(void)
 		1559 | SPEC_RULE_OP1 | SPEC_RULE_OP2,
 		1584 | SPEC_RULE_OP1,
 		1589,
-		3486,
+		3488,
 		1590 | SPEC_RULE_OP1,
 		1595 | SPEC_RULE_OP1 | SPEC_RULE_OP2,
 		1620 | SPEC_RULE_OP1 | SPEC_RULE_OP2,
@@ -123987,46 +124479,46 @@ void zend_vm_init(void)
 		2564 | SPEC_RULE_OP2,
 		2569,
 		2570,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
-		3486,
+		2571,
+		2572,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
+		3488,
 	};
 #if 0
 #elif (ZEND_VM_KIND == ZEND_VM_KIND_HYBRID)
@@ -124219,7 +124711,7 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2579 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 2581 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 				if (op->op1_type < op->op2_type) {
 					zend_swap_operands(op);
 				}
@@ -124227,7 +124719,7 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2604 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 2606 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 				if (op->op1_type < op->op2_type) {
 					zend_swap_operands(op);
 				}
@@ -124235,7 +124727,7 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2629 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 2631 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 				if (op->op1_type < op->op2_type) {
 					zend_swap_operands(op);
 				}
@@ -124246,17 +124738,17 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2654 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
+				spec = 2656 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
 			} else if (op1_info == MAY_BE_LONG && op2_info == MAY_BE_LONG) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2679 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
+				spec = 2681 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2704 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
+				spec = 2706 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
 			}
 			break;
 		case ZEND_MUL:
@@ -124267,17 +124759,17 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2729 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 2731 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 			} else if (op1_info == MAY_BE_LONG && op2_info == MAY_BE_LONG) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2754 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 2756 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2779 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 2781 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 			}
 			break;
 		case ZEND_IS_IDENTICAL:
@@ -124288,19 +124780,19 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2804 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 2806 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2879 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 2881 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op->op2_type == IS_CONST && (Z_TYPE_P(RT_CONSTANT(op, op->op2)) == IS_ARRAY && zend_hash_num_elements(Z_ARR_P(RT_CONSTANT(op, op->op2))) == 0)) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3104 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 3106 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op->op1_type == IS_CV && (op->op2_type & (IS_CONST|IS_CV)) && !(op1_info & (MAY_BE_UNDEF|MAY_BE_REF)) && !(op2_info & (MAY_BE_UNDEF|MAY_BE_REF)) && !((op1_info & op2_info) & MAY_BE_ARRAY_OF_ARRAY)) {
-				spec = 3110 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 3112 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 			}
 			break;
 		case ZEND_IS_NOT_IDENTICAL:
@@ -124311,19 +124803,19 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2954 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 2956 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3029 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 3031 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op->op2_type == IS_CONST && (Z_TYPE_P(RT_CONSTANT(op, op->op2)) == IS_ARRAY && zend_hash_num_elements(Z_ARR_P(RT_CONSTANT(op, op->op2))) == 0)) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3107 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 3109 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op->op1_type == IS_CV && (op->op2_type & (IS_CONST|IS_CV)) && !(op1_info & (MAY_BE_UNDEF|MAY_BE_REF)) && !(op2_info & (MAY_BE_UNDEF|MAY_BE_REF)) && !((op1_info & op2_info) & MAY_BE_ARRAY_OF_ARRAY)) {
-				spec = 3115 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 3117 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 			}
 			break;
 		case ZEND_IS_EQUAL:
@@ -124334,12 +124826,12 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2804 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 2806 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2879 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 2881 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			}
 			break;
 		case ZEND_IS_NOT_EQUAL:
@@ -124350,12 +124842,12 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2954 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 2956 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3029 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 3031 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			}
 			break;
 		case ZEND_IS_SMALLER:
@@ -124363,12 +124855,12 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3120 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
+				spec = 3122 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3195 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
+				spec = 3197 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
 			}
 			break;
 		case ZEND_IS_SMALLER_OR_EQUAL:
@@ -124376,79 +124868,79 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3270 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
+				spec = 3272 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3345 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
+				spec = 3347 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
 			}
 			break;
 		case ZEND_QM_ASSIGN:
 			if (op1_info == MAY_BE_LONG) {
-				spec = 3432 | SPEC_RULE_OP1;
+				spec = 3434 | SPEC_RULE_OP1;
 			} else if (op1_info == MAY_BE_DOUBLE) {
-				spec = 3437 | SPEC_RULE_OP1;
+				spec = 3439 | SPEC_RULE_OP1;
 			} else if ((op->op1_type == IS_CONST) ? !Z_REFCOUNTED_P(RT_CONSTANT(op, op->op1)) : (!(op1_info & ((MAY_BE_ANY|MAY_BE_UNDEF)-(MAY_BE_NULL|MAY_BE_FALSE|MAY_BE_TRUE|MAY_BE_LONG|MAY_BE_DOUBLE))))) {
-				spec = 3442 | SPEC_RULE_OP1;
+				spec = 3444 | SPEC_RULE_OP1;
 			}
 			break;
 		case ZEND_PRE_INC:
 			if (res_info == MAY_BE_LONG && op1_info == MAY_BE_LONG) {
-				spec = 3420 | SPEC_RULE_RETVAL;
-			} else if (op1_info == MAY_BE_LONG) {
 				spec = 3422 | SPEC_RULE_RETVAL;
+			} else if (op1_info == MAY_BE_LONG) {
+				spec = 3424 | SPEC_RULE_RETVAL;
 			}
 			break;
 		case ZEND_PRE_DEC:
 			if (res_info == MAY_BE_LONG && op1_info == MAY_BE_LONG) {
-				spec = 3424 | SPEC_RULE_RETVAL;
-			} else if (op1_info == MAY_BE_LONG) {
 				spec = 3426 | SPEC_RULE_RETVAL;
+			} else if (op1_info == MAY_BE_LONG) {
+				spec = 3428 | SPEC_RULE_RETVAL;
 			}
 			break;
 		case ZEND_POST_INC:
-			if (res_info == MAY_BE_LONG && op1_info == MAY_BE_LONG) {
-				spec = 3428;
-			} else if (op1_info == MAY_BE_LONG) {
-				spec = 3429;
-			}
-			break;
-		case ZEND_POST_DEC:
 			if (res_info == MAY_BE_LONG && op1_info == MAY_BE_LONG) {
 				spec = 3430;
 			} else if (op1_info == MAY_BE_LONG) {
 				spec = 3431;
 			}
 			break;
+		case ZEND_POST_DEC:
+			if (res_info == MAY_BE_LONG && op1_info == MAY_BE_LONG) {
+				spec = 3432;
+			} else if (op1_info == MAY_BE_LONG) {
+				spec = 3433;
+			}
+			break;
 		case ZEND_JMP:
 			if (OP_JMP_ADDR(op, op->op1) > op) {
-				spec = 2578;
+				spec = 2580;
 			}
 			break;
 		case ZEND_INIT_FCALL:
 			if (Z_EXTRA_P(RT_CONSTANT(op, op->op2)) != 0) {
-				spec = 2571;
+				spec = 2573;
 			}
 			break;
 		case ZEND_RECV:
 			if (op->op2.num == MAY_BE_ANY) {
-				spec = 2572;
+				spec = 2574;
 			}
 			break;
 		case ZEND_SEND_VAL:
 			if (op->op1_type == IS_CONST && op->op2_type == IS_UNUSED && !Z_REFCOUNTED_P(RT_CONSTANT(op, op->op1))) {
-				spec = 3482;
+				spec = 3484;
 			}
 			break;
 		case ZEND_SEND_VAR_EX:
 			if (op->op2_type == IS_UNUSED && op->op2.num <= MAX_ARG_FLAG_NUM && (op1_info & (MAY_BE_UNDEF|MAY_BE_REF)) == 0) {
-				spec = 3477 | SPEC_RULE_OP1;
+				spec = 3479 | SPEC_RULE_OP1;
 			}
 			break;
 		case ZEND_FE_FETCH_R:
 			if (op->op2_type == IS_CV && (op1_info & (MAY_BE_ANY|MAY_BE_REF)) == MAY_BE_ARRAY) {
-				spec = 3484 | SPEC_RULE_RETVAL;
+				spec = 3486 | SPEC_RULE_RETVAL;
 			}
 			break;
 		case ZEND_FETCH_DIM_R:
@@ -124456,22 +124948,22 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3447 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
+				spec = 3449 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
 			}
 			break;
 		case ZEND_SEND_VAL_EX:
 			if (op->op2_type == IS_UNUSED && op->op2.num <= MAX_ARG_FLAG_NUM && op->op1_type == IS_CONST && !Z_REFCOUNTED_P(RT_CONSTANT(op, op->op1))) {
-				spec = 3483;
+				spec = 3485;
 			}
 			break;
 		case ZEND_SEND_VAR:
 			if (op->op2_type == IS_UNUSED && (op1_info & (MAY_BE_UNDEF|MAY_BE_REF)) == 0) {
-				spec = 3472 | SPEC_RULE_OP1;
+				spec = 3474 | SPEC_RULE_OP1;
 			}
 			break;
 		case ZEND_COUNT:
 			if (op->op1_type != IS_CONST && (op1_info & (MAY_BE_ANY|MAY_BE_UNDEF|MAY_BE_REF)) == MAY_BE_ARRAY) {
-				spec = 2573 | SPEC_RULE_OP1;
+				spec = 2575 | SPEC_RULE_OP1;
 			}
 			break;
 		case ZEND_BW_OR:
