@@ -12,4 +12,4 @@ module M {
 }
 ?>
 --EXPECTF--
-Fatal error: the return type of M::N::Api::leak() references "M::Secret", which is not a public member of its module; a module's public surface may not expose internal or unclaimed types of its own module or of an enclosing one (declare a public supertype instead) in %s on line %d
+Fatal error: the return type of M::N::Api::leak() references "M::Secret", which is not a public member of module "M"; a module's public surface may not expose internal or unclaimed types of its own module or of an enclosing one (declare a public supertype instead) in %s on line %d

@@ -1,0 +1,15 @@
+diff a/Zend/zend_object_handlers.c b/Zend/zend_object_handlers.c	(rejected hunks)
+@@ -2237,6 +2237,13 @@ ZEND_API bool zend_module_container_allows(
+ 	return zend_module_path_covers(cval, clen, sval, slen);
+ }
+ 
++/* PHP Modules: exported form of zend_module_owner_path — the module owning `ce`'s own
++ * internal members. False when `ce` is not module code. */
++ZEND_API bool zend_module_owner_path_of(const zend_class_entry *ce, const char **val, size_t *len)
++{
++	return zend_module_owner_path(ce, val, len);
++}
++
+ /* PHP Modules: exported string form of the ancestor-or-self test, for callers that
+  * already hold both module paths (the module-function gate). */
+ ZEND_API bool zend_module_path_covers_str(

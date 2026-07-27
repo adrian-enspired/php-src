@@ -7615,6 +7615,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 			if (IS_CONST != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+
+
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_CONST == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -7893,6 +7899,14 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 		if (IS_CONST == IS_CONST) {
 			if (EXPECTED(CACHED_PTR(opline->extended_value))) {
 				ce = CACHED_PTR(opline->extended_value);
+				if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+					/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+					zend_throw_module_access_error(ce);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+					HANDLE_EXCEPTION();
+				}
 			} else {
 				ce = zend_fetch_class_by_name(Z_STR_P(RT_CONSTANT(opline, opline->op1)), Z_STR_P(RT_CONSTANT(opline, opline->op1) + 1), ZEND_FETCH_CLASS_DEFAULT | ZEND_FETCH_CLASS_EXCEPTION);
 				if (UNEXPECTED(ce == NULL)) {
@@ -9356,6 +9370,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 		if (IS_CONST == IS_CONST) {
 			if (EXPECTED(CACHED_PTR(opline->extended_value))) {
 				ce = CACHED_PTR(opline->extended_value);
+				if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+					/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+					zend_throw_module_access_error(ce);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+					FREE_OP(opline->op2_type, opline->op2.var);
+					HANDLE_EXCEPTION();
+				}
 			} else {
 				ce = zend_fetch_class_by_name(Z_STR_P(RT_CONSTANT(opline, opline->op1)), Z_STR_P(RT_CONSTANT(opline, opline->op1) + 1), ZEND_FETCH_CLASS_DEFAULT | ZEND_FETCH_CLASS_EXCEPTION);
 				if (UNEXPECTED(ce == NULL)) {
@@ -10604,6 +10625,11 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 			if (IS_TMP_VAR != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			zval_ptr_dtor_nogc(EX_VAR(opline->op2.var));
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_CONST == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -11395,6 +11421,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 			if (IS_UNUSED != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+
+
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_CONST == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -11705,6 +11737,11 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_NEW_SPEC_CONS
 				HANDLE_EXCEPTION();
 			}
 			CACHE_PTR(opline->op2.num, ce);
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			ZVAL_UNDEF(EX_VAR(opline->result.var));
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_CONST == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -13279,6 +13316,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 			if (IS_CV != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+
+
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_CONST == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -25940,6 +25983,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 			if (IS_CONST != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+
+
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_VAR == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -26370,6 +26419,14 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 		if (IS_VAR == IS_CONST) {
 			if (EXPECTED(CACHED_PTR(opline->extended_value))) {
 				ce = CACHED_PTR(opline->extended_value);
+				if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+					/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+					zend_throw_module_access_error(ce);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+					HANDLE_EXCEPTION();
+				}
 			} else {
 				ce = zend_fetch_class_by_name(Z_STR_P(RT_CONSTANT(opline, opline->op1)), Z_STR_P(RT_CONSTANT(opline, opline->op1) + 1), ZEND_FETCH_CLASS_DEFAULT | ZEND_FETCH_CLASS_EXCEPTION);
 				if (UNEXPECTED(ce == NULL)) {
@@ -26970,6 +27027,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 		if (IS_VAR == IS_CONST) {
 			if (EXPECTED(CACHED_PTR(opline->extended_value))) {
 				ce = CACHED_PTR(opline->extended_value);
+				if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+					/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+					zend_throw_module_access_error(ce);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+					FREE_OP(opline->op2_type, opline->op2.var);
+					HANDLE_EXCEPTION();
+				}
 			} else {
 				ce = zend_fetch_class_by_name(Z_STR_P(RT_CONSTANT(opline, opline->op1)), Z_STR_P(RT_CONSTANT(opline, opline->op1) + 1), ZEND_FETCH_CLASS_DEFAULT | ZEND_FETCH_CLASS_EXCEPTION);
 				if (UNEXPECTED(ce == NULL)) {
@@ -28749,6 +28813,11 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 			if (IS_TMP_VAR != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			zval_ptr_dtor_nogc(EX_VAR(opline->op2.var));
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_VAR == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -29953,6 +30022,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 			if (IS_UNUSED != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+
+
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_VAR == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -30585,6 +30660,11 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_NEW_SPEC_VAR_
 				HANDLE_EXCEPTION();
 			}
 			CACHE_PTR(opline->op2.num, ce);
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			ZVAL_UNDEF(EX_VAR(opline->result.var));
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_VAR == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -32639,6 +32719,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 			if (IS_CV != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+
+
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_VAR == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -34665,6 +34751,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_S
 			class_name = RT_CONSTANT(opline, opline->op2);
 			ce = zend_fetch_class_by_name(Z_STR_P(class_name), Z_STR_P(class_name + 1), opline->op1.num);
 			CACHE_PTR(opline->extended_value, ce);
+		} else if (!(opline->op1.num & ZEND_FETCH_CLASS_SILENT)
+				&& UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			ZVAL_UNDEF(EX_VAR(opline->result.var));
+			HANDLE_EXCEPTION();
 		}
 		Z_CE_P(EX_VAR(opline->result.var)) = ce;
 	} else {
@@ -34879,6 +34971,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 			if (IS_CONST != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+
+
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_UNUSED == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -35088,6 +35186,14 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 		if (IS_UNUSED == IS_CONST) {
 			if (EXPECTED(CACHED_PTR(opline->extended_value))) {
 				ce = CACHED_PTR(opline->extended_value);
+				if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+					/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+					zend_throw_module_access_error(ce);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+					HANDLE_EXCEPTION();
+				}
 			} else {
 				ce = zend_fetch_class_by_name(Z_STR_P(RT_CONSTANT(opline, opline->op1)), Z_STR_P(RT_CONSTANT(opline, opline->op1) + 1), ZEND_FETCH_CLASS_DEFAULT | ZEND_FETCH_CLASS_EXCEPTION);
 				if (UNEXPECTED(ce == NULL)) {
@@ -35529,6 +35635,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 		if (IS_UNUSED == IS_CONST) {
 			if (EXPECTED(CACHED_PTR(opline->extended_value))) {
 				ce = CACHED_PTR(opline->extended_value);
+				if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+					/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+					zend_throw_module_access_error(ce);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+					FREE_OP(opline->op2_type, opline->op2.var);
+					HANDLE_EXCEPTION();
+				}
 			} else {
 				ce = zend_fetch_class_by_name(Z_STR_P(RT_CONSTANT(opline, opline->op1)), Z_STR_P(RT_CONSTANT(opline, opline->op1) + 1), ZEND_FETCH_CLASS_DEFAULT | ZEND_FETCH_CLASS_EXCEPTION);
 				if (UNEXPECTED(ce == NULL)) {
@@ -36891,6 +37004,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_S
 			class_name = _get_zval_ptr_tmp(opline->op2.var EXECUTE_DATA_CC);
 			ce = zend_fetch_class_by_name(Z_STR_P(class_name), Z_STR_P(class_name + 1), opline->op1.num);
 			CACHE_PTR(opline->extended_value, ce);
+		} else if (!(opline->op1.num & ZEND_FETCH_CLASS_SILENT)
+				&& UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			ZVAL_UNDEF(EX_VAR(opline->result.var));
+			HANDLE_EXCEPTION();
 		}
 		Z_CE_P(EX_VAR(opline->result.var)) = ce;
 	} else {
@@ -37099,6 +37218,11 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 			if (IS_TMP_VAR != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			zval_ptr_dtor_nogc(EX_VAR(opline->op2.var));
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_UNUSED == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -37469,6 +37593,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_S
 			class_name = NULL;
 			ce = zend_fetch_class_by_name(Z_STR_P(class_name), Z_STR_P(class_name + 1), opline->op1.num);
 			CACHE_PTR(opline->extended_value, ce);
+		} else if (!(opline->op1.num & ZEND_FETCH_CLASS_SILENT)
+				&& UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			ZVAL_UNDEF(EX_VAR(opline->result.var));
+			HANDLE_EXCEPTION();
 		}
 		Z_CE_P(EX_VAR(opline->result.var)) = ce;
 	} else {
@@ -37520,6 +37650,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 			if (IS_UNUSED != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+
+
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_UNUSED == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -37834,6 +37970,11 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_NEW_SPEC_UNUS
 				HANDLE_EXCEPTION();
 			}
 			CACHE_PTR(opline->op2.num, ce);
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			ZVAL_UNDEF(EX_VAR(opline->result.var));
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_UNUSED == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -39508,6 +39649,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_S
 			class_name = EX_VAR(opline->op2.var);
 			ce = zend_fetch_class_by_name(Z_STR_P(class_name), Z_STR_P(class_name + 1), opline->op1.num);
 			CACHE_PTR(opline->extended_value, ce);
+		} else if (!(opline->op1.num & ZEND_FETCH_CLASS_SILENT)
+				&& UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			ZVAL_UNDEF(EX_VAR(opline->result.var));
+			HANDLE_EXCEPTION();
 		}
 		Z_CE_P(EX_VAR(opline->result.var)) = ce;
 	} else {
@@ -39722,6 +39869,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_INIT_STATIC_M
 			if (IS_CV != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+
+
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_UNUSED == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -61058,6 +61211,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 			if (IS_CONST != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+
+
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_CONST == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -61336,6 +61495,14 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 		if (IS_CONST == IS_CONST) {
 			if (EXPECTED(CACHED_PTR(opline->extended_value))) {
 				ce = CACHED_PTR(opline->extended_value);
+				if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+					/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+					zend_throw_module_access_error(ce);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+					HANDLE_EXCEPTION();
+				}
 			} else {
 				ce = zend_fetch_class_by_name(Z_STR_P(RT_CONSTANT(opline, opline->op1)), Z_STR_P(RT_CONSTANT(opline, opline->op1) + 1), ZEND_FETCH_CLASS_DEFAULT | ZEND_FETCH_CLASS_EXCEPTION);
 				if (UNEXPECTED(ce == NULL)) {
@@ -62799,6 +62966,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 		if (IS_CONST == IS_CONST) {
 			if (EXPECTED(CACHED_PTR(opline->extended_value))) {
 				ce = CACHED_PTR(opline->extended_value);
+				if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+					/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+					zend_throw_module_access_error(ce);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+					FREE_OP(opline->op2_type, opline->op2.var);
+					HANDLE_EXCEPTION();
+				}
 			} else {
 				ce = zend_fetch_class_by_name(Z_STR_P(RT_CONSTANT(opline, opline->op1)), Z_STR_P(RT_CONSTANT(opline, opline->op1) + 1), ZEND_FETCH_CLASS_DEFAULT | ZEND_FETCH_CLASS_EXCEPTION);
 				if (UNEXPECTED(ce == NULL)) {
@@ -64047,6 +64221,11 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 			if (IS_TMP_VAR != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			zval_ptr_dtor_nogc(EX_VAR(opline->op2.var));
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_CONST == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -64736,6 +64915,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 			if (IS_UNUSED != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+
+
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_CONST == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -65046,6 +65231,11 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_NEW_SPEC_CONST_UNU
 				HANDLE_EXCEPTION();
 			}
 			CACHE_PTR(opline->op2.num, ce);
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			ZVAL_UNDEF(EX_VAR(opline->result.var));
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_CONST == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -66620,6 +66810,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 			if (IS_CV != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+
+
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_CONST == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -79181,6 +79377,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 			if (IS_CONST != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+
+
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_VAR == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -79611,6 +79813,14 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 		if (IS_VAR == IS_CONST) {
 			if (EXPECTED(CACHED_PTR(opline->extended_value))) {
 				ce = CACHED_PTR(opline->extended_value);
+				if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+					/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+					zend_throw_module_access_error(ce);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+					HANDLE_EXCEPTION();
+				}
 			} else {
 				ce = zend_fetch_class_by_name(Z_STR_P(RT_CONSTANT(opline, opline->op1)), Z_STR_P(RT_CONSTANT(opline, opline->op1) + 1), ZEND_FETCH_CLASS_DEFAULT | ZEND_FETCH_CLASS_EXCEPTION);
 				if (UNEXPECTED(ce == NULL)) {
@@ -80211,6 +80421,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 		if (IS_VAR == IS_CONST) {
 			if (EXPECTED(CACHED_PTR(opline->extended_value))) {
 				ce = CACHED_PTR(opline->extended_value);
+				if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+					/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+					zend_throw_module_access_error(ce);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+					FREE_OP(opline->op2_type, opline->op2.var);
+					HANDLE_EXCEPTION();
+				}
 			} else {
 				ce = zend_fetch_class_by_name(Z_STR_P(RT_CONSTANT(opline, opline->op1)), Z_STR_P(RT_CONSTANT(opline, opline->op1) + 1), ZEND_FETCH_CLASS_DEFAULT | ZEND_FETCH_CLASS_EXCEPTION);
 				if (UNEXPECTED(ce == NULL)) {
@@ -81990,6 +82207,11 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 			if (IS_TMP_VAR != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			zval_ptr_dtor_nogc(EX_VAR(opline->op2.var));
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_VAR == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -83194,6 +83416,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 			if (IS_UNUSED != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+
+
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_VAR == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -83826,6 +84054,11 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_NEW_SPEC_VAR_UNUSE
 				HANDLE_EXCEPTION();
 			}
 			CACHE_PTR(opline->op2.num, ce);
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			ZVAL_UNDEF(EX_VAR(opline->result.var));
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_VAR == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -85880,6 +86113,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 			if (IS_CV != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+
+
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_VAR == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -87906,6 +88145,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_SPEC_U
 			class_name = RT_CONSTANT(opline, opline->op2);
 			ce = zend_fetch_class_by_name(Z_STR_P(class_name), Z_STR_P(class_name + 1), opline->op1.num);
 			CACHE_PTR(opline->extended_value, ce);
+		} else if (!(opline->op1.num & ZEND_FETCH_CLASS_SILENT)
+				&& UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			ZVAL_UNDEF(EX_VAR(opline->result.var));
+			HANDLE_EXCEPTION();
 		}
 		Z_CE_P(EX_VAR(opline->result.var)) = ce;
 	} else {
@@ -88120,6 +88365,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 			if (IS_CONST != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+
+
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_UNUSED == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -88329,6 +88580,14 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 		if (IS_UNUSED == IS_CONST) {
 			if (EXPECTED(CACHED_PTR(opline->extended_value))) {
 				ce = CACHED_PTR(opline->extended_value);
+				if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+					/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+					zend_throw_module_access_error(ce);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+					HANDLE_EXCEPTION();
+				}
 			} else {
 				ce = zend_fetch_class_by_name(Z_STR_P(RT_CONSTANT(opline, opline->op1)), Z_STR_P(RT_CONSTANT(opline, opline->op1) + 1), ZEND_FETCH_CLASS_DEFAULT | ZEND_FETCH_CLASS_EXCEPTION);
 				if (UNEXPECTED(ce == NULL)) {
@@ -88770,6 +89029,13 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 		if (IS_UNUSED == IS_CONST) {
 			if (EXPECTED(CACHED_PTR(opline->extended_value))) {
 				ce = CACHED_PTR(opline->extended_value);
+				if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+					/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+					zend_throw_module_access_error(ce);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+					FREE_OP(opline->op2_type, opline->op2.var);
+					HANDLE_EXCEPTION();
+				}
 			} else {
 				ce = zend_fetch_class_by_name(Z_STR_P(RT_CONSTANT(opline, opline->op1)), Z_STR_P(RT_CONSTANT(opline, opline->op1) + 1), ZEND_FETCH_CLASS_DEFAULT | ZEND_FETCH_CLASS_EXCEPTION);
 				if (UNEXPECTED(ce == NULL)) {
@@ -90132,6 +90398,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_SPEC_U
 			class_name = _get_zval_ptr_tmp(opline->op2.var EXECUTE_DATA_CC);
 			ce = zend_fetch_class_by_name(Z_STR_P(class_name), Z_STR_P(class_name + 1), opline->op1.num);
 			CACHE_PTR(opline->extended_value, ce);
+		} else if (!(opline->op1.num & ZEND_FETCH_CLASS_SILENT)
+				&& UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			ZVAL_UNDEF(EX_VAR(opline->result.var));
+			HANDLE_EXCEPTION();
 		}
 		Z_CE_P(EX_VAR(opline->result.var)) = ce;
 	} else {
@@ -90340,6 +90612,11 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 			if (IS_TMP_VAR != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			zval_ptr_dtor_nogc(EX_VAR(opline->op2.var));
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_UNUSED == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -90710,6 +90987,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_SPEC_U
 			class_name = NULL;
 			ce = zend_fetch_class_by_name(Z_STR_P(class_name), Z_STR_P(class_name + 1), opline->op1.num);
 			CACHE_PTR(opline->extended_value, ce);
+		} else if (!(opline->op1.num & ZEND_FETCH_CLASS_SILENT)
+				&& UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			ZVAL_UNDEF(EX_VAR(opline->result.var));
+			HANDLE_EXCEPTION();
 		}
 		Z_CE_P(EX_VAR(opline->result.var)) = ce;
 	} else {
@@ -90761,6 +91044,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 			if (IS_UNUSED != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+
+
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_UNUSED == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -91075,6 +91364,11 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_NEW_SPEC_UNUSED_UN
 				HANDLE_EXCEPTION();
 			}
 			CACHE_PTR(opline->op2.num, ce);
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			ZVAL_UNDEF(EX_VAR(opline->result.var));
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_UNUSED == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -92749,6 +93043,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_SPEC_U
 			class_name = EX_VAR(opline->op2.var);
 			ce = zend_fetch_class_by_name(Z_STR_P(class_name), Z_STR_P(class_name + 1), opline->op1.num);
 			CACHE_PTR(opline->extended_value, ce);
+		} else if (!(opline->op1.num & ZEND_FETCH_CLASS_SILENT)
+				&& UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+			ZVAL_UNDEF(EX_VAR(opline->result.var));
+			HANDLE_EXCEPTION();
 		}
 		Z_CE_P(EX_VAR(opline->result.var)) = ce;
 	} else {
@@ -92963,6 +93263,12 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_STATIC_METHOD
 			if (IS_CV != IS_CONST) {
 				CACHE_PTR(opline->result.num, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution, not authorization. */
+			zend_throw_module_access_error(ce);
+
+
+			HANDLE_EXCEPTION();
 		}
 	} else if (IS_UNUSED == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);

@@ -3764,6 +3764,12 @@ static zend_never_inline zval* zend_fetch_static_property_address_ex(zend_proper
 			if (UNEXPECTED(op1_type != IS_CONST)) {
 				CACHE_PTR(cache_slot, ce);
 			}
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate; the slot caches resolution,
+			 * not authorization. */
+			zend_throw_module_access_error(ce);
+			FREE_OP(op1_type, opline->op1.var);
+			return NULL;
 		}
 	} else {
 		if (EXPECTED(op2_type == IS_UNUSED)) {

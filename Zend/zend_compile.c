@@ -6222,12 +6222,26 @@ static void zend_module_check_public_surface_type(const zend_type type, const ch
 		if (ZEND_TYPE_HAS_NAME(*single_type)) {
 			zend_string *tname = ZEND_TYPE_NAME(*single_type);
 			if (zend_module_type_name_is_own_nonpublic(tname)) {
+				/* Name the OWNING module, not FC(current_module): under the ancestor
+				 * rule the offending type may belong to an enclosing module, and
+				 * saying "module X" when the type lives in X's parent would misdirect.
+				 * The owner is the prefix before the last "::". */
+				const char *tv = ZSTR_VAL(tname);
+				size_t tlen = ZSTR_LEN(tname);
+				const char *last = NULL;
+				for (const char *q = zend_memnstr(tv, "::", 2, tv + tlen); q;
+						q = zend_memnstr(q + 2, "::", 2, tv + tlen)) {
+					last = q;
+				}
+				zend_string *owner = last
+					? zend_string_init(tv, (size_t) (last - tv), 0)
+					: zend_string_copy(FC(current_module));
 				zend_error_noreturn(E_COMPILE_ERROR,
-					"%s references \"%s\", which is not a public member of its module; "
+					"%s references \"%s\", which is not a public member of module \"%s\"; "
 					"a module's public surface may not expose internal or unclaimed types "
 					"of its own module or of an enclosing one "
 					"(declare a public supertype instead)",
-					where, ZSTR_VAL(tname));
+					where, ZSTR_VAL(tname), ZSTR_VAL(owner));
 			}
 		}
 	} ZEND_TYPE_FOREACH_END();
