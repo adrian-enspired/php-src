@@ -6154,12 +6154,21 @@ static void zend_compile_static_call(znode *result, zend_ast *ast, uint32_t type
 }
 /* }}} */
 
-/* PHP Modules: a module's public surface may not name its OWN internal or unclaimed
- * types. Framed positively: a type that is a member of *this* module must resolve to a
- * PUBLIC member (public inline declaration or a `public` claim). Internal, unclaimed
- * (=> internal by default), or absent-from-roster all fail closed. Only same-module
- * types are checked -- another module's members may be uncompiled (cold) at this point,
- * so their visibility is not decidable here, and they are left to the runtime gate. */
+/* PHP Modules: a module's public surface may not name a NON-PUBLIC type of its own
+ * module or of any ANCESTOR module. Framed positively: a type owned by this module or by
+ * one of its containers must resolve to a PUBLIC member. Internal, unclaimed (=> internal
+ * by default), or absent-from-roster all fail closed.
+ *
+ * Ancestors are included because a member of "M::N" may access M's internals (visibility
+ * runs down the containment chain) — so without this it could name "M::Secret" in a
+ * signature that IS reachable from outside M, publishing a type M declared internal.
+ * The set checked is exactly the set the ancestor rule makes reachable.
+ *
+ * A sibling or unrelated module is still skipped: it may be uncompiled (cold) here, so
+ * its visibility is not decidable, and the runtime gate handles it. An ancestor is
+ * normally already compiled (it lexically encloses, or its definition was loaded to
+ * resolve membership), but a split "module M::N;" file may still find it cold — in which
+ * case we also defer to the runtime gate rather than guess. */
 static bool zend_module_type_name_is_own_nonpublic(zend_string *tname)
 {
 	if (!FC(current_module)) {
@@ -6176,24 +6185,29 @@ static bool zend_module_type_name_is_own_nonpublic(zend_string *tname)
 		return false;                      /* not a module-qualified name */
 	}
 	size_t owner_len = (size_t)(last - v);
-	if (owner_len != ZSTR_LEN(cur)
-	 || zend_binary_strncasecmp(v, owner_len, ZSTR_VAL(cur), ZSTR_LEN(cur), owner_len) != 0) {
+
+	/* The owner must be this module or one of its ancestors: an ancestor-or-self
+	 * prefix of FC(current_module), on a "::" boundary. */
+	if (owner_len > ZSTR_LEN(cur)) {
+		return false;                      /* deeper than us — not an ancestor */
+	}
+	if (owner_len != ZSTR_LEN(cur) && ZSTR_VAL(cur)[owner_len] != ':') {
+		return false;                      /* shares a prefix but not on a boundary */
+	}
+	if (zend_binary_strncasecmp(ZSTR_VAL(cur), owner_len, v, owner_len, owner_len) != 0) {
 		return false;                      /* a member of some *other* module */
 	}
-	/* Same-module type: it must be *provably public* -- a PUBLIC entry in this module's
-	 * compile-time roster (which holds every inline member and every claim, so public
-	 * membership is always decidable). Anything else is rejected: an internal member, an
-	 * unclaimed member (internal by default), or a bare name that is not a member at all.
-	 * The last is intentional -- a bare unqualified/qualified name inside a module is
-	 * module-relative ("Exception" -> "M::Exception"; there is no global fallback for
-	 * class names), so a non-member reference is an error the author fixes by writing
-	 * "\Global" or a `use` import (both of which resolve away from "M::" and are not
-	 * checked here). */
-	zend_string *lc_owner = zend_string_tolower(cur);
-	zend_php_module *m = zend_lookup_module(lc_owner);
+
+	/* Resolve against the OWNER's roster (which holds every inline member and every
+	 * claim), not our own — the type belongs to the owner, and only the owner can say
+	 * whether it is public. */
+	zend_string *lc_owner = zend_string_init(v, owner_len, 0);
+	zend_string *lc_owner_lc = zend_string_tolower(lc_owner);
 	zend_string_release(lc_owner);
+	zend_php_module *m = zend_lookup_module(lc_owner_lc);
+	zend_string_release(lc_owner_lc);
 	if (!m) {
-		return false;
+		return false;                      /* cold — defer to the runtime gate */
 	}
 	zend_string *lc = zend_string_tolower(tname);
 	void *vis = zend_hash_find_ptr(&m->members, lc);
@@ -6209,10 +6223,11 @@ static void zend_module_check_public_surface_type(const zend_type type, const ch
 			zend_string *tname = ZEND_TYPE_NAME(*single_type);
 			if (zend_module_type_name_is_own_nonpublic(tname)) {
 				zend_error_noreturn(E_COMPILE_ERROR,
-					"%s references \"%s\", which is not a public member of module \"%s\"; "
+					"%s references \"%s\", which is not a public member of its module; "
 					"a module's public surface may not expose internal or unclaimed types "
+					"of its own module or of an enclosing one "
 					"(declare a public supertype instead)",
-					where, ZSTR_VAL(tname), ZSTR_VAL(FC(current_module)));
+					where, ZSTR_VAL(tname));
 			}
 		}
 	} ZEND_TYPE_FOREACH_END();

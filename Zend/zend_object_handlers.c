@@ -2095,12 +2095,74 @@ static const char *zend_module_owner_last_sep(const char *val, size_t len)
 	return last;
 }
 
+/* PHP Modules: ancestor-or-self test over canonical module paths. True iff the module
+ * path (aval,alen) is (dval,dlen) itself, or a "::"-boundary ancestor prefix of it. This
+ * is THE visibility comparison — every gate reduces to it.
+ *
+ * The boundary check needs only one byte: a module path is a chain of PHP identifiers
+ * joined by "::", and an identifier cannot contain ':', so within a module path a ':'
+ * can only be the first byte of a "::". (Reading d[alen] is safe: dlen > alen here, and
+ * zend_strings are NUL-terminated regardless.) Without this check, module "M" would be
+ * read as an ancestor of the unrelated module "MX". */
+static zend_always_inline bool zend_module_path_covers(
+		const char *aval, size_t alen, const char *dval, size_t dlen)
+{
+	if (dlen < alen) {
+		return false;
+	}
+	if (dlen != alen && dval[alen] != ':') {
+		return false;
+	}
+	return zend_binary_strncasecmp(dval, alen, aval, alen, alen) == 0;
+}
+
+/* The module that OWNS `ce`'s own internal members (methods, properties, constants).
+ * For a module backing class that is the module itself (its internal statics belong to
+ * it); for a member class it is the name before the last "::". False => not in a
+ * module, nothing to gate. */
+static zend_always_inline bool zend_module_owner_path(
+		const zend_class_entry *ce, const char **val, size_t *len)
+{
+	const char *v = ZSTR_VAL(ce->name);
+	if (ce->ce_flags & ZEND_ACC_MODULE) {
+		*val = v;
+		*len = ZSTR_LEN(ce->name);
+		return true;
+	}
+	const char *sep = zend_module_owner_last_sep(v, ZSTR_LEN(ce->name));
+	if (!sep) {
+		return false;
+	}
+	*val = v;
+	*len = (size_t) (sep - v);
+	return true;
+}
+
+/* The module that DECIDES `ce`'s visibility AS A MEMBER — always its container, i.e.
+ * the name before the last "::", for every kind of member alike (class, interface,
+ * enum, trait, and a nested module's backing class). This is the twin of
+ * zend_module_member_is_internal(), which resolves the same container to answer "is it
+ * internal?"; this answers "may this scope cross into it?". Keeping the two on the same
+ * container is what makes visibility uniform across member kinds. */
+static zend_always_inline bool zend_module_container_path(
+		const zend_class_entry *ce, const char **val, size_t *len)
+{
+	const char *v = ZSTR_VAL(ce->name);
+	const char *sep = zend_module_owner_last_sep(v, ZSTR_LEN(ce->name));
+	if (!sep) {
+		return false;   /* top-level: no container, always public */
+	}
+	*val = v;
+	*len = (size_t) (sep - v);
+	return true;
+}
+
 /* PHP Modules: the runtime variant of zend_module_scope_allows — when there is no class
  * scope, the caller may STILL be module code: a MODULE FUNCTION or a module-born closure
  * (both scope-less, both carrying their module in their name — see
  * ZEND_ACC2_FN_MODULE_MEMBER). Derive the caller's module from the executing frame and
- * apply the same flat same-module rule. Use this at RUNTIME access gates only; link-time
- * and optimizer checks keep the pure CE form (they must not consult the live stack). */
+ * apply the same rule. Use this at RUNTIME access gates only; link-time and optimizer
+ * checks keep the pure CE form (they must not consult the live stack). */
 ZEND_API bool zend_module_scope_or_caller_allows(
 		const zend_class_entry *member_ce, const zend_class_entry *scope)
 {
@@ -2112,20 +2174,19 @@ ZEND_API bool zend_module_scope_or_caller_allows(
 	if (!zend_module_current_caller_module(&cv, &clen)) {
 		return false;
 	}
-	const char *mval = ZSTR_VAL(member_ce->name);
+	const char *mval;
 	size_t mlen;
-	if (member_ce->ce_flags & ZEND_ACC_MODULE) {
-		mlen = ZSTR_LEN(member_ce->name);
-	} else {
-		const char *sep = zend_module_owner_last_sep(mval, ZSTR_LEN(member_ce->name));
-		if (!sep) {
-			return true; /* not in a module — nothing to gate */
-		}
-		mlen = (size_t) (sep - mval);
+	if (!zend_module_owner_path(member_ce, &mval, &mlen)) {
+		return true; /* not in a module — nothing to gate */
 	}
-	return clen == mlen && zend_binary_strncasecmp(cv, clen, mval, mlen, mlen) == 0;
+	return zend_module_path_covers(mval, mlen, cv, clen);
 }
 
+/* PHP Modules: may code executing in `scope` reach an `internal` member of `member_ce`'s
+ * module? Yes if the accessor's module IS that module, or is nested beneath it —
+ * visibility runs DOWN the containment chain, never up or sideways. So a member of
+ * "M::N" reaches M's internals; M does not reach "M::N"'s; and "M::N" does not reach
+ * sibling "M::O"'s (M::O is not an ancestor of M::N). */
 ZEND_API bool zend_module_scope_allows(
 		const zend_class_entry *member_ce, const zend_class_entry *scope)
 {
@@ -2140,93 +2201,90 @@ ZEND_API bool zend_module_scope_allows(
 		return false;
 	}
 
-	const char *mval = ZSTR_VAL(member_ce->name);
+	const char *mval;
 	size_t mlen;
-	if (member_ce->ce_flags & ZEND_ACC_MODULE) {
-		/* A module backing class: the owning module is its own full name (used to gate
-		 * the module's own internal static members against the module's own code). */
-		mlen = ZSTR_LEN(member_ce->name);
-	} else {
-		/* A member class: the owning module is everything before the last "::" (for a
-		 * nested member "Outer::Inner::X" that is its immediate module "Outer::Inner"). */
-		const char *msep = zend_module_owner_last_sep(mval, ZSTR_LEN(member_ce->name));
-		if (!msep) {
-			return true; /* not in a module — nothing to gate */
-		}
-		mlen = (size_t)(msep - mval);
+	if (!zend_module_owner_path(member_ce, &mval, &mlen)) {
+		return true; /* not in a module — nothing to gate */
+	}
+	const char *sval;
+	size_t slen;
+	if (!zend_module_owner_path(scope, &sval, &slen)) {
+		return false; /* accessor is not module code */
+	}
+	return zend_module_path_covers(mval, mlen, sval, slen);
+}
+
+/* PHP Modules: the STRICT (exact same module) form. Retained for the one gate that must
+ * not follow the ancestor rule: a class `use` of an `internal` trait. A trait is
+ * FLATTENED into the using class, so its members are re-homed to the using class's
+ * module — an internal member copied into a descendant module would leave its defining
+ * module rather than stay contained by it. Descendants may still name and observe an
+ * internal ancestor trait; they may not `use` it. */
+ZEND_API bool zend_module_scope_allows_exact(
+		const zend_class_entry *member_ce, const zend_class_entry *scope)
+{
+	if (member_ce == scope) {
+		return true;
+	}
+	if (!scope) {
+		return false;
+	}
+	const char *mval;
+	size_t mlen;
+	if (!zend_module_owner_path(member_ce, &mval, &mlen)) {
+		return true;
+	}
+	const char *sval;
+	size_t slen;
+	if (!zend_module_owner_path(scope, &sval, &slen)) {
+		return false;
+	}
+	return slen == mlen && zend_binary_strncasecmp(sval, mlen, mval, mlen, mlen) == 0;
+}
+
+/* PHP Modules: may code in `scope` cross INTO `ce` as a member of its container? Used by
+ * the runtime gate's containment walk for every child alike — a leaf member class and a
+ * nested module's backing class are the same question, answered against the same
+ * container. (This is what zend_module_scope_can_see_module used to answer for modules
+ * only, with a separate hand-rolled rule.) */
+ZEND_API bool zend_module_container_allows(
+		const zend_class_entry *ce, const zend_class_entry *scope)
+{
+	const char *cval;
+	size_t clen;
+	if (!zend_module_container_path(ce, &cval, &clen)) {
+		return true; /* top-level, no container */
 	}
 	if (!scope) {
 		return false;
 	}
 	const char *sval;
 	size_t slen;
-	if (scope->ce_flags & ZEND_ACC_MODULE) {
-		sval = ZSTR_VAL(scope->name);
-		slen = ZSTR_LEN(scope->name);
-	} else {
-		sval = ZSTR_VAL(scope->name);
-		const char *ssep = zend_module_owner_last_sep(sval, ZSTR_LEN(scope->name));
-		if (!ssep) {
-			return false;
-		}
-		slen = (size_t)(ssep - sval);
-	}
-	/* Strict: a member's own `internal` visibility requires the accessor to be in that
-	 * exact module. Scope membership is NOT transitive — code in "Outer::Inner" is in
-	 * module "Outer::Inner", not "Outer". (The separate "can a scope see an internal
-	 * nested *module*" question — where a parent's members legitimately see it — is
-	 * handled by zend_module_scope_can_see_module in the runtime access gate.) */
-	if (slen != mlen) {
+	if (!zend_module_owner_path(scope, &sval, &slen)) {
 		return false;
 	}
-	return zend_binary_strncasecmp(sval, mlen, mval, mlen, mlen) == 0;
+	return zend_module_path_covers(cval, clen, sval, slen);
 }
 
-/* PHP Modules: can code executing in `scope` see the internal nested module whose
- * backing class is `module_ce` (canonical name "P::M", internal to parent "P")? Two
- * ways, and only these: the scope is inside M's own subtree (M itself or a member/
- * sub-module nested under it — it is your own module), or the scope is a direct
- * member of the parent P (P sees its internal member M). Merely being nested under P
- * elsewhere does not count — scope membership is not transitive. */
-ZEND_API bool zend_module_scope_can_see_module(
-		const zend_class_entry *module_ce, const zend_class_entry *scope)
+/* PHP Modules: exported string form of the ancestor-or-self test, for callers that
+ * already hold both module paths (the module-function gate). */
+ZEND_API bool zend_module_path_covers_str(
+		const char *aval, size_t alen, const char *dval, size_t dlen)
 {
-	if (!scope) {
-		return false;
-	}
-	const char *fm = ZSTR_VAL(module_ce->name);
-	size_t fm_len = ZSTR_LEN(module_ce->name);
+	return zend_module_path_covers(aval, alen, dval, dlen);
+}
 
-	/* Scope's own module path (a backing class is its own module; a member class is
-	 * everything before its last "::"). */
-	const char *sval = ZSTR_VAL(scope->name);
-	size_t slen;
-	if (scope->ce_flags & ZEND_ACC_MODULE) {
-		slen = ZSTR_LEN(scope->name);
-	} else {
-		const char *ssep = zend_module_owner_last_sep(sval, ZSTR_LEN(scope->name));
-		if (!ssep) {
-			return false;
-		}
-		slen = (size_t)(ssep - sval);
-	}
-
-	/* Inside M's subtree: scope module == M, or nested under M ("M::" prefix). */
-	if (slen >= fm_len
-	 && zend_binary_strncasecmp(sval, fm_len, fm, fm_len, fm_len) == 0
-	 && (slen == fm_len || (sval[fm_len] == ':' && sval[fm_len + 1] == ':'))) {
+/* PHP Modules: string form of zend_module_container_allows, for a scope-less caller
+ * (module function / module-born closure) whose module path is already in hand. */
+ZEND_API bool zend_module_container_allows_prefix(
+		const zend_class_entry *ce, const char *cval, size_t clen)
+{
+	const char *conv;
+	size_t conlen;
+	if (!zend_module_container_path(ce, &conv, &conlen)) {
 		return true;
 	}
-
-	/* Direct member of the parent P (M's name before its last "::"). */
-	const char *psep = zend_module_owner_last_sep(fm, fm_len);
-	if (psep) {
-		size_t plen = (size_t)(psep - fm);
-		if (slen == plen && zend_binary_strncasecmp(sval, plen, fm, plen, plen) == 0) {
-			return true;
-		}
-	}
-	return false;
+	return zend_module_path_covers(conv, conlen, cval, clen);
 }
 
 static ZEND_COLD void zend_bad_module_method_call(const zend_function *fbc)

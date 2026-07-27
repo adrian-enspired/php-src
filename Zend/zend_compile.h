@@ -176,16 +176,26 @@ ZEND_API zend_php_module *zend_lookup_module(zend_string *lc_name);
  * the compiler never ran, so the per-request registry is always rebuilt. */
 ZEND_API void zend_declare_module_runtime(zend_string *name, HashTable *members);
 ZEND_API void zend_declare_module_member_alias_runtime(zend_string *projection, zend_string *canonical);
-/* True if class scope `scope` may access an internal member declared in `member_ce`
- * (same-module check). Used for internal methods and internal backing-class members. */
+/* True if class scope `scope` may access an internal member declared in `member_ce`:
+ * the accessor's module must BE that module or be nested beneath it (ancestor-or-self).
+ * Used for internal methods and internal backing-class members. */
 ZEND_API bool zend_module_scope_allows(const zend_class_entry *member_ce, const zend_class_entry *scope);
+/* STRICT variant — exact same module, no ancestor rule. Only for the trait-`use` gate,
+ * where flattening would re-home an internal member into the using class's module. */
+ZEND_API bool zend_module_scope_allows_exact(const zend_class_entry *member_ce, const zend_class_entry *scope);
 /* PHP Modules: runtime variant — a NULL scope may still be module code (a MODULE FUNCTION
  * or a module-born closure); derives the caller's module from the executing frame. Used at
  * RUNTIME access gates only; link-time and optimizer checks keep the pure CE form. */
 ZEND_API bool zend_module_scope_or_caller_allows(const zend_class_entry *member_ce, const zend_class_entry *scope);
-/* True if `scope` may see the internal nested module whose backing class is `module_ce`
- * — i.e. scope is inside that module's own subtree, or is a direct member of its parent. */
-ZEND_API bool zend_module_scope_can_see_module(const zend_class_entry *module_ce, const zend_class_entry *scope);
+/* True if `scope` may cross INTO `ce` as a member of its container — the uniform test
+ * used by the runtime containment walk for every member kind, a leaf member class and a
+ * nested module's backing class alike. */
+ZEND_API bool zend_module_container_allows(const zend_class_entry *ce, const zend_class_entry *scope);
+/* Ancestor-or-self test over two canonical module paths: true iff (aval,alen) is
+ * (dval,dlen) or a "::"-boundary ancestor prefix of it. */
+ZEND_API bool zend_module_path_covers_str(const char *aval, size_t alen, const char *dval, size_t dlen);
+/* String form of the above, for a scope-less caller whose module path is already known. */
+ZEND_API bool zend_module_container_allows_prefix(const zend_class_entry *ce, const char *cval, size_t clen);
 /* True if the currently-executing code may NOT access internal member `ce` (an internal
  * class, or a public member of an internal nested module). Used to gate name-based fetch
  * and object-based construction ("new $escaped") uniformly. */

@@ -2048,9 +2048,6 @@ ZEND_API bool zend_module_member_is_internal(const zend_class_entry *ce)
 	return (!vis || (uintptr_t) vis == ZEND_MODULE_MEMBER_INTERNAL);
 }
 
-static bool zend_module_prefix_can_see_module(
-		const char *cval, size_t clen, const char *mval, size_t mlen); /* defined below */
-
 ZEND_API bool zend_module_runtime_access_denied(const zend_class_entry *ce)
 {
 	/* PHP Modules (perf): only a class whose canonical name carries the "::" module boundary
@@ -2108,19 +2105,17 @@ ZEND_API bool zend_module_runtime_access_denied(const zend_class_entry *ce)
 			 * MODULE FUNCTION or a module-born closure (`new module::C()` from a function
 			 * body). The *_or_caller_* variant falls back to the executing frame's module;
 			 * for the nested-module crossing the same fallback runs on the prefix form. */
+			/* Uniform: a child's visibility is its CONTAINER's decision, and the
+			 * same question is asked of every member kind — a leaf member class and
+			 * a nested module's backing class alike. */
 			bool ok;
-			if (child_ce->ce_flags & ZEND_ACC_MODULE) {
-				if (scope) {
-					ok = zend_module_scope_can_see_module(child_ce, scope);
-				} else {
-					const char *cv;
-					size_t clen;
-					ok = zend_module_current_caller_module(&cv, &clen)
-						&& zend_module_prefix_can_see_module(cv, clen,
-							ZSTR_VAL(child_ce->name), ZSTR_LEN(child_ce->name));
-				}
+			if (scope) {
+				ok = zend_module_container_allows(child_ce, scope);
 			} else {
-				ok = zend_module_scope_or_caller_allows(child_ce, scope);
+				const char *cv;
+				size_t clen;
+				ok = zend_module_current_caller_module(&cv, &clen)
+					&& zend_module_container_allows_prefix(child_ce, cv, clen);
 			}
 			if (!ok) {
 				return true; /* outermost denial wins; short-circuit */
@@ -2205,33 +2200,6 @@ ZEND_API bool zend_module_current_caller_module(const char **pval, size_t *plen)
 	return false;
 }
 
-/* String-core of zend_module_scope_can_see_module: may code whose owning module is
- * (cval,clen) cross into the internal module (mval,mlen)? Yes iff it is inside that
- * module's own subtree (the module itself, or below it), or it is a direct member of the
- * module's parent. */
-static bool zend_module_prefix_can_see_module(
-		const char *cval, size_t clen, const char *mval, size_t mlen)
-{
-	if (clen >= mlen && zend_binary_strncasecmp(cval, mlen, mval, mlen, mlen) == 0
-	 && (clen == mlen || (cval[mlen] == ':' && cval[mlen + 1] == ':'))) {
-		return true; /* inside the module's subtree */
-	}
-	const char *last = NULL;
-	const char *mend = mval + mlen;
-	for (const char *p = zend_memnstr(mval, "::", 2, mend); p;
-			p = zend_memnstr(p + 2, "::", 2, mend)) {
-		last = p;
-	}
-	if (last) {
-		size_t parent_len = (size_t) (last - mval);
-		if (clen == parent_len
-		 && zend_binary_strncasecmp(cval, clen, mval, parent_len, parent_len) == 0) {
-			return true; /* a direct member of the module's parent */
-		}
-	}
-	return false;
-}
-
 /* PHP Modules: true if module function `fn` is `internal` — its claim visibility, baked
  * onto fn_flags at compile (unclaimed defaults internal). A COLD compile (manifest absent,
  * ZEND_ACC2_FN_MODULE_VIS_UNKNOWN) resolves from the per-request registry and fails CLOSED.
@@ -2288,9 +2256,9 @@ ZEND_API bool zend_module_function_access_denied(const zend_function *fn)
 
 	if (internal) {
 		/* The leaf boundary: an internal function is callable only from EXACTLY its
-		 * module (the boundary is flat, never transitive). */
-		if (!have_caller || clen != mlen
-		 || zend_binary_strncasecmp(cval, clen, mod, mlen, mlen) != 0) {
+		 * module — or from a module nested beneath it (ancestor-or-self). */
+		if (!have_caller
+		 || !zend_module_path_covers_str(mod, mlen, cval, clen)) {
 			return true;
 		}
 	}
@@ -2313,7 +2281,7 @@ ZEND_API bool zend_module_function_access_denied(const zend_function *fn)
 			if (child_ce && (child_ce->ce_flags & ZEND_ACC_MODULE)
 			 && UNEXPECTED(zend_module_member_is_internal(child_ce))) {
 				if (!have_caller
-				 || !zend_module_prefix_can_see_module(cval, clen, mod, child_len)) {
+				 || !zend_module_container_allows_prefix(child_ce, cval, clen)) {
 					return true; /* outermost denial wins */
 				}
 			}
