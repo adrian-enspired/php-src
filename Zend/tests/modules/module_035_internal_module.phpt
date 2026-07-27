@@ -3,8 +3,8 @@ Modules: an `internal` nested module is visible within its parent but hidden out
 --FILE--
 <?php
 module Outer {
-    // An internal member OF Outer (not of Inner): Inner's code must NOT reach it,
-    // because scope membership is not transitive (Outer::Inner is not in Outer).
+    // An internal member OF Outer: Inner's code DOES reach it — visibility runs down
+    // the containment chain, so a nested module sees its ancestors' internals.
     internal class OuterSecret { public function s(): string { return "outer-secret"; } }
 
     internal module Inner {
@@ -18,10 +18,10 @@ module Outer {
             // Within Inner, its own internal member is reachable.
             public static function reachHidden(): string { return (new module::Hidden)->h(); }
 
-            // Inner reaching UP into Outer's own internal member must be denied.
+            // Inner reaching UP into Outer's own internal member is allowed.
             public static function reachUp(): string {
-                try { return (new \Outer::OuterSecret)->s() . " LEAKED"; }
-                catch (\Error $e) { return $e->getMessage(); }
+                try { return (new \Outer::OuterSecret)->s(); }
+                catch (\Error $e) { return "DENIED: " . $e->getMessage(); }
             }
         }
     }
@@ -49,7 +49,7 @@ module Outer {
 // From inside Outer: the internal module and its members are fully usable.
 echo "inside: ", Outer::Main::fromOuter(), "\n";
 
-// Non-transitivity: Inner's own code cannot reach Outer's other internal members.
+// Ancestor access: Inner's own code reaches Outer's other internal members.
 echo "reachUp: ", Outer::Main::reachUpProbe(), "\n";
 
 // From outside Outer: every path into the internal module is denied — even its
@@ -75,7 +75,7 @@ echo "reflect: ", $r->getName(), "\n";
 ?>
 --EXPECT--
 inside: iv/made/gadget/hidden
-reachUp: Cannot access internal module member "Outer::OuterSecret" from outside its module
+reachUp: outer-secret
 const: Cannot access internal module member "Outer::Inner" from outside its module
 static-fn: Cannot access internal module member "Outer::Inner::Api" from outside its module
 new-member: Cannot access internal module member "Outer::Inner::Gadget" from outside its module

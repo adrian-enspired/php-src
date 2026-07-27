@@ -3659,8 +3659,12 @@ ZEND_API zend_class_entry *zend_do_link_class(zend_class_entry *ce, zend_string 
 			 * extends gate), because trait binding runs in whatever scope the class
 			 * declaration executes in -- usually global -- which the runtime gate would
 			 * wrongly read as "outside its module". */
+			/* STRICT (exact module, no ancestor rule): a trait is flattened into the
+			 * using class, so its internal members would be re-homed to the using
+			 * class's module. A descendant module may name and observe an internal
+			 * ancestor trait, but may not `use` it. */
 			if (UNEXPECTED(trait->ce_flags2 & ZEND_ACC2_MODULE_INTERNAL)
-			 && !zend_module_scope_allows(trait, ce)) {
+			 && !zend_module_scope_allows_exact(trait, ce)) {
 				zend_throw_error(NULL,
 					"Cannot access internal module member \"%s\" from outside its module",
 					ZSTR_VAL(trait->name));
