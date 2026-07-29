@@ -2054,6 +2054,45 @@ ZEND_API ZEND_COLD void zend_throw_module_access_error(const zend_class_entry *c
 		"Cannot access internal module member \"%s\" from outside its module", ZSTR_VAL(ce->name));
 }
 
+/* PHP Modules: verify a deferred function's DECLARED return type names only publicly
+ * reachable types.
+ *
+ * This inspects the declaration -- arg_info[-1] -- and nothing else. It never looks at the
+ * value being returned: escaping an internal instance is legal, and the value's own type is
+ * verified separately. The two must not be conflated.
+ *
+ * Reached only for functions carrying ZEND_ACC2_FN_PUBLICATION_UNVERIFIED, i.e. a public
+ * method of a public module member whose return type was a bare name that missed the roster
+ * at compile time. Resolving the name to a class entry is what settles the ambiguity the
+ * compiler could not: an unclaimed member carries module membership, an ordinary class in a
+ * matching namespace does not. */
+ZEND_API ZEND_COLD void zend_module_verify_declared_return(const zend_function *fn)
+{
+	const zend_arg_info *ret_info = fn->common.arg_info - 1;
+	const zend_type *single_type;
+
+	ZEND_TYPE_FOREACH(ret_info->type, single_type) {
+		if (!ZEND_TYPE_HAS_NAME(*single_type)) {
+			continue;
+		}
+		zend_string *tname = ZEND_TYPE_NAME(*single_type);
+		zend_class_entry *ce = zend_lookup_class(tname);
+		if (!ce) {
+			continue;                      /* unresolvable -- not ours to report */
+		}
+		if (zend_module_member_is_internal(ce)) {
+			zend_throw_error(NULL,
+				"the return type of %s%s%s() references \"%s\", which is not reachable from "
+				"outside the module: a module's public surface may not expose internal or "
+				"unclaimed types (declare a public supertype instead)",
+				fn->common.scope ? ZSTR_VAL(fn->common.scope->name) : "",
+				fn->common.scope ? "::" : "",
+				ZSTR_VAL(fn->common.function_name), ZSTR_VAL(ce->name));
+			return;
+		}
+	} ZEND_TYPE_FOREACH_END();
+}
+
 /* PHP Modules: the containment walk, against an EXPLICIT accessor module.
  *
  * To reach "A::B::…::leaf" the accessor must cross each "::" boundary in turn, OUTERMOST

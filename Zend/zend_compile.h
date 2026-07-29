@@ -213,6 +213,10 @@ ZEND_API bool zend_module_access_denied_from(const zend_class_entry *ce,
 /* Ancestor-or-self test over two canonical module paths: true iff (aval,alen) is
  * (dval,dlen) or a "::"-boundary ancestor prefix of it. */
 ZEND_API bool zend_module_path_covers_str(const char *aval, size_t alen, const char *dval, size_t dlen);
+/* PHP Modules: verify the DECLARED return type of a deferred function names only publicly
+ * reachable types. Concerns the declaration only -- never the returned value, whose own type
+ * is checked separately and which may legitimately be an escaped internal instance. */
+ZEND_API ZEND_COLD void zend_module_verify_declared_return(const zend_function *fn);
 /* String form of the above, for a scope-less caller whose module path is already known. */
 ZEND_API bool zend_module_container_allows_prefix(const zend_class_entry *ce, const char *cval, size_t clen);
 /* True if the currently-executing code may NOT access internal member `ce` (an internal
@@ -624,6 +628,12 @@ typedef struct _zend_oparray_context {
 /* the per-request module registry at gate time; fails CLOSED (internal). The exact     */
 /* fn-side twin of ZEND_ACC2_MODULE_VIS_UNKNOWN on classes.                             */
 #define ZEND_ACC2_FN_MODULE_VIS_UNKNOWN  (1 << 2)  /*     |  X  |     |     */
+/* PHP Modules: this function is a PUBLIC method of a PUBLIC module member whose declared
+ * return type names a member that could not be decided at compile time -- a bare reference
+ * resolving to the projection form, which is deliberately ambiguous between an unclaimed
+ * member (internal) and an ordinary class in a matching namespace (public). Only the resolved
+ * class entry can tell them apart, so the publication check is deferred to first return. */
+#define ZEND_ACC2_FN_PUBLICATION_UNVERIFIED (1 << 3)  /*     |  X  |     |     */
 
 #define ZEND_ACC_PPP_MASK  (ZEND_ACC_PUBLIC | ZEND_ACC_PROTECTED | ZEND_ACC_PRIVATE)
 #define ZEND_ACC_PPP_SET_MASK  (ZEND_ACC_PUBLIC_SET | ZEND_ACC_PROTECTED_SET | ZEND_ACC_PRIVATE_SET)

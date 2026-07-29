@@ -4535,6 +4535,18 @@ ZEND_VM_COLD_CONST_HANDLER(124, ZEND_VERIFY_RETURN_TYPE, CONST|TMP|VAR|UNUSED|CV
 		zend_arg_info *ret_info = EX(func)->common.arg_info - 1;
 		retval_ref = retval_ptr = GET_OP1_ZVAL_PTR_UNDEF(BP_VAR_R);
 
+		/* PHP Modules: a publication check the compiler could not decide -- the DECLARED
+		 * return type named a member ambiguously. Concerns the declaration only, so it runs
+		 * before (and independently of) any check on the value. One predicted-not-taken
+		 * flag test for every other function. */
+		if (UNEXPECTED(EX(func)->common.fn_flags2 & ZEND_ACC2_FN_PUBLICATION_UNVERIFIED)) {
+			SAVE_OPLINE();
+			zend_module_verify_declared_return(EX(func));
+			if (UNEXPECTED(EG(exception))) {
+				HANDLE_EXCEPTION();
+			}
+		}
+
 		if (OP1_TYPE == IS_CONST) {
 			ZVAL_COPY(EX_VAR(opline->result.var), retval_ptr);
 			retval_ref = retval_ptr = EX_VAR(opline->result.var);
