@@ -11539,6 +11539,18 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_
 		zend_arg_info *ret_info = EX(func)->common.arg_info - 1;
 		retval_ref = retval_ptr = RT_CONSTANT(opline, opline->op1);
 
+		/* PHP Modules: a publication check the compiler could not decide -- the DECLARED
+		 * return type named a member ambiguously. Concerns the declaration only, so it runs
+		 * before (and independently of) any check on the value. One predicted-not-taken
+		 * flag test for every other function. */
+		if (UNEXPECTED(EX(func)->common.fn_flags2 & ZEND_ACC2_FN_PUBLICATION_UNVERIFIED)) {
+			SAVE_OPLINE();
+			zend_module_verify_declared_return(EX(func));
+			if (UNEXPECTED(EG(exception))) {
+				HANDLE_EXCEPTION();
+			}
+		}
+
 		if (IS_CONST == IS_CONST) {
 			ZVAL_COPY(EX_VAR(opline->result.var), retval_ptr);
 			retval_ref = retval_ptr = EX_VAR(opline->result.var);
@@ -21948,6 +21960,18 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_RETURN
 		zend_arg_info *ret_info = EX(func)->common.arg_info - 1;
 		retval_ref = retval_ptr = _get_zval_ptr_tmp(opline->op1.var EXECUTE_DATA_CC);
 
+		/* PHP Modules: a publication check the compiler could not decide -- the DECLARED
+		 * return type named a member ambiguously. Concerns the declaration only, so it runs
+		 * before (and independently of) any check on the value. One predicted-not-taken
+		 * flag test for every other function. */
+		if (UNEXPECTED(EX(func)->common.fn_flags2 & ZEND_ACC2_FN_PUBLICATION_UNVERIFIED)) {
+			SAVE_OPLINE();
+			zend_module_verify_declared_return(EX(func));
+			if (UNEXPECTED(EG(exception))) {
+				HANDLE_EXCEPTION();
+			}
+		}
+
 		if (IS_TMP_VAR == IS_CONST) {
 			ZVAL_COPY(EX_VAR(opline->result.var), retval_ptr);
 			retval_ref = retval_ptr = EX_VAR(opline->result.var);
@@ -30144,6 +30168,18 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_RETURN
 		zend_arg_info *ret_info = EX(func)->common.arg_info - 1;
 		retval_ref = retval_ptr = _get_zval_ptr_var(opline->op1.var EXECUTE_DATA_CC);
 
+		/* PHP Modules: a publication check the compiler could not decide -- the DECLARED
+		 * return type named a member ambiguously. Concerns the declaration only, so it runs
+		 * before (and independently of) any check on the value. One predicted-not-taken
+		 * flag test for every other function. */
+		if (UNEXPECTED(EX(func)->common.fn_flags2 & ZEND_ACC2_FN_PUBLICATION_UNVERIFIED)) {
+			SAVE_OPLINE();
+			zend_module_verify_declared_return(EX(func));
+			if (UNEXPECTED(EG(exception))) {
+				HANDLE_EXCEPTION();
+			}
+		}
+
 		if (IS_VAR == IS_CONST) {
 			ZVAL_COPY(EX_VAR(opline->result.var), retval_ptr);
 			retval_ref = retval_ptr = EX_VAR(opline->result.var);
@@ -37811,6 +37847,18 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_RETURN
 		zval *retval_ref, *retval_ptr;
 		zend_arg_info *ret_info = EX(func)->common.arg_info - 1;
 		retval_ref = retval_ptr = NULL;
+
+		/* PHP Modules: a publication check the compiler could not decide -- the DECLARED
+		 * return type named a member ambiguously. Concerns the declaration only, so it runs
+		 * before (and independently of) any check on the value. One predicted-not-taken
+		 * flag test for every other function. */
+		if (UNEXPECTED(EX(func)->common.fn_flags2 & ZEND_ACC2_FN_PUBLICATION_UNVERIFIED)) {
+			SAVE_OPLINE();
+			zend_module_verify_declared_return(EX(func));
+			if (UNEXPECTED(EG(exception))) {
+				HANDLE_EXCEPTION();
+			}
+		}
 
 		if (IS_UNUSED == IS_CONST) {
 			ZVAL_COPY(EX_VAR(opline->result.var), retval_ptr);
@@ -50105,6 +50153,18 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_VERIFY_RETURN
 		zval *retval_ref, *retval_ptr;
 		zend_arg_info *ret_info = EX(func)->common.arg_info - 1;
 		retval_ref = retval_ptr = EX_VAR(opline->op1.var);
+
+		/* PHP Modules: a publication check the compiler could not decide -- the DECLARED
+		 * return type named a member ambiguously. Concerns the declaration only, so it runs
+		 * before (and independently of) any check on the value. One predicted-not-taken
+		 * flag test for every other function. */
+		if (UNEXPECTED(EX(func)->common.fn_flags2 & ZEND_ACC2_FN_PUBLICATION_UNVERIFIED)) {
+			SAVE_OPLINE();
+			zend_module_verify_declared_return(EX(func));
+			if (UNEXPECTED(EG(exception))) {
+				HANDLE_EXCEPTION();
+			}
+		}
 
 		if (IS_CV == IS_CONST) {
 			ZVAL_COPY(EX_VAR(opline->result.var), retval_ptr);
@@ -65064,6 +65124,18 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIF
 		zend_arg_info *ret_info = EX(func)->common.arg_info - 1;
 		retval_ref = retval_ptr = RT_CONSTANT(opline, opline->op1);
 
+		/* PHP Modules: a publication check the compiler could not decide -- the DECLARED
+		 * return type named a member ambiguously. Concerns the declaration only, so it runs
+		 * before (and independently of) any check on the value. One predicted-not-taken
+		 * flag test for every other function. */
+		if (UNEXPECTED(EX(func)->common.fn_flags2 & ZEND_ACC2_FN_PUBLICATION_UNVERIFIED)) {
+			SAVE_OPLINE();
+			zend_module_verify_declared_return(EX(func));
+			if (UNEXPECTED(EG(exception))) {
+				HANDLE_EXCEPTION();
+			}
+		}
+
 		if (IS_CONST == IS_CONST) {
 			ZVAL_COPY(EX_VAR(opline->result.var), retval_ptr);
 			retval_ref = retval_ptr = EX_VAR(opline->result.var);
@@ -75373,6 +75445,18 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_RETURN_TYPE
 		zend_arg_info *ret_info = EX(func)->common.arg_info - 1;
 		retval_ref = retval_ptr = _get_zval_ptr_tmp(opline->op1.var EXECUTE_DATA_CC);
 
+		/* PHP Modules: a publication check the compiler could not decide -- the DECLARED
+		 * return type named a member ambiguously. Concerns the declaration only, so it runs
+		 * before (and independently of) any check on the value. One predicted-not-taken
+		 * flag test for every other function. */
+		if (UNEXPECTED(EX(func)->common.fn_flags2 & ZEND_ACC2_FN_PUBLICATION_UNVERIFIED)) {
+			SAVE_OPLINE();
+			zend_module_verify_declared_return(EX(func));
+			if (UNEXPECTED(EG(exception))) {
+				HANDLE_EXCEPTION();
+			}
+		}
+
 		if (IS_TMP_VAR == IS_CONST) {
 			ZVAL_COPY(EX_VAR(opline->result.var), retval_ptr);
 			retval_ref = retval_ptr = EX_VAR(opline->result.var);
@@ -83569,6 +83653,18 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_RETURN_TYPE
 		zend_arg_info *ret_info = EX(func)->common.arg_info - 1;
 		retval_ref = retval_ptr = _get_zval_ptr_var(opline->op1.var EXECUTE_DATA_CC);
 
+		/* PHP Modules: a publication check the compiler could not decide -- the DECLARED
+		 * return type named a member ambiguously. Concerns the declaration only, so it runs
+		 * before (and independently of) any check on the value. One predicted-not-taken
+		 * flag test for every other function. */
+		if (UNEXPECTED(EX(func)->common.fn_flags2 & ZEND_ACC2_FN_PUBLICATION_UNVERIFIED)) {
+			SAVE_OPLINE();
+			zend_module_verify_declared_return(EX(func));
+			if (UNEXPECTED(EG(exception))) {
+				HANDLE_EXCEPTION();
+			}
+		}
+
 		if (IS_VAR == IS_CONST) {
 			ZVAL_COPY(EX_VAR(opline->result.var), retval_ptr);
 			retval_ref = retval_ptr = EX_VAR(opline->result.var);
@@ -91236,6 +91332,18 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_RETURN_TYPE
 		zval *retval_ref, *retval_ptr;
 		zend_arg_info *ret_info = EX(func)->common.arg_info - 1;
 		retval_ref = retval_ptr = NULL;
+
+		/* PHP Modules: a publication check the compiler could not decide -- the DECLARED
+		 * return type named a member ambiguously. Concerns the declaration only, so it runs
+		 * before (and independently of) any check on the value. One predicted-not-taken
+		 * flag test for every other function. */
+		if (UNEXPECTED(EX(func)->common.fn_flags2 & ZEND_ACC2_FN_PUBLICATION_UNVERIFIED)) {
+			SAVE_OPLINE();
+			zend_module_verify_declared_return(EX(func));
+			if (UNEXPECTED(EG(exception))) {
+				HANDLE_EXCEPTION();
+			}
+		}
 
 		if (IS_UNUSED == IS_CONST) {
 			ZVAL_COPY(EX_VAR(opline->result.var), retval_ptr);
@@ -103428,6 +103536,18 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_VERIFY_RETURN_TYPE
 		zval *retval_ref, *retval_ptr;
 		zend_arg_info *ret_info = EX(func)->common.arg_info - 1;
 		retval_ref = retval_ptr = EX_VAR(opline->op1.var);
+
+		/* PHP Modules: a publication check the compiler could not decide -- the DECLARED
+		 * return type named a member ambiguously. Concerns the declaration only, so it runs
+		 * before (and independently of) any check on the value. One predicted-not-taken
+		 * flag test for every other function. */
+		if (UNEXPECTED(EX(func)->common.fn_flags2 & ZEND_ACC2_FN_PUBLICATION_UNVERIFIED)) {
+			SAVE_OPLINE();
+			zend_module_verify_declared_return(EX(func));
+			if (UNEXPECTED(EG(exception))) {
+				HANDLE_EXCEPTION();
+			}
+		}
 
 		if (IS_CV == IS_CONST) {
 			ZVAL_COPY(EX_VAR(opline->result.var), retval_ptr);
