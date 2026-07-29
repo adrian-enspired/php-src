@@ -1159,6 +1159,34 @@ static zend_string *zend_prefix_with_ns(zend_string *name) {
 	}
 }
 
+/* PHP Modules: the NAMESPACED (projection) form of a module name -- the canonical name with
+ * each "::" boundary rewritten as "\\". "Outer::Inner" -> "Outer\\Inner"; a top-level module
+ * name is returned unchanged. A membership file's base namespace must be this form, not the
+ * canonical one: everything downstream of FC(current_namespace) builds ORDINARY namespaced
+ * names from it (zend_prefix_with_ns, the member's projection alias), and seeding it with a
+ * name containing "::" yields hybrids like "Outer::Inner\\C" that are neither a canonical
+ * name nor a namespaced one. */
+static zend_string *zend_module_namespaced_form(zend_string *name) {
+	const char *val = ZSTR_VAL(name);
+	size_t len = ZSTR_LEN(name);
+	if (zend_memnstr(val, "::", 2, val + len) == NULL) {
+		return zend_string_copy(name);
+	}
+	zend_string *out = zend_string_alloc(len, 0);
+	char *w = ZSTR_VAL(out);
+	for (size_t i = 0; i < len; i++) {
+		if (val[i] == ':' && i + 1 < len && val[i + 1] == ':') {
+			*w++ = '\\';
+			i++;
+			continue;
+		}
+		*w++ = val[i];
+	}
+	*w = '\0';
+	ZSTR_LEN(out) = (size_t) (w - ZSTR_VAL(out));
+	return out;
+}
+
 /* PHP Modules: like zend_prefix_with_ns, but additionally prepends the enclosing
  * module boundary "<module>::" — yielding e.g. "VendorName\User::Auth\PasswordChecker".
  * Used ONLY for class-like names (class/interface/trait/enum, declarations and
@@ -1200,18 +1228,24 @@ static zend_string *zend_prefix_class_with_module_and_ns(zend_string *name) {
 static zend_string *zend_module_member_canonical(zend_string *tail) {
 	zend_string *mod = FC(current_module);
 	zend_string *ns = FC(current_namespace);
-	if (ns && ZSTR_LEN(ns) > ZSTR_LEN(mod)
-	 && memcmp(ZSTR_VAL(ns), ZSTR_VAL(mod), ZSTR_LEN(mod)) == 0
-	 && ZSTR_VAL(ns)[ZSTR_LEN(mod)] == '\\') {
-		const char *rel = ZSTR_VAL(ns) + ZSTR_LEN(mod) + 1;
-		size_t rel_len = ZSTR_LEN(ns) - ZSTR_LEN(mod) - 1;
+	/* The base namespace is the module's NAMESPACED form, so the sub-namespace remainder is
+	 * measured against that -- for a nested module the canonical name is longer than its
+	 * projection ("Outer::Inner" vs "Outer\\Inner") and comparing the two directly fails. */
+	zend_string *modns = zend_module_namespaced_form(mod);
+	if (ns && ZSTR_LEN(ns) > ZSTR_LEN(modns)
+	 && memcmp(ZSTR_VAL(ns), ZSTR_VAL(modns), ZSTR_LEN(modns)) == 0
+	 && ZSTR_VAL(ns)[ZSTR_LEN(modns)] == '\\') {
+		const char *rel = ZSTR_VAL(ns) + ZSTR_LEN(modns) + 1;
+		size_t rel_len = ZSTR_LEN(ns) - ZSTR_LEN(modns) - 1;
 		zend_string *prefix = zend_string_concat3(
 			ZSTR_VAL(mod), ZSTR_LEN(mod), "::", 2, rel, rel_len);
 		zend_string *result = zend_string_concat3(
 			ZSTR_VAL(prefix), ZSTR_LEN(prefix), "\\", 1, ZSTR_VAL(tail), ZSTR_LEN(tail));
 		zend_string_release(prefix);
+		zend_string_release(modns);
 		return result;
 	}
+	zend_string_release(modns);
 	return zend_string_concat3(
 		ZSTR_VAL(mod), ZSTR_LEN(mod), "::", 2, ZSTR_VAL(tail), ZSTR_LEN(tail));
 }
@@ -11210,9 +11244,13 @@ static void zend_compile_namespace(const zend_ast *ast) /* {{{ */
 		 * from FC(current_module) (not the current namespace), successive `namespace` statements
 		 * are each relative to the module, not nested under one another. */
 		if (FC(current_module) && !FC(in_module_block)) {
+			/* The base is the module's NAMESPACED form: for a nested module the canonical
+			 * name carries "::", which must not leak into a namespace. */
+			zend_string *base = zend_module_namespaced_form(FC(current_module));
 			FC(current_namespace) = zend_string_concat3(
-				ZSTR_VAL(FC(current_module)), ZSTR_LEN(FC(current_module)),
+				ZSTR_VAL(base), ZSTR_LEN(base),
 				"\\", 1, ZSTR_VAL(name), ZSTR_LEN(name));
+			zend_string_release(base);
 		} else {
 			FC(current_namespace) = zend_string_copy(name);
 		}
@@ -11848,11 +11886,11 @@ static void zend_compile_module(const zend_ast *ast) /* {{{ */
 	 * zend_compile_namespace). Only for a membership directive (stmt_ast == NULL): a definition
 	 * block suppresses the namespace around its inline members. A preceding `namespace` was
 	 * already rejected above, so current_namespace is NULL here.
-	 * NOTE (C1, follow-up): for a NESTED membership ("module Outer::Inner;") the seeded base
-	 * still contains "::"; projection normalization for that case is deferred. */
+	 * For a NESTED membership ("module Outer::Inner;") the base is the module's NAMESPACED
+	 * form ("Outer\\Inner"), so members project to ordinary namespaced names. */
 	if (!stmt_ast) {
 		ZEND_ASSERT(FC(current_namespace) == NULL);
-		FC(current_namespace) = zend_string_copy(name);
+		FC(current_namespace) = zend_module_namespaced_form(name);
 	}
 
 	/* Roster of members, carried into the runtime ZEND_DECLARE_MODULE op as a CONST
