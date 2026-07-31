@@ -4014,6 +4014,29 @@ get_function_via_handler:
 					retval = false;
 				}
 			}
+			/* PHP Modules: an `internal` method is ZEND_ACC_PUBLIC|ZEND_ACC_MODULE_INTERNAL,
+			 * so the visibility check above never fires for it. The VM call opcodes reach the
+			 * gate through zend_std_get_method() / zend_std_get_static_method(), but this
+			 * resolver takes a method straight out of ce->function_table and only consults the
+			 * handlers on a miss -- so the same boundary has to be enforced here. Guarded by
+			 * !call_via_handler above: a denied method that fell through to __call already
+			 * carries a trampoline, which has no module scope to gate. Soft failure rather
+			 * than a throw, so is_callable() reports false and a ZPP callable argument raises
+			 * a TypeError -- matching the module-function gate in zend_is_callable_at_frame(). */
+			if (retval
+			 && UNEXPECTED(fcc->function_handler->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
+			 && !zend_module_scope_or_caller_allows(
+					fcc->function_handler->common.scope, get_scope(frame))) {
+				if (error) {
+					if (*error) {
+						efree(*error);
+					}
+					zend_spprintf(error, 0, "cannot call internal method %s::%s() from outside its module",
+						ZSTR_VAL(fcc->function_handler->common.scope->name),
+						ZSTR_VAL(fcc->function_handler->common.function_name));
+				}
+				retval = false;
+			}
 		}
 	} else if (error) {
 		if (fcc->calling_scope) {
