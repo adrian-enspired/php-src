@@ -4178,6 +4178,21 @@ again:
 
 				zend_function *func = zend_fetch_function(Z_STR_P(callable));
 				if (EXPECTED(func != NULL)) {
+					zend_function *func = zend_fetch_function(Z_STR_P(callable));
+					if (EXPECTED(func != NULL)) {
+						/* PHP Modules: gate an internal module function reached as a string callable
+						* (array_map, is_callable, Closure::fromCallable). */
+						if (UNEXPECTED(zend_module_function_access_denied(func))) {
+							if (error) {
+								zend_spprintf(error, 0,
+									"cannot call internal module function %s() from outside its module",
+									ZSTR_VAL(func->common.function_name));
+							}
+							return false;
+						}
+						fcc->function_handler = func;
+						return true;
+					}
 					fcc->function_handler = func;
 					return true;
 				}
@@ -4219,22 +4234,6 @@ again:
 				if (Z_TYPE_P(method) != IS_STRING) {
 					if (error) *error = estrdup("second array member is not a valid method");
 					return 0;
-				}
-
-				zend_function *func = zend_fetch_function(Z_STR_P(callable));
-				if (EXPECTED(func != NULL)) {
-					/* PHP Modules: gate an internal module function reached as a string callable
-					* (call_user_func('M\f'), array_map, is_callable, Closure::fromCallable). */
-					if (UNEXPECTED(zend_module_function_access_denied(func))) {
-						if (error) {
-							zend_spprintf(error, 0,
-								"cannot call internal module function %s() from outside its module",
-								ZSTR_VAL(func->common.function_name));
-						}
-						return false;
-					}
-					fcc->function_handler = func;
-					return true;
 				}
 
 				if (Z_TYPE_P(obj) == IS_STRING) {
