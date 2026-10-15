@@ -650,7 +650,10 @@ static zend_ast *zp_compile_forwarding_call(
 				zend_string_copy(function->common.function_name));
 		call_ast = zend_ast_create(ZEND_AST_METHOD_CALL, this_ast,
 				method_name_ast, args_ast);
-	} else if (called_scope) {
+	} else if (called_scope && !(function->common.fn_flags2 & ZEND_ACC2_FN_MODULE_MEMBER)) {
+		/* PHP Modules: a module function is reached through its module's backing class but
+		 * is a function named "M::f": call it by that name (the branch below), not as
+		 * static::M::f(). */
 		zend_ast *class_name_ast = zend_ast_create_zval_from_str(ZSTR_KNOWN(ZEND_STR_STATIC));
 		class_name_ast->attr = ZEND_NAME_NOT_FQ;
 		zend_ast *method_name_ast = zend_ast_create_zval_from_str(
@@ -1173,6 +1176,22 @@ void zend_partial_create(zval *result, zend_class_entry *scope, zval *this_ptr, 
 	 * This affects method resolution for magic methods, so use the actual scope for them. */
 	if (!(function->common.fn_flags & ZEND_ACC_CALL_VIA_TRAMPOLINE)) {
 		scope = function->common.scope;
+	}
+	/* PHP Modules: a module function has no class scope; give the closure its module's
+	 * backing class, so the forwarding call runs as module code. Access to the function was
+	 * already checked when the partial application was created. */
+	if (!scope && (function->common.fn_flags2 & ZEND_ACC2_FN_MODULE_MEMBER)) {
+		const char *mod;
+		size_t mod_len;
+		if (zend_module_function_owner_prefix(function, &mod, &mod_len)) {
+			zend_class_entry *mce = zend_hash_str_find_ptr_lc(EG(class_table), mod, mod_len);
+			if (mce && (mce->ce_flags2 & ZEND_ACC2_MODULE)) {
+				scope = mce;
+				if (!called_scope) {
+					called_scope = mce;
+				}
+			}
+		}
 	}
 
 	zend_create_partial_closure(result, (zend_function*)op_array,
