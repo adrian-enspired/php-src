@@ -1163,7 +1163,7 @@ static inheritance_status do_inheritance_check_on_method(
 	 * A subclass inside the same module may override it normally (internal collaboration).
 	 * Mirrors `final`, but scoped to the module boundary rather than the class. */
 	if ((flags & ZEND_INHERITANCE_CHECK_PROTO)
-	 && UNEXPECTED(parent_flags & ZEND_ACC_MODULE_INTERNAL)
+	 && UNEXPECTED(parent->common.fn_flags2 & ZEND_ACC2_FN_MODULE_INTERNAL)
 	 && !zend_module_scope_allows(parent->common.scope, ce)) {
 		if (flags & ZEND_INHERITANCE_CHECK_SILENT) {
 			return INHERITANCE_ERROR;
@@ -1896,9 +1896,10 @@ ZEND_API void zend_do_inheritance_ex(zend_class_entry *ce, zend_class_entry *par
 		if (UNEXPECTED(!(parent_ce->ce_flags & ZEND_ACC_INTERFACE))) {
 			zend_error_noreturn(E_COMPILE_ERROR, "Interface %s cannot extend class %s", ZSTR_VAL(ce->name), ZSTR_VAL(parent_ce->name));
 		}
-	} else if (UNEXPECTED(parent_ce->ce_flags & (ZEND_ACC_INTERFACE|ZEND_ACC_TRAIT|ZEND_ACC_FINAL|ZEND_ACC_ENUM|ZEND_ACC_MODULE))) {
+	} else if (UNEXPECTED((parent_ce->ce_flags & (ZEND_ACC_INTERFACE|ZEND_ACC_TRAIT|ZEND_ACC_FINAL|ZEND_ACC_ENUM))
+			|| (parent_ce->ce_flags2 & ZEND_ACC2_MODULE))) {
 		/* PHP Modules: a module's backing class is not a base class */
-		if (parent_ce->ce_flags & ZEND_ACC_MODULE) {
+		if (parent_ce->ce_flags2 & ZEND_ACC2_MODULE) {
 			zend_error_noreturn(E_COMPILE_ERROR, "Class %s cannot extend module %s", ZSTR_VAL(ce->name), ZSTR_VAL(parent_ce->name));
 		}
 		/* Class must not extend an enum (GH-16315); check enums first since
@@ -2528,6 +2529,21 @@ static void zend_traits_check_private_final_inheritance(uint32_t original_fn_fla
 	}
 }
 
+/* Apply a trait alias's modifiers to a copied method. PHP Modules: `internal` arrives as
+ * the modifier bit ZEND_ACC_MODULE_INTERNAL_MEMBER and is stored in fn_flags2; an alias
+ * that sets a visibility also replaces the internal state (`as public` clears it). */
+static void zend_apply_trait_alias_modifiers(zend_function *fn_copy, const zend_function *fn, uint32_t modifiers)
+{
+	uint32_t mods = modifiers & ~ZEND_ACC_MODULE_INTERNAL_MEMBER;
+	if (modifiers & ZEND_ACC_PPP_MASK) {
+		fn_copy->common.fn_flags = mods | (fn->common.fn_flags & ~ZEND_ACC_PPP_MASK);
+		fn_copy->common.fn_flags2 = (fn->common.fn_flags2 & ~ZEND_ACC2_FN_MODULE_INTERNAL)
+			| ((modifiers & ZEND_ACC_MODULE_INTERNAL_MEMBER) ? ZEND_ACC2_FN_MODULE_INTERNAL : 0);
+	} else {
+		fn_copy->common.fn_flags = mods | fn->common.fn_flags;
+	}
+}
+
 static void zend_traits_copy_functions(zend_string *fnname, zend_function *fn, zend_class_entry *ce, HashTable *exclude_table, zend_class_entry **aliases) /* {{{ */
 {
 	zend_trait_alias  *alias, **alias_ptr;
@@ -2546,11 +2562,7 @@ static void zend_traits_copy_functions(zend_string *fnname, zend_function *fn, z
 				&& zend_string_equals_ci(alias->trait_method.method_name, fnname)
 			) {
 				fn_copy = *fn;
-				if (alias->modifiers & ZEND_ACC_PPP_MASK) {
-					fn_copy.common.fn_flags = alias->modifiers | (fn->common.fn_flags & ~ZEND_ACC_PPP_MASK);
-				} else {
-					fn_copy.common.fn_flags = alias->modifiers | fn->common.fn_flags;
-				}
+				zend_apply_trait_alias_modifiers(&fn_copy, fn, alias->modifiers);
 
 				zend_traits_check_private_final_inheritance(fn->common.fn_flags, &fn_copy, alias->alias);
 
@@ -2579,11 +2591,7 @@ static void zend_traits_copy_functions(zend_string *fnname, zend_function *fn, z
 					&& fn->common.scope == aliases[i]
 					&& zend_string_equals_ci(alias->trait_method.method_name, fnname)
 				) {
-					if (alias->modifiers & ZEND_ACC_PPP_MASK) {
-						fn_copy.common.fn_flags = alias->modifiers | (fn->common.fn_flags & ~ZEND_ACC_PPP_MASK);
-					} else {
-						fn_copy.common.fn_flags = alias->modifiers | fn->common.fn_flags;
-					}
+					zend_apply_trait_alias_modifiers(&fn_copy, fn, alias->modifiers);
 				}
 				alias_ptr++;
 				alias = *alias_ptr;

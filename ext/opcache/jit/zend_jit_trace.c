@@ -6321,6 +6321,10 @@ static zend_vm_opcode_handler_t zend_jit_trace(zend_jit_trace_rec *trace_buffer,
 							/* Not worth bothering with */
 							break;
 						}
+						if (op_array->fn_flags2 & ZEND_ACC2_FN_PUBLICATION_UNVERIFIED) {
+							/* PHP Modules: the VM handler runs the deferred public-surface check */
+							break;
+						}
 						op1_info = OP1_INFO();
 						CHECK_OP1_TRACE_TYPE();
 						if (op1_info & MAY_BE_REF) {

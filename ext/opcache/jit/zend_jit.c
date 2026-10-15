@@ -649,6 +649,14 @@ static zend_property_info* zend_get_known_property_info(const zend_op_array *op_
 		return NULL;
 	}
 
+	/* PHP Modules: an `internal` property is PUBLIC at the class level and gated by the
+	 * property handlers. Bind it statically only for module code that may access it;
+	 * anyone else takes the handler path, which applies the gate. */
+	if ((info->flags & ZEND_ACC_MODULE_INTERNAL_MEMBER)
+	 && (!op_array->scope || !zend_module_scope_allows(info->ce, op_array->scope))) {
+		return NULL;
+	}
+
 	if (info->flags & ZEND_ACC_PUBLIC) {
 		if ((info->flags & ZEND_ACC_CHANGED)
 		 && op_array->scope
@@ -2612,6 +2620,10 @@ static int zend_jit(const zend_op_array *op_array, zend_ssa *ssa, const zend_op 
 						}
 						if (op_array->fn_flags & ZEND_ACC_RETURN_REFERENCE) {
 							/* Not worth bothering with */
+							break;
+						}
+						if (op_array->fn_flags2 & ZEND_ACC2_FN_PUBLICATION_UNVERIFIED) {
+							/* PHP Modules: the VM handler runs the deferred public-surface check */
 							break;
 						}
 						if (OP1_INFO() & MAY_BE_REF) {

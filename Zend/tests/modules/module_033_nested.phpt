@@ -20,7 +20,7 @@ echo Outer::OV, "\n";
 var_dump(new Outer::Widget instanceof Outer::Widget);
 
 // The nested module is canonically "Outer::Inner" (module boundary is "::").
-var_dump(class_exists("Outer::Inner"));
+var_dump((new ReflectionModule("Outer::Inner"))->getName() === "Outer::Inner");
 
 // Nested module-level members via chained "::"
 echo Outer::Inner::IV, "\n";
@@ -32,7 +32,7 @@ echo (new Outer::Inner::Gadget)->who(), "\n";
 
 // Reflection sees the nested module and its members
 $r = new ReflectionModule("Outer::Inner");
-echo $r->getName(), " :: ", implode(",", $r->getClasses()), "\n";
+echo $r->getName(), " :: ", implode(",", $r->getClassNames()), "\n";
 ?>
 --EXPECT--
 outer

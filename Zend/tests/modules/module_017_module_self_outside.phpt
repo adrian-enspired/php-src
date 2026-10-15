@@ -1,9 +1,12 @@
 --TEST--
-Modules: "module::" outside any module is a compile-time error
+Modules: "module::" outside any module is an ordinary class reference
 --FILE--
 <?php
 class Foo {}
 $x = new module::Foo();
 ?>
 --EXPECTF--
-Fatal error: "module::" cannot be used outside a module in %s on line %d
+Fatal error: Uncaught Error: Class "module::Foo" not found in %s:%d
+Stack trace:
+#0 {main}
+  thrown in %s on line %d

@@ -4080,11 +4080,9 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_I
 		 * runs once per call site; the cached fast path above is untouched). One
 		 * predicted-not-taken flag test for every non-module function. A denied site
 		 * never caches (it always throws). */
-		if (UNEXPECTED(zend_module_function_access_denied(fbc))) {
+		if (ZEND_MODULE_FN_DENIED(fbc)) {
 			SAVE_OPLINE();
-			zend_throw_error(NULL,
-				"Cannot call internal module function %s() from outside its module",
-				ZSTR_VAL(fbc->common.function_name));
+			zend_throw_module_function_access_error(fbc);
 			HANDLE_EXCEPTION();
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -4176,11 +4174,9 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_I
 		/* PHP Modules: gate an internal module function at call RESOLUTION — this is the
 		 * path a member file's bare f() (ns fallback "M\f") and an inline body's lowered
 		 * "M::f" probe take. Once per call site; cached fast path untouched. */
-		if (UNEXPECTED(zend_module_function_access_denied(fbc))) {
+		if (ZEND_MODULE_FN_DENIED(fbc)) {
 			SAVE_OPLINE();
-			zend_throw_error(NULL,
-				"Cannot call internal module function %s() from outside its module",
-				ZSTR_VAL(fbc->common.function_name));
+			zend_throw_module_function_access_error(fbc);
 			HANDLE_EXCEPTION();
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -4215,11 +4211,9 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_I
 		 * at compile time — which a module function's projected name can be. Same
 		 * resolution-time gate as INIT_FCALL_BY_NAME; ordinary calls pay one
 		 * predicted-not-taken test, once per call site. */
-		if (UNEXPECTED(zend_module_function_access_denied(fbc))) {
+		if (ZEND_MODULE_FN_DENIED(fbc)) {
 			SAVE_OPLINE();
-			zend_throw_error(NULL,
-				"Cannot call internal module function %s() from outside its module",
-				ZSTR_VAL(fbc->common.function_name));
+			zend_throw_module_function_access_error(fbc);
 			HANDLE_EXCEPTION();
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -4248,11 +4242,9 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_I
 		/* PHP Modules: the optimizer sets the bucket offset for any function resolvable
 		 * at optimization time — under preloading that includes module functions, so this
 		 * specialization must apply the same resolution-time gate as plain INIT_FCALL. */
-		if (UNEXPECTED(zend_module_function_access_denied(fbc))) {
+		if (ZEND_MODULE_FN_DENIED(fbc)) {
 			SAVE_OPLINE();
-			zend_throw_error(NULL,
-				"Cannot call internal module function %s() from outside its module",
-				ZSTR_VAL(fbc->common.function_name));
+			zend_throw_module_function_access_error(fbc);
 			HANDLE_EXCEPTION();
 		}
 		CACHE_PTR(opline->result.num, fbc);
@@ -5368,7 +5360,7 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_
 
 	/* PHP Modules: an "internal" __clone() gates cloning to same-module callers,
 	 * mirroring how a private __clone() prevents cloning from outside. */
-	if (clone && (clone->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
+	if (clone && (clone->common.fn_flags2 & ZEND_ACC2_FN_MODULE_INTERNAL)
 			&& !zend_module_scope_or_caller_allows(clone->common.scope, EX(func)->op_array.scope)) {
 		zend_throw_error(NULL,
 			"Cannot call internal method %s::__clone() from outside its module",
@@ -8015,7 +8007,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
 				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
 				 * in EG(zend_constants) under its canonical key, not on the backing class
 				 * (inline module constants — backing class constants — answered above).
@@ -8035,10 +8027,30 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 					HANDLE_EXCEPTION();
 				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-					ZVAL_STR(EX_VAR(opline->result.var), canonical);
+					/* The member-name identity is only meaningful as the CLASS part of a
+					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
+					 * compiler always lowers to this opline immediately followed by the
+					 * class fetch consuming its result. Used as a VALUE ("echo M::C"), a
+					 * member name is not a constant: say so rather than yield a string. */
+					const zend_op *next = opline + 1;
+					if ((next->opcode == ZEND_FETCH_CLASS
+							&& (next->op2_type & (IS_TMP_VAR|IS_VAR)) && next->op2.var == opline->result.var)
+						|| (next->opcode == ZEND_FETCH_CLASS_NAME
+							&& (next->op1_type & (IS_TMP_VAR|IS_VAR)) && next->op1.var == opline->result.var)) {
+						ZVAL_STR(EX_VAR(opline->result.var), canonical);
 
 
-					ZEND_VM_NEXT_OPCODE();
+						ZEND_VM_NEXT_OPCODE();
+					}
+					zend_throw_error(NULL,
+						"Undefined constant %s::%s: \"%s\" is a member of module \"%s\", not a constant",
+						ZSTR_VAL(ce->name), ZSTR_VAL(constant_name),
+						ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+					zend_string_release(canonical);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+					HANDLE_EXCEPTION();
 				}
 				/* ce is a module backing class but constant_name is neither one of its
 				 * (backing-class) constants nor a declared member -- report it as a missing
@@ -9475,7 +9487,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
 				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
 				 * in EG(zend_constants) under its canonical key, not on the backing class
 				 * (inline module constants — backing class constants — answered above).
@@ -9493,9 +9505,28 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 					HANDLE_EXCEPTION();
 				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-					ZVAL_STR(EX_VAR(opline->result.var), canonical);
+					/* The member-name identity is only meaningful as the CLASS part of a
+					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
+					 * compiler always lowers to this opline immediately followed by the
+					 * class fetch consuming its result. Used as a VALUE ("echo M::C"), a
+					 * member name is not a constant: say so rather than yield a string. */
+					const zend_op *next = opline + 1;
+					if ((next->opcode == ZEND_FETCH_CLASS
+							&& (next->op2_type & (IS_TMP_VAR|IS_VAR)) && next->op2.var == opline->result.var)
+						|| (next->opcode == ZEND_FETCH_CLASS_NAME
+							&& (next->op1_type & (IS_TMP_VAR|IS_VAR)) && next->op1.var == opline->result.var)) {
+						ZVAL_STR(EX_VAR(opline->result.var), canonical);
+						FREE_OP(opline->op2_type, opline->op2.var);
+						ZEND_VM_NEXT_OPCODE();
+					}
+					zend_throw_error(NULL,
+						"Undefined constant %s::%s: \"%s\" is a member of module \"%s\", not a constant",
+						ZSTR_VAL(ce->name), ZSTR_VAL(constant_name),
+						ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+					zend_string_release(canonical);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
 					FREE_OP(opline->op2_type, opline->op2.var);
-					ZEND_VM_NEXT_OPCODE();
+					HANDLE_EXCEPTION();
 				}
 				/* ce is a module backing class but constant_name is neither one of its
 				 * (backing-class) constants nor a declared member -- report it as a missing
@@ -17863,7 +17894,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_CLONE_SPEC_TM
 
 	/* PHP Modules: an "internal" __clone() gates cloning to same-module callers,
 	 * mirroring how a private __clone() prevents cloning from outside. */
-	if (clone && (clone->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
+	if (clone && (clone->common.fn_flags2 & ZEND_ACC2_FN_MODULE_INTERNAL)
 			&& !zend_module_scope_or_caller_allows(clone->common.scope, EX(func)->op_array.scope)) {
 		zend_throw_error(NULL,
 			"Cannot call internal method %s::__clone() from outside its module",
@@ -26563,7 +26594,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
 				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
 				 * in EG(zend_constants) under its canonical key, not on the backing class
 				 * (inline module constants — backing class constants — answered above).
@@ -26583,10 +26614,30 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 					HANDLE_EXCEPTION();
 				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-					ZVAL_STR(EX_VAR(opline->result.var), canonical);
+					/* The member-name identity is only meaningful as the CLASS part of a
+					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
+					 * compiler always lowers to this opline immediately followed by the
+					 * class fetch consuming its result. Used as a VALUE ("echo M::C"), a
+					 * member name is not a constant: say so rather than yield a string. */
+					const zend_op *next = opline + 1;
+					if ((next->opcode == ZEND_FETCH_CLASS
+							&& (next->op2_type & (IS_TMP_VAR|IS_VAR)) && next->op2.var == opline->result.var)
+						|| (next->opcode == ZEND_FETCH_CLASS_NAME
+							&& (next->op1_type & (IS_TMP_VAR|IS_VAR)) && next->op1.var == opline->result.var)) {
+						ZVAL_STR(EX_VAR(opline->result.var), canonical);
 
 
-					ZEND_VM_NEXT_OPCODE();
+						ZEND_VM_NEXT_OPCODE();
+					}
+					zend_throw_error(NULL,
+						"Undefined constant %s::%s: \"%s\" is a member of module \"%s\", not a constant",
+						ZSTR_VAL(ce->name), ZSTR_VAL(constant_name),
+						ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+					zend_string_release(canonical);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+					HANDLE_EXCEPTION();
 				}
 				/* ce is a module backing class but constant_name is neither one of its
 				 * (backing-class) constants nor a declared member -- report it as a missing
@@ -27160,7 +27211,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
 				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
 				 * in EG(zend_constants) under its canonical key, not on the backing class
 				 * (inline module constants — backing class constants — answered above).
@@ -27178,9 +27229,28 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 					HANDLE_EXCEPTION();
 				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-					ZVAL_STR(EX_VAR(opline->result.var), canonical);
+					/* The member-name identity is only meaningful as the CLASS part of a
+					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
+					 * compiler always lowers to this opline immediately followed by the
+					 * class fetch consuming its result. Used as a VALUE ("echo M::C"), a
+					 * member name is not a constant: say so rather than yield a string. */
+					const zend_op *next = opline + 1;
+					if ((next->opcode == ZEND_FETCH_CLASS
+							&& (next->op2_type & (IS_TMP_VAR|IS_VAR)) && next->op2.var == opline->result.var)
+						|| (next->opcode == ZEND_FETCH_CLASS_NAME
+							&& (next->op1_type & (IS_TMP_VAR|IS_VAR)) && next->op1.var == opline->result.var)) {
+						ZVAL_STR(EX_VAR(opline->result.var), canonical);
+						FREE_OP(opline->op2_type, opline->op2.var);
+						ZEND_VM_NEXT_OPCODE();
+					}
+					zend_throw_error(NULL,
+						"Undefined constant %s::%s: \"%s\" is a member of module \"%s\", not a constant",
+						ZSTR_VAL(ce->name), ZSTR_VAL(constant_name),
+						ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+					zend_string_release(canonical);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
 					FREE_OP(opline->op2_type, opline->op2.var);
-					ZEND_VM_NEXT_OPCODE();
+					HANDLE_EXCEPTION();
 				}
 				/* ce is a module backing class but constant_name is neither one of its
 				 * (backing-class) constants nor a declared member -- report it as a missing
@@ -33464,7 +33534,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_CLONE_SPEC_UN
 
 	/* PHP Modules: an "internal" __clone() gates cloning to same-module callers,
 	 * mirroring how a private __clone() prevents cloning from outside. */
-	if (clone && (clone->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
+	if (clone && (clone->common.fn_flags2 & ZEND_ACC2_FN_MODULE_INTERNAL)
 			&& !zend_module_scope_or_caller_allows(clone->common.scope, EX(func)->op_array.scope)) {
 		zend_throw_error(NULL,
 			"Cannot call internal method %s::__clone() from outside its module",
@@ -35382,7 +35452,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
 				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
 				 * in EG(zend_constants) under its canonical key, not on the backing class
 				 * (inline module constants — backing class constants — answered above).
@@ -35402,10 +35472,30 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 					HANDLE_EXCEPTION();
 				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-					ZVAL_STR(EX_VAR(opline->result.var), canonical);
+					/* The member-name identity is only meaningful as the CLASS part of a
+					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
+					 * compiler always lowers to this opline immediately followed by the
+					 * class fetch consuming its result. Used as a VALUE ("echo M::C"), a
+					 * member name is not a constant: say so rather than yield a string. */
+					const zend_op *next = opline + 1;
+					if ((next->opcode == ZEND_FETCH_CLASS
+							&& (next->op2_type & (IS_TMP_VAR|IS_VAR)) && next->op2.var == opline->result.var)
+						|| (next->opcode == ZEND_FETCH_CLASS_NAME
+							&& (next->op1_type & (IS_TMP_VAR|IS_VAR)) && next->op1.var == opline->result.var)) {
+						ZVAL_STR(EX_VAR(opline->result.var), canonical);
 
 
-					ZEND_VM_NEXT_OPCODE();
+						ZEND_VM_NEXT_OPCODE();
+					}
+					zend_throw_error(NULL,
+						"Undefined constant %s::%s: \"%s\" is a member of module \"%s\", not a constant",
+						ZSTR_VAL(ce->name), ZSTR_VAL(constant_name),
+						ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+					zend_string_release(canonical);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+					HANDLE_EXCEPTION();
 				}
 				/* ce is a module backing class but constant_name is neither one of its
 				 * (backing-class) constants nor a declared member -- report it as a missing
@@ -35820,7 +35910,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
 				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
 				 * in EG(zend_constants) under its canonical key, not on the backing class
 				 * (inline module constants — backing class constants — answered above).
@@ -35838,9 +35928,28 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 					HANDLE_EXCEPTION();
 				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-					ZVAL_STR(EX_VAR(opline->result.var), canonical);
+					/* The member-name identity is only meaningful as the CLASS part of a
+					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
+					 * compiler always lowers to this opline immediately followed by the
+					 * class fetch consuming its result. Used as a VALUE ("echo M::C"), a
+					 * member name is not a constant: say so rather than yield a string. */
+					const zend_op *next = opline + 1;
+					if ((next->opcode == ZEND_FETCH_CLASS
+							&& (next->op2_type & (IS_TMP_VAR|IS_VAR)) && next->op2.var == opline->result.var)
+						|| (next->opcode == ZEND_FETCH_CLASS_NAME
+							&& (next->op1_type & (IS_TMP_VAR|IS_VAR)) && next->op1.var == opline->result.var)) {
+						ZVAL_STR(EX_VAR(opline->result.var), canonical);
+						FREE_OP(opline->op2_type, opline->op2.var);
+						ZEND_VM_NEXT_OPCODE();
+					}
+					zend_throw_error(NULL,
+						"Undefined constant %s::%s: \"%s\" is a member of module \"%s\", not a constant",
+						ZSTR_VAL(ce->name), ZSTR_VAL(constant_name),
+						ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+					zend_string_release(canonical);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
 					FREE_OP(opline->op2_type, opline->op2.var);
-					ZEND_VM_NEXT_OPCODE();
+					HANDLE_EXCEPTION();
 				}
 				/* ce is a module backing class but constant_name is neither one of its
 				 * (backing-class) constants nor a declared member -- report it as a missing
@@ -41087,7 +41196,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_CLONE_SPEC_CV
 
 	/* PHP Modules: an "internal" __clone() gates cloning to same-module callers,
 	 * mirroring how a private __clone() prevents cloning from outside. */
-	if (clone && (clone->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
+	if (clone && (clone->common.fn_flags2 & ZEND_ACC2_FN_MODULE_INTERNAL)
 			&& !zend_module_scope_or_caller_allows(clone->common.scope, EX(func)->op_array.scope)) {
 		zend_throw_error(NULL,
 			"Cannot call internal method %s::__clone() from outside its module",
@@ -57767,11 +57876,9 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_F
 		 * runs once per call site; the cached fast path above is untouched). One
 		 * predicted-not-taken flag test for every non-module function. A denied site
 		 * never caches (it always throws). */
-		if (UNEXPECTED(zend_module_function_access_denied(fbc))) {
+		if (ZEND_MODULE_FN_DENIED(fbc)) {
 			SAVE_OPLINE();
-			zend_throw_error(NULL,
-				"Cannot call internal module function %s() from outside its module",
-				ZSTR_VAL(fbc->common.function_name));
+			zend_throw_module_function_access_error(fbc);
 			HANDLE_EXCEPTION();
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -57863,11 +57970,9 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_N
 		/* PHP Modules: gate an internal module function at call RESOLUTION — this is the
 		 * path a member file's bare f() (ns fallback "M\f") and an inline body's lowered
 		 * "M::f" probe take. Once per call site; cached fast path untouched. */
-		if (UNEXPECTED(zend_module_function_access_denied(fbc))) {
+		if (ZEND_MODULE_FN_DENIED(fbc)) {
 			SAVE_OPLINE();
-			zend_throw_error(NULL,
-				"Cannot call internal module function %s() from outside its module",
-				ZSTR_VAL(fbc->common.function_name));
+			zend_throw_module_function_access_error(fbc);
 			HANDLE_EXCEPTION();
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -57902,11 +58007,9 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_F
 		 * at compile time — which a module function's projected name can be. Same
 		 * resolution-time gate as INIT_FCALL_BY_NAME; ordinary calls pay one
 		 * predicted-not-taken test, once per call site. */
-		if (UNEXPECTED(zend_module_function_access_denied(fbc))) {
+		if (ZEND_MODULE_FN_DENIED(fbc)) {
 			SAVE_OPLINE();
-			zend_throw_error(NULL,
-				"Cannot call internal module function %s() from outside its module",
-				ZSTR_VAL(fbc->common.function_name));
+			zend_throw_module_function_access_error(fbc);
 			HANDLE_EXCEPTION();
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -57935,11 +58038,9 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_F
 		/* PHP Modules: the optimizer sets the bucket offset for any function resolvable
 		 * at optimization time — under preloading that includes module functions, so this
 		 * specialization must apply the same resolution-time gate as plain INIT_FCALL. */
-		if (UNEXPECTED(zend_module_function_access_denied(fbc))) {
+		if (ZEND_MODULE_FN_DENIED(fbc)) {
 			SAVE_OPLINE();
-			zend_throw_error(NULL,
-				"Cannot call internal module function %s() from outside its module",
-				ZSTR_VAL(fbc->common.function_name));
+			zend_throw_module_function_access_error(fbc);
 			HANDLE_EXCEPTION();
 		}
 		CACHE_PTR(opline->result.num, fbc);
@@ -59055,7 +59156,7 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_CLONE
 
 	/* PHP Modules: an "internal" __clone() gates cloning to same-module callers,
 	 * mirroring how a private __clone() prevents cloning from outside. */
-	if (clone && (clone->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
+	if (clone && (clone->common.fn_flags2 & ZEND_ACC2_FN_MODULE_INTERNAL)
 			&& !zend_module_scope_or_caller_allows(clone->common.scope, EX(func)->op_array.scope)) {
 		zend_throw_error(NULL,
 			"Cannot call internal method %s::__clone() from outside its module",
@@ -61702,7 +61803,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
 				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
 				 * in EG(zend_constants) under its canonical key, not on the backing class
 				 * (inline module constants — backing class constants — answered above).
@@ -61722,10 +61823,30 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 					HANDLE_EXCEPTION();
 				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-					ZVAL_STR(EX_VAR(opline->result.var), canonical);
+					/* The member-name identity is only meaningful as the CLASS part of a
+					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
+					 * compiler always lowers to this opline immediately followed by the
+					 * class fetch consuming its result. Used as a VALUE ("echo M::C"), a
+					 * member name is not a constant: say so rather than yield a string. */
+					const zend_op *next = opline + 1;
+					if ((next->opcode == ZEND_FETCH_CLASS
+							&& (next->op2_type & (IS_TMP_VAR|IS_VAR)) && next->op2.var == opline->result.var)
+						|| (next->opcode == ZEND_FETCH_CLASS_NAME
+							&& (next->op1_type & (IS_TMP_VAR|IS_VAR)) && next->op1.var == opline->result.var)) {
+						ZVAL_STR(EX_VAR(opline->result.var), canonical);
 
 
-					ZEND_VM_NEXT_OPCODE();
+						ZEND_VM_NEXT_OPCODE();
+					}
+					zend_throw_error(NULL,
+						"Undefined constant %s::%s: \"%s\" is a member of module \"%s\", not a constant",
+						ZSTR_VAL(ce->name), ZSTR_VAL(constant_name),
+						ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+					zend_string_release(canonical);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+					HANDLE_EXCEPTION();
 				}
 				/* ce is a module backing class but constant_name is neither one of its
 				 * (backing-class) constants nor a declared member -- report it as a missing
@@ -63162,7 +63283,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
 				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
 				 * in EG(zend_constants) under its canonical key, not on the backing class
 				 * (inline module constants — backing class constants — answered above).
@@ -63180,9 +63301,28 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 					HANDLE_EXCEPTION();
 				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-					ZVAL_STR(EX_VAR(opline->result.var), canonical);
+					/* The member-name identity is only meaningful as the CLASS part of a
+					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
+					 * compiler always lowers to this opline immediately followed by the
+					 * class fetch consuming its result. Used as a VALUE ("echo M::C"), a
+					 * member name is not a constant: say so rather than yield a string. */
+					const zend_op *next = opline + 1;
+					if ((next->opcode == ZEND_FETCH_CLASS
+							&& (next->op2_type & (IS_TMP_VAR|IS_VAR)) && next->op2.var == opline->result.var)
+						|| (next->opcode == ZEND_FETCH_CLASS_NAME
+							&& (next->op1_type & (IS_TMP_VAR|IS_VAR)) && next->op1.var == opline->result.var)) {
+						ZVAL_STR(EX_VAR(opline->result.var), canonical);
+						FREE_OP(opline->op2_type, opline->op2.var);
+						ZEND_VM_NEXT_OPCODE();
+					}
+					zend_throw_error(NULL,
+						"Undefined constant %s::%s: \"%s\" is a member of module \"%s\", not a constant",
+						ZSTR_VAL(ce->name), ZSTR_VAL(constant_name),
+						ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+					zend_string_release(canonical);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
 					FREE_OP(opline->op2_type, opline->op2.var);
-					ZEND_VM_NEXT_OPCODE();
+					HANDLE_EXCEPTION();
 				}
 				/* ce is a module backing class but constant_name is neither one of its
 				 * (backing-class) constants nor a declared member -- report it as a missing
@@ -71448,7 +71588,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_CLONE_SPEC_TMP_TAI
 
 	/* PHP Modules: an "internal" __clone() gates cloning to same-module callers,
 	 * mirroring how a private __clone() prevents cloning from outside. */
-	if (clone && (clone->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
+	if (clone && (clone->common.fn_flags2 & ZEND_ACC2_FN_MODULE_INTERNAL)
 			&& !zend_module_scope_or_caller_allows(clone->common.scope, EX(func)->op_array.scope)) {
 		zend_throw_error(NULL,
 			"Cannot call internal method %s::__clone() from outside its module",
@@ -80048,7 +80188,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
 				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
 				 * in EG(zend_constants) under its canonical key, not on the backing class
 				 * (inline module constants — backing class constants — answered above).
@@ -80068,10 +80208,30 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 					HANDLE_EXCEPTION();
 				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-					ZVAL_STR(EX_VAR(opline->result.var), canonical);
+					/* The member-name identity is only meaningful as the CLASS part of a
+					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
+					 * compiler always lowers to this opline immediately followed by the
+					 * class fetch consuming its result. Used as a VALUE ("echo M::C"), a
+					 * member name is not a constant: say so rather than yield a string. */
+					const zend_op *next = opline + 1;
+					if ((next->opcode == ZEND_FETCH_CLASS
+							&& (next->op2_type & (IS_TMP_VAR|IS_VAR)) && next->op2.var == opline->result.var)
+						|| (next->opcode == ZEND_FETCH_CLASS_NAME
+							&& (next->op1_type & (IS_TMP_VAR|IS_VAR)) && next->op1.var == opline->result.var)) {
+						ZVAL_STR(EX_VAR(opline->result.var), canonical);
 
 
-					ZEND_VM_NEXT_OPCODE();
+						ZEND_VM_NEXT_OPCODE();
+					}
+					zend_throw_error(NULL,
+						"Undefined constant %s::%s: \"%s\" is a member of module \"%s\", not a constant",
+						ZSTR_VAL(ce->name), ZSTR_VAL(constant_name),
+						ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+					zend_string_release(canonical);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+					HANDLE_EXCEPTION();
 				}
 				/* ce is a module backing class but constant_name is neither one of its
 				 * (backing-class) constants nor a declared member -- report it as a missing
@@ -80645,7 +80805,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
 				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
 				 * in EG(zend_constants) under its canonical key, not on the backing class
 				 * (inline module constants — backing class constants — answered above).
@@ -80663,9 +80823,28 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 					HANDLE_EXCEPTION();
 				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-					ZVAL_STR(EX_VAR(opline->result.var), canonical);
+					/* The member-name identity is only meaningful as the CLASS part of a
+					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
+					 * compiler always lowers to this opline immediately followed by the
+					 * class fetch consuming its result. Used as a VALUE ("echo M::C"), a
+					 * member name is not a constant: say so rather than yield a string. */
+					const zend_op *next = opline + 1;
+					if ((next->opcode == ZEND_FETCH_CLASS
+							&& (next->op2_type & (IS_TMP_VAR|IS_VAR)) && next->op2.var == opline->result.var)
+						|| (next->opcode == ZEND_FETCH_CLASS_NAME
+							&& (next->op1_type & (IS_TMP_VAR|IS_VAR)) && next->op1.var == opline->result.var)) {
+						ZVAL_STR(EX_VAR(opline->result.var), canonical);
+						FREE_OP(opline->op2_type, opline->op2.var);
+						ZEND_VM_NEXT_OPCODE();
+					}
+					zend_throw_error(NULL,
+						"Undefined constant %s::%s: \"%s\" is a member of module \"%s\", not a constant",
+						ZSTR_VAL(ce->name), ZSTR_VAL(constant_name),
+						ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+					zend_string_release(canonical);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
 					FREE_OP(opline->op2_type, opline->op2.var);
-					ZEND_VM_NEXT_OPCODE();
+					HANDLE_EXCEPTION();
 				}
 				/* ce is a module backing class but constant_name is neither one of its
 				 * (backing-class) constants nor a declared member -- report it as a missing
@@ -86949,7 +87128,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_CLONE_SPEC_UNUSED_
 
 	/* PHP Modules: an "internal" __clone() gates cloning to same-module callers,
 	 * mirroring how a private __clone() prevents cloning from outside. */
-	if (clone && (clone->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
+	if (clone && (clone->common.fn_flags2 & ZEND_ACC2_FN_MODULE_INTERNAL)
 			&& !zend_module_scope_or_caller_allows(clone->common.scope, EX(func)->op_array.scope)) {
 		zend_throw_error(NULL,
 			"Cannot call internal method %s::__clone() from outside its module",
@@ -88867,7 +89046,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
 				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
 				 * in EG(zend_constants) under its canonical key, not on the backing class
 				 * (inline module constants — backing class constants — answered above).
@@ -88887,10 +89066,30 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 					HANDLE_EXCEPTION();
 				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-					ZVAL_STR(EX_VAR(opline->result.var), canonical);
+					/* The member-name identity is only meaningful as the CLASS part of a
+					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
+					 * compiler always lowers to this opline immediately followed by the
+					 * class fetch consuming its result. Used as a VALUE ("echo M::C"), a
+					 * member name is not a constant: say so rather than yield a string. */
+					const zend_op *next = opline + 1;
+					if ((next->opcode == ZEND_FETCH_CLASS
+							&& (next->op2_type & (IS_TMP_VAR|IS_VAR)) && next->op2.var == opline->result.var)
+						|| (next->opcode == ZEND_FETCH_CLASS_NAME
+							&& (next->op1_type & (IS_TMP_VAR|IS_VAR)) && next->op1.var == opline->result.var)) {
+						ZVAL_STR(EX_VAR(opline->result.var), canonical);
 
 
-					ZEND_VM_NEXT_OPCODE();
+						ZEND_VM_NEXT_OPCODE();
+					}
+					zend_throw_error(NULL,
+						"Undefined constant %s::%s: \"%s\" is a member of module \"%s\", not a constant",
+						ZSTR_VAL(ce->name), ZSTR_VAL(constant_name),
+						ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+					zend_string_release(canonical);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
+
+
+					HANDLE_EXCEPTION();
 				}
 				/* ce is a module backing class but constant_name is neither one of its
 				 * (backing-class) constants nor a declared member -- report it as a missing
@@ -89305,7 +89504,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 			 * as ::class does). The enclosing access then resolves that class through the
 			 * normal two-tier autoload and applies the visibility gate. */
 			zend_string *canonical;
-			if (UNEXPECTED((ce->ce_flags & ZEND_ACC_MODULE))) {
+			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
 				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
 				 * in EG(zend_constants) under its canonical key, not on the backing class
 				 * (inline module constants — backing class constants — answered above).
@@ -89323,9 +89522,28 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 					HANDLE_EXCEPTION();
 				}
 				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
-					ZVAL_STR(EX_VAR(opline->result.var), canonical);
+					/* The member-name identity is only meaningful as the CLASS part of a
+					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
+					 * compiler always lowers to this opline immediately followed by the
+					 * class fetch consuming its result. Used as a VALUE ("echo M::C"), a
+					 * member name is not a constant: say so rather than yield a string. */
+					const zend_op *next = opline + 1;
+					if ((next->opcode == ZEND_FETCH_CLASS
+							&& (next->op2_type & (IS_TMP_VAR|IS_VAR)) && next->op2.var == opline->result.var)
+						|| (next->opcode == ZEND_FETCH_CLASS_NAME
+							&& (next->op1_type & (IS_TMP_VAR|IS_VAR)) && next->op1.var == opline->result.var)) {
+						ZVAL_STR(EX_VAR(opline->result.var), canonical);
+						FREE_OP(opline->op2_type, opline->op2.var);
+						ZEND_VM_NEXT_OPCODE();
+					}
+					zend_throw_error(NULL,
+						"Undefined constant %s::%s: \"%s\" is a member of module \"%s\", not a constant",
+						ZSTR_VAL(ce->name), ZSTR_VAL(constant_name),
+						ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
+					zend_string_release(canonical);
+					ZVAL_UNDEF(EX_VAR(opline->result.var));
 					FREE_OP(opline->op2_type, opline->op2.var);
-					ZEND_VM_NEXT_OPCODE();
+					HANDLE_EXCEPTION();
 				}
 				/* ce is a module backing class but constant_name is neither one of its
 				 * (backing-class) constants nor a declared member -- report it as a missing
@@ -94572,7 +94790,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_CLONE_SPEC_CV_TAIL
 
 	/* PHP Modules: an "internal" __clone() gates cloning to same-module callers,
 	 * mirroring how a private __clone() prevents cloning from outside. */
-	if (clone && (clone->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
+	if (clone && (clone->common.fn_flags2 & ZEND_ACC2_FN_MODULE_INTERNAL)
 			&& !zend_module_scope_or_caller_allows(clone->common.scope, EX(func)->op_array.scope)) {
 		zend_throw_error(NULL,
 			"Cannot call internal method %s::__clone() from outside its module",

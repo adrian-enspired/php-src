@@ -268,6 +268,7 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
 %type <ast> expr optional_expr while_statement for_statement foreach_variable
 %type <ast> foreach_statement declare_statement finally_statement unset_variable variable
 %type <ast> module_qualified_name module_member_list module_member module_member_inner ns_member_ref
+%type <ast> module_self internal_as_name keyword_as_type_name union_type_tail_element
 %type <num> member_visibility
 %type <ast> extends_from parameter optional_type_without_static argument argument_no_expr global_var
 %type <ast> static_var class_statement trait_adaptation trait_precedence trait_alias
@@ -629,6 +630,13 @@ unset_variable:
 
 function_name:
 		T_STRING { $$ = $1; }
+	|	T_INTERNAL {
+			/* PHP Modules: `function internal ()` -- the contextual keyword lexes as
+			 * T_INTERNAL when followed by whitespace and "(". */
+			zval zv;
+			if (zend_lex_tstring(&zv, $1) == FAILURE) { YYABORT; }
+			$$ = zend_ast_create_zval(&zv);
+		}
 	|	T_READONLY {
 			zval zv;
 			if (zend_lex_tstring(&zv, $1) == FAILURE) { YYABORT; }
@@ -887,6 +895,7 @@ optional_type_without_static:
 type_expr:
 		type				{ $$ = $1; }
 	|	'?' type			{ $$ = $2; $$->attr |= ZEND_TYPE_NULLABLE; }
+	|	'?' keyword_as_type_name	{ $$ = $2; $$->attr |= ZEND_TYPE_NULLABLE; }	/* `const ?Module K` */
 	|	union_type			{ $$ = $1; }
 	|	intersection_type	{ $$ = $1; }
 ;
@@ -901,16 +910,24 @@ union_type_element:
         |        '(' intersection_type ')' { $$ = $2; }
 ;
 
+/* PHP Modules: `const int|Module K` -- a keyword-lexed class name ends the type. */
+union_type_tail_element:
+		union_type_element		{ $$ = $1; }
+	|	keyword_as_type_name	{ $$ = $1; }
+;
+
 union_type:
-		union_type_element '|' union_type_element
+		union_type_element '|' union_type_tail_element
 			{ $$ = zend_ast_create_list(2, ZEND_AST_TYPE_UNION, $1, $3); }
-	|	union_type '|' union_type_element
+	|	union_type '|' union_type_tail_element
 			{ $$ = zend_ast_list_add($1, $3); }
 ;
 
 intersection_type:
 		type T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG type       { $$ = zend_ast_create_list(2, ZEND_AST_TYPE_INTERSECTION, $1, $3); }
+	|	type T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG keyword_as_type_name { $$ = zend_ast_create_list(2, ZEND_AST_TYPE_INTERSECTION, $1, $3); }
 	|	intersection_type T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG type { $$ = zend_ast_list_add($1, $3); }
+	|	intersection_type T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG keyword_as_type_name { $$ = zend_ast_list_add($1, $3); }
 ;
 
 /* Duplicate the type rules without "static",
@@ -1050,6 +1067,10 @@ attributed_class_statement:
 	|	class_const_modifiers T_CONST type_expr class_const_list ';'
 			{ $$ = zend_ast_create(ZEND_AST_CLASS_CONST_GROUP, $4, NULL, $3);
 			  $$->attr = $1; }
+	|	class_const_modifiers T_CONST keyword_as_type_name class_const_list ';'
+			/* PHP Modules: `const Module K = …;` / `const Internal K = …;` */
+			{ $$ = zend_ast_create(ZEND_AST_CLASS_CONST_GROUP, $4, NULL, $3);
+			  $$->attr = $1; }
 	|	method_modifiers function returns_ref identifier backup_doc_comment '(' parameter_list ')'
 		return_type backup_fn_flags method_body backup_fn_flags
 			{ $$ = zend_ast_create_decl(ZEND_AST_METHOD, $3 | $1 | $12, $2, $5,
@@ -1096,7 +1117,16 @@ trait_precedence:
 
 trait_alias:
 		trait_method_reference T_AS T_STRING
-			{ $$ = zend_ast_create(ZEND_AST_TRAIT_ALIAS, $1, $3); }
+			/* PHP Modules: `internal` lexes as a name before ";" (contextual keyword), but
+			 * `f as internal;` is the modifier, like `f as public;`. (A method named internal
+			 * is still reachable as `f as public internal;`.) */
+			{ if (zend_string_equals_literal_ci(zend_ast_get_str($3), "internal")) {
+			      zend_ast_destroy($3);
+			      $$ = zend_ast_create_ex(ZEND_AST_TRAIT_ALIAS,
+			          zend_modifier_token_to_flag(ZEND_MODIFIER_TARGET_METHOD, T_INTERNAL), $1, NULL);
+			  } else {
+			      $$ = zend_ast_create(ZEND_AST_TRAIT_ALIAS, $1, $3);
+			  } }
 	|	trait_method_reference T_AS reserved_non_modifiers
 			{ zval zv;
 			  if (zend_lex_tstring(&zv, $3) == FAILURE) { YYABORT; }
@@ -1121,6 +1151,9 @@ trait_method_reference:
 
 absolute_trait_method_reference:
 	class_name T_PAAMAYIM_NEKUDOTAYIM identifier
+		{ $$ = zend_ast_create(ZEND_AST_TRAIT_METHOD_REFERENCE, $1, $3); }
+	|	module_self T_PAAMAYIM_NEKUDOTAYIM identifier
+		/* PHP Modules: a trait named Module (`Module::f insteadof T`). */
 		{ $$ = zend_ast_create(ZEND_AST_TRAIT_METHOD_REFERENCE, $1, $3); }
 ;
 
@@ -1511,13 +1544,17 @@ function_call:
 		}
 	|	class_name T_PAAMAYIM_NEKUDOTAYIM member_name argument_list
 			{ $$ = zend_ast_create(ZEND_AST_STATIC_CALL, $1, $3, $4); }
-	|	T_MODULE T_PAAMAYIM_NEKUDOTAYIM member_name argument_list
-			{ $$ = zend_ast_create(ZEND_AST_STATIC_CALL, zend_ast_create_module_backing_name(), $3, $4); }
+	|	module_self T_PAAMAYIM_NEKUDOTAYIM member_name argument_list
+			{ $$ = zend_ast_create(ZEND_AST_STATIC_CALL, $1, $3, $4); }
 			/* PHP Modules: "module::f(...)" self-call to a backing-class static method. */
 	|	variable_class_name T_PAAMAYIM_NEKUDOTAYIM member_name argument_list
 			{ $$ = zend_ast_create(ZEND_AST_STATIC_CALL, $1, $3, $4); }
 	|	ns_member_ref T_PAAMAYIM_NEKUDOTAYIM member_name argument_list
 			{ $$ = zend_ast_create(ZEND_AST_STATIC_CALL, $1, $3, $4); }
+	|	internal_as_name argument_list
+			/* PHP Modules: `internal ($x)` -- a function named internal, called with a
+			 * space before the parenthesis (which lexes the contextual keyword). */
+			{ $$ = zend_ast_create(ZEND_AST_CALL, $1, $2); }
 	|	callable_expr { $<num>$ = CG(zend_lineno); } argument_list {
 			$$ = zend_ast_create(ZEND_AST_CALL, $1, $3);
 			$$->lineno = $<num>2;
@@ -1529,6 +1566,35 @@ class_name:
 			{ zval zv; ZVAL_INTERNED_STR(&zv, ZSTR_KNOWN(ZEND_STR_STATIC));
 			  $$ = zend_ast_create_zval_ex(&zv, ZEND_NAME_NOT_FQ); }
 	|	name { $$ = $1; }
+;
+
+/* PHP Modules: the `module` keyword in front of "::" -- the enclosing module
+ * ("module::Helper", "module::CONST", "module::f()"). Kept as a name node carrying the
+ * keyword AS SPELLED: outside a module the compiler resolves it as an ordinary class
+ * named "module" (so pre-existing `Module::class` / `Module::create()` keep working). */
+module_self:
+		T_MODULE
+			{ zval zv;
+			  if (zend_lex_tstring(&zv, $1) == FAILURE) { YYABORT; }
+			  $$ = zend_ast_create_zval_ex(&zv, ZEND_NAME_MODULE_SELF); }
+;
+
+/* PHP Modules: a class named Module used as a type where the keyword lexes as a keyword
+ * (followed by a name): `const Module K`. (Internal is a reserved class name.) */
+keyword_as_type_name:
+		T_MODULE
+			{ zval zv;
+			  if (zend_lex_tstring(&zv, $1) == FAILURE) { YYABORT; }
+			  $$ = zend_ast_create_zval_ex(&zv, ZEND_NAME_NOT_FQ); }
+;
+
+/* PHP Modules: a function named internal called as `internal ($x)` -- the contextual
+ * keyword lexes as T_INTERNAL before "(". */
+internal_as_name:
+		T_INTERNAL
+			{ zval zv;
+			  if (zend_lex_tstring(&zv, $1) == FAILURE) { YYABORT; }
+			  $$ = zend_ast_create_zval_ex(&zv, ZEND_NAME_NOT_FQ); }
 ;
 
 /* PHP Modules (experimental): the manifest block is a RESTRICTED member list.
@@ -1651,8 +1717,8 @@ module_member_inner:
 module_qualified_name:
 		name T_PAAMAYIM_NEKUDOTAYIM name
 			{ $$ = zend_ast_create_module_qualified_name($1, $3); }
-	|	T_MODULE T_PAAMAYIM_NEKUDOTAYIM name
-			{ $$ = zend_ast_create_module_self_qualified_name($3); }
+	|	module_self T_PAAMAYIM_NEKUDOTAYIM name
+			{ $$ = zend_ast_create_module_qualified_name($1, $3); }
 	|	module_qualified_name T_PAAMAYIM_NEKUDOTAYIM name
 			{ $$ = zend_ast_create_module_qualified_name($1, $3); }
 ;
@@ -1667,8 +1733,8 @@ module_qualified_name:
 ns_member_ref:
 		class_name T_PAAMAYIM_NEKUDOTAYIM T_NAME_QUALIFIED
 			{ $$ = zend_ast_create_module_qualified_name($1, $3); }
-	|	T_MODULE T_PAAMAYIM_NEKUDOTAYIM T_NAME_QUALIFIED
-			{ $$ = zend_ast_create_module_self_qualified_name($3); }
+	|	module_self T_PAAMAYIM_NEKUDOTAYIM T_NAME_QUALIFIED
+			{ $$ = zend_ast_create_module_qualified_name($1, $3); }
 	|	ns_member_ref T_PAAMAYIM_NEKUDOTAYIM T_NAME_QUALIFIED
 			{ $$ = zend_ast_create_module_qualified_name($1, $3); }
 ;
@@ -1728,8 +1794,10 @@ constant:
 class_constant:
 		class_name T_PAAMAYIM_NEKUDOTAYIM identifier
 			{ $$ = zend_ast_create_class_const_or_name($1, $3); }
-	|	T_MODULE T_PAAMAYIM_NEKUDOTAYIM identifier
-			{ $$ = zend_ast_create_class_const_or_name(zend_ast_create_module_backing_name(), $3); }
+	|	module_self T_PAAMAYIM_NEKUDOTAYIM identifier
+			{ $$ = zend_ast_create_class_const_or_name($1, $3); }
+	|	module_self T_PAAMAYIM_NEKUDOTAYIM '{' expr '}'
+			{ $$ = zend_ast_create(ZEND_AST_CLASS_CONST, $1, $4); }
 			/* PHP Modules: "module::CONST" self-reference to a backing-class constant. */
 	|	variable_class_name T_PAAMAYIM_NEKUDOTAYIM identifier
 			{ $$ = zend_ast_create_class_const_or_name($1, $3); }
@@ -1807,8 +1875,8 @@ simple_variable:
 static_member:
 		class_name T_PAAMAYIM_NEKUDOTAYIM simple_variable
 			{ $$ = zend_ast_create(ZEND_AST_STATIC_PROP, $1, $3); }
-	|	T_MODULE T_PAAMAYIM_NEKUDOTAYIM simple_variable
-			{ $$ = zend_ast_create(ZEND_AST_STATIC_PROP, zend_ast_create_module_backing_name(), $3); }
+	|	module_self T_PAAMAYIM_NEKUDOTAYIM simple_variable
+			{ $$ = zend_ast_create(ZEND_AST_STATIC_PROP, $1, $3); }
 			/* PHP Modules: "module::$x" self-reference to a backing-class static property. */
 	|	variable_class_name T_PAAMAYIM_NEKUDOTAYIM simple_variable
 			{ $$ = zend_ast_create(ZEND_AST_STATIC_PROP, $1, $3); }
@@ -1843,8 +1911,8 @@ new_variable:
 			 * module-qualified name built by the rule above; the "name vs $var"
 			 * branch keeps it distinct from the static-property hop above. A
 			 * non-name left operand ("new $x::Foo") is rejected in the helper. */
-	|	T_MODULE T_PAAMAYIM_NEKUDOTAYIM name
-			{ $$ = zend_ast_create_module_self_qualified_name($3); }
+	|	module_self T_PAAMAYIM_NEKUDOTAYIM name
+			{ $$ = zend_ast_create_module_qualified_name($1, $3); }
 			/* PHP Modules: "module::Member" self-reference in new/instanceof. */
 ;
 

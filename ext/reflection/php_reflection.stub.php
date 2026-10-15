@@ -128,6 +128,12 @@ class ReflectionFunction extends ReflectionFunctionAbstract
 
     public function isAnonymous(): bool {}
 
+    /** PHP Modules: true for a module function declared (or, unclaimed, defaulted) `internal`. */
+    public function isModuleInternal(): bool {}
+
+    /** PHP Modules: the module that owns this function (a module function or a closure born in a module). */
+    public function getModule(): ?ReflectionModule {}
+
     /**
      * @tentative-return-type
      */
@@ -438,6 +444,15 @@ class ReflectionClass implements Reflector
     public function getShortName(): string {}
 
     public function getAttributes(?string $name = null, int $flags = 0): array {}
+
+    /**
+     * PHP Modules: true for a module member (class-like or nested module) whose module
+     * declares it `internal` (or leaves it unclaimed). A property of the declaration.
+     */
+    public function isModuleInternal(): bool {}
+
+    /** PHP Modules: the module this class-like is a member of, or null. */
+    public function getModule(): ?ReflectionModule {}
 }
 
 class ReflectionObject extends ReflectionClass
@@ -947,6 +962,84 @@ class ReflectionConstant implements Reflector
     public function getExtensionName(): string|false {}
 
     public function __toString(): string {}
+
+    public function getAttributes(?string $name = null, int $flags = 0): array {}
+}
+
+/**
+ * PHP Modules: reflection of a module. Mirrors ReflectionClass/ReflectionExtension:
+ * get<Kind>s() returns reflection objects keyed by canonical name, get<Kind>Names()
+ * returns the canonical names. Reflection reports declarations; it neither applies nor
+ * reports per-caller access.
+ * @strict-properties
+ * @not-serializable
+ */
+final class ReflectionModule implements Reflector
+{
+    public string $name;
+
+    public function __construct(string $module) {}
+
+    public function __toString(): string {}
+
+    public function getName(): string {}
+
+    public function getShortName(): string {}
+
+    public function getNamespaceName(): string {}
+
+    public function inNamespace(): bool {}
+
+    public function getParentModule(): ?ReflectionModule {}
+
+    public function getFileName(): string|false {}
+
+    public function getStartLine(): int|false {}
+
+    public function getEndLine(): int|false {}
+
+    /** @return array<string, ReflectionClass> */
+    public function getClasses(): array {}
+
+    /** @return list<string> */
+    public function getClassNames(): array {}
+
+    /** @return array<string, ReflectionClass> */
+    public function getInterfaces(): array {}
+
+    /** @return list<string> */
+    public function getInterfaceNames(): array {}
+
+    /** @return array<string, ReflectionClass> */
+    public function getTraits(): array {}
+
+    /** @return list<string> */
+    public function getTraitNames(): array {}
+
+    /** @return array<string, ReflectionEnum> */
+    public function getEnums(): array {}
+
+    /** @return list<string> */
+    public function getEnumNames(): array {}
+
+    /** @return array<string, ReflectionModule> */
+    public function getModules(): array {}
+
+    /** @return list<string> */
+    public function getModuleNames(): array {}
+
+    /** @return array<string, ReflectionFunction> */
+    public function getFunctions(): array {}
+
+    /** @return list<string> */
+    public function getFunctionNames(): array {}
+
+    /** @return array<string, mixed> */
+    public function getConstants(): array {}
+
+    public function hasMember(string $name): bool {}
+
+    public function getSymbolVisibility(string $symbolName): string {}
 
     public function getAttributes(?string $name = null, int $flags = 0): array {}
 }

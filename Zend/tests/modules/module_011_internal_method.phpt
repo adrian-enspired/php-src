@@ -6,7 +6,7 @@ module OrderManagement {
     public class Order {
         public function ship(): string {
             // A different class in the same module may call the internal method.
-            $inv = new OrderManagement::InventoryEngine();
+            $inv = new \OrderManagement::InventoryEngine();
             return $inv->reserveStock();
         }
     }

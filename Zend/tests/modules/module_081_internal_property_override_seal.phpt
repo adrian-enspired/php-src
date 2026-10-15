@@ -31,8 +31,8 @@ function run(string $label, string $code): void {
 
 echo "-- seal --\n";
 run('global-scope override', 'module M { public class Base { internal int $v = 1; } } class Child extends M::Base { public int $v = 2; }');
-run('other-module override',  'module M { public class Base { internal int $v = 1; } } module N { public class Child extends M::Base { public int $v = 2; } }');
-run('override keeping internal', 'module M { public class Base { internal int $v = 1; } } module N { public class Child extends M::Base { internal int $v = 2; } }');
+run('other-module override',  'module M { public class Base { internal int $v = 1; } } module N { public class Child extends \\M::Base { public int $v = 2; } }');
+run('override keeping internal', 'module M { public class Base { internal int $v = 1; } } module N { public class Child extends \\M::Base { internal int $v = 2; } }');
 ?>
 --EXPECT--
 9

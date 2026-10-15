@@ -200,6 +200,9 @@ ZEND_API bool zend_module_container_allows(const zend_class_entry *ce, const zen
  * creation for exactly those classes whose canonical name carries a "::" boundary, and is
  * a superset of MODULE_INTERNAL / MODULE_VIS_UNKNOWN. Non-module code never calls out. */
 ZEND_API ZEND_COLD void zend_throw_module_access_error(const zend_class_entry *ce);
+ZEND_API ZEND_COLD void zend_throw_module_function_access_error(const zend_function *fn);
+/* As above, displaying `display` (the name as written) and naming the denying boundary. */
+ZEND_API ZEND_COLD void zend_throw_module_access_error_ex(const zend_class_entry *ce, const zend_string *display);
 /* The module owning `ce`'s own internal members (a backing class owns its own; a member
  * class is owned by the name before its last "::"). False if `ce` is not module code. */
 ZEND_API bool zend_module_owner_path_of(const zend_class_entry *ce, const char **val, size_t *len);
@@ -243,6 +246,10 @@ ZEND_API bool zend_module_function_owner_prefix(const zend_function *fn, const c
  * dynamic-call / callable checks, the backing-class static-call fallback), never on a
  * cached call path. */
 ZEND_API bool zend_module_function_access_denied(const zend_function *fn);
+/* Inline flag test first: non-module callees never leave the call site. */
+#define ZEND_MODULE_FN_DENIED(fn) \
+	(UNEXPECTED((fn)->common.fn_flags2 & ZEND_ACC2_FN_MODULE_MEMBER) \
+	 && zend_module_function_access_denied(fn))
 /* PHP Modules: a module function's `internal`-ness (claim visibility; cold resolves from
  * the registry, failing closed) — the fn-side twin of zend_module_member_is_internal. */
 ZEND_API bool zend_module_function_is_internal(const zend_function *fn);
@@ -258,12 +265,6 @@ ZEND_API void zend_declare_module_const_runtime(zend_string *canonical, zval *va
  * member name. `alias` empty = resolve the handle from the module registry (sentinel). */
 ZEND_API void zend_declare_module_function_runtime(zend_string *canonical, zend_string *alias);
 ZEND_API zend_ast *zend_ast_create_module_qualified_name(zend_ast *module_ast, zend_ast *member_ast);
-/* "module::Member": a class-like reference to a member of the current module,
- * resolved at compile time against FC(current_module). */
-ZEND_API zend_ast *zend_ast_create_module_self_qualified_name(zend_ast *member_ast);
-/* Bare "module" as a class reference (the module's backing class), used by the
- * static-member self-reference forms module::CONST / module::f() / module::$x. */
-ZEND_API zend_ast *zend_ast_create_module_backing_name(void);
 
 typedef int (*user_opcode_handler_t) (zend_execute_data *execute_data);
 
@@ -415,10 +416,12 @@ typedef struct _zend_oparray_context {
 #define ZEND_ACC_MODULE_INTERNAL_SET     (1 << 13) /*     |     |  X  |     */
 /*                                                        |     |     |     */
 /* PHP Modules (experimental): property or class-constant has "internal" module   */
-/* visibility (public at the class level + gated to same-module code). A separate  */
-/* LOW bit from the method flag (ZEND_ACC_MODULE_INTERNAL, bit 30) because property */
-/* and constant flags are carried through the 16-bit compile-time zend_ast->attr;  */
-/* bit 14 is free in both the property and constant contexts.                      */
+/* visibility (public at the class level + gated to same-module code). A LOW bit   */
+/* because property and constant flags are carried through the 16-bit compile-time */
+/* zend_ast->attr; bit 14 is free in both the property and constant contexts. It   */
+/* is also the `internal` MODIFIER bit for methods and trait aliases, translated   */
+/* to ZEND_ACC2_FN_MODULE_INTERNAL when the function is created (bit 14 of fn_flags */
+/* is ZEND_ACC_VARIADIC, so it never reaches fn_flags).                            */
 #define ZEND_ACC_MODULE_INTERNAL_MEMBER  (1 << 14) /*     |     |  X  |  X  */
 /*                                                        |     |     |     */
 /* Class Flags (unused: 31)                               |     |     |     */
@@ -429,10 +432,6 @@ typedef struct _zend_oparray_context {
 #define ZEND_ACC_TRAIT                   (1 <<  1) /*  X  |     |     |     */
 #define ZEND_ACC_ANON_CLASS              (1 <<  2) /*  X  |     |     |     */
 #define ZEND_ACC_ENUM                    (1 << 28) /*  X  |     |     |     */
-/* PHP Modules (experimental): the synthetic non-instantiable backing class that
- * holds a module's static members (constants/functions/properties). Uses the free
- * class-flag bit 31. */
-#define ZEND_ACC_MODULE                  (1u << 31) /* X  |     |     |     */
 /*                                                        |     |     |     */
 /* Class linked with parent, interfaces and traits        |     |     |     */
 #define ZEND_ACC_LINKED                  (1 <<  3) /*  X  |     |     |     */
@@ -491,7 +490,7 @@ typedef struct _zend_oparray_context {
 /* Class cannot be serialized or unserialized             |     |     |     */
 #define ZEND_ACC_NOT_SERIALIZABLE        (1 << 29) /*  X  |     |     |     */
 /*                                                        |     |     |     */
-/* Class Flags 2 (ce_flags2) (unused: 1-31)               |     |     |     */
+/* Class Flags 2 (ce_flags2) (unused: 5-31)               |     |     |     */
 /* =========================                              |     |     |     */
 /*                                                        |     |     |     */
 /* PHP Modules (experimental): this class is an `internal` member of its module   */
@@ -517,6 +516,24 @@ typedef struct _zend_oparray_context {
 /* non-module code (which never carries this bit) pays nothing. It is a superset of           */
 /* ZEND_ACC2_MODULE_INTERNAL and ZEND_ACC2_MODULE_VIS_UNKNOWN (both imply a "::" name).        */
 #define ZEND_ACC2_MODULE_MEMBER          (1 << 2) /*   X  |     |     |     */
+/*                                                        |     |     |     */
+/* PHP Modules (perf): this member sits below a NESTED module boundary ("A::B::C"), or is */
+/* itself a nested module's backing class ("A::B"). Its reachability then depends on a    */
+/* container's claim, resolved at access time. A member WITHOUT this bit, MODULE_INTERNAL */
+/* and MODULE_VIS_UNKNOWN is a baked-public member of a top-level module: no accessor can */
+/* be denied, so the gate is skipped entirely.                                            */
+#define ZEND_ACC2_MODULE_NESTED          (1 << 3) /*   X  |     |     |     */
+/* PHP Modules (experimental): the synthetic non-instantiable backing class that holds a
+ * module's static members (constants, functions). Also ZEND_ACC_EXPLICIT_ABSTRACT_CLASS, so
+ * the existing uninstantiable check covers it. */
+#define ZEND_ACC2_MODULE                 (1 << 4) /*   X  |     |     |     */
+/* The flags whose presence means "this class can be denied to some accessor". */
+/* PHP Modules: ZEND_AST_CLASS decl->attr marker for a module's backing class (sets
+ * ZEND_ACC2_MODULE on the class). */
+#define ZEND_CLASS_DECL_MODULE 1
+
+#define ZEND_ACC2_MODULE_GATED \
+	(ZEND_ACC2_MODULE_INTERNAL | ZEND_ACC2_MODULE_VIS_UNKNOWN | ZEND_ACC2_MODULE_NESTED)
 
 /* PHP Modules: a runtime cache slot caches a name's RESOLUTION, never the accessor's
  * AUTHORIZATION to use it. A CE taken from a populated slot must therefore still be
@@ -528,12 +545,11 @@ typedef struct _zend_oparray_context {
  * boundary, and is a superset of MODULE_INTERNAL / MODULE_VIS_UNKNOWN, so non-module
  * code never leaves the inline test. */
 #define ZEND_MODULE_CACHED_CE_DENIED(ce) ( \
-	UNEXPECTED((ce)->ce_flags2 & \
-		(ZEND_ACC2_MODULE_MEMBER | ZEND_ACC2_MODULE_INTERNAL | ZEND_ACC2_MODULE_VIS_UNKNOWN)) \
+	UNEXPECTED((ce)->ce_flags2 & ZEND_ACC2_MODULE_GATED) \
 	&& UNEXPECTED(zend_module_runtime_access_denied(ce)))
 
 /*                                                        |     |     |     */
-/* Function Flags (unused: none — 30 now ZEND_ACC_MODULE_INTERNAL)         */
+/* Function Flags (unused: 30)                            |     |     |     */
 /* ==============                                         |     |     |     */
 /*                                                        |     |     |     */
 /* Function returning by reference                        |     |     |     */
@@ -597,18 +613,10 @@ typedef struct _zend_oparray_context {
 /* has #[\NoDiscard] attribute                            |     |     |     */
 #define ZEND_ACC_NODISCARD               (1 << 29) /*     |  X  |     |     */
 /*                                                        |     |     |     */
-/* PHP Modules (experimental): method has "internal" visibility — callable      */
-/* from any code inside the same module, denied from outside. Stored alongside  */
-/* ZEND_ACC_PUBLIC (so normal dispatch treats it as callable) plus this marker. */
-/* MUST NOT be bit 31: that aliases ZEND_ACC_STRICT_TYPES on a method's fn_flags */
-/* in a declare(strict_types=1) file, which would make every method read as      */
-/* internal. Uses the last free function-flag bit, 30.                           */
-#define ZEND_ACC_MODULE_INTERNAL         (1u << 30) /*    |  X  |     |     */
-/*                                                        |     |     |     */
 /* op_array uses strict mode types                        |     |     |     */
 #define ZEND_ACC_STRICT_TYPES            (1U << 31) /*    |  X  |     |     */
 /*                                                        |     |     |     */
-/* Function Flags 2 (fn_flags2) (unused: 3-31)            |     |     |     */
+/* Function Flags 2 (fn_flags2) (unused: 5-31)            |     |     |     */
 /* ============================                           |     |     |     */
 /*                                                        |     |     |     */
 /* Function forbids dynamic calls                         |     |     |     */
@@ -635,6 +643,9 @@ typedef struct _zend_oparray_context {
  * member (internal) and an ordinary class in a matching namespace (public). Only the resolved
  * class entry can tell them apart, so the publication check is deferred to first return. */
 #define ZEND_ACC2_FN_PUBLICATION_UNVERIFIED (1 << 3)  /*     |  X  |     |     */
+/* PHP Modules (experimental): an `internal` method or module function: public to  */
+/* normal dispatch, gated to same-module code.                                      */
+#define ZEND_ACC2_FN_MODULE_INTERNAL     (1 << 4)  /*     |  X  |     |     */
 
 #define ZEND_ACC_PPP_MASK  (ZEND_ACC_PUBLIC | ZEND_ACC_PROTECTED | ZEND_ACC_PRIVATE)
 #define ZEND_ACC_PPP_SET_MASK  (ZEND_ACC_PUBLIC_SET | ZEND_ACC_PROTECTED_SET | ZEND_ACC_PRIVATE_SET)
@@ -664,8 +675,7 @@ static zend_always_inline uint32_t zend_visibility_to_set_visibility(uint32_t vi
 	ZEND_ACC_TRAIT |                    \
 	ZEND_ACC_IMPLICIT_ABSTRACT_CLASS |  \
 	ZEND_ACC_EXPLICIT_ABSTRACT_CLASS |  \
-	ZEND_ACC_ENUM |                     \
-	ZEND_ACC_MODULE                     \
+	ZEND_ACC_ENUM                       \
 )
 
 #define ZEND_SHORT_CIRCUITING_CHAIN_MASK 0x3

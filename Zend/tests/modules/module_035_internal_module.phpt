@@ -77,8 +77,8 @@ echo "reflect: ", $r->getName(), "\n";
 inside: iv/made/gadget/hidden
 reachUp: outer-secret
 const: Cannot access internal module member "Outer::Inner" from outside its module
-static-fn: Cannot access internal module member "Outer::Inner::Api" from outside its module
-new-member: Cannot access internal module member "Outer::Inner::Gadget" from outside its module
-static-on: Cannot access internal module member "Outer::Inner::Gadget" from outside its module
-hidden: Cannot access internal module member "Outer::Inner::Hidden" from outside its module
+static-fn: Cannot access "Outer::Inner::Api": module "Outer::Inner" is internal to its parent module
+new-member: Cannot access "Outer::Inner::Gadget": module "Outer::Inner" is internal to its parent module
+static-on: Cannot access "Outer::Inner::Gadget": module "Outer::Inner" is internal to its parent module
+hidden: Cannot access "Outer::Inner::Hidden": module "Outer::Inner" is internal to its parent module
 reflect: Outer::Inner

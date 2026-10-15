@@ -24,7 +24,7 @@ echo $c->n, "\n";
 try { $c->n = 100; } catch (\Error $e) { echo $e->getMessage(), "\n"; }   // write denied from global
 echo $c->n, "\n";                                                    // unchanged
 
-module N { public class Poker { public function poke(M::Counter $x): void { $x->n = 99; } } }
+module N { public class Poker { public function poke(\M::Counter $x): void { $x->n = 99; } } }
 try { (new N::Poker)->poke($c); } catch (\Error $e) { echo $e->getMessage(), "\n"; }  // cross-module denied
 
 $r = new ReflectionProperty("M::Counter", "n");

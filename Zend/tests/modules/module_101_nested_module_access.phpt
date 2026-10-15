@@ -21,15 +21,15 @@ module Z {
 }
 
 echo "-- top-level and nested members by canonical name --\n";
-echo (new X\Y\Z::Top)->w(), "\n";              // top
-echo (new X\Y\Z::Inner::C)->w(), "\n";         // inner-c
-echo (new X\Y\Z::Inner::C)::class, "\n";       // X\Y\Z::Inner::C
+echo (new \X\Y\Z::Top)->w(), "\n";              // top
+echo (new \X\Y\Z::Inner::C)->w(), "\n";         // inner-c
+echo (new \X\Y\Z::Inner::C)::class, "\n";       // X\Y\Z::Inner::C
 
 echo "-- module:: from a nested member reaches an Inner sibling (internal) --\n";
-echo (new X\Y\Z::Inner::C)->reachSecret(), "\n";   // sec
+echo (new \X\Y\Z::Inner::C)->reachSecret(), "\n";   // sec
 
 echo "-- an internal nested member is gated from outside --\n";
-try { new X\Y\Z::Inner::Secret; echo "LEAK\n"; } catch (\Error $e) { echo "gated\n"; }
+try { new \X\Y\Z::Inner::Secret; echo "LEAK\n"; } catch (\Error $e) { echo "gated\n"; }
 ?>
 --EXPECT--
 -- top-level and nested members by canonical name --

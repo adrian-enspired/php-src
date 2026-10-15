@@ -28,7 +28,7 @@ file_put_contents("$dir/sibling.php", <<<'PHP'
 <?php
 module Shop;
 class Sibling {
-    public function reachHelper(): string { return (new Shop::Helper())->tag; }     // same module: allowed
+    public function reachHelper(): string { return (new \Shop::Helper())->tag; }     // same module: allowed
     public function reachViaScope(): void { /* module::Helper would be a compile error: not a member */ }
 }
 PHP);

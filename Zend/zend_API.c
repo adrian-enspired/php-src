@@ -509,6 +509,14 @@ ZEND_API ZEND_COLD void zend_argument_must_not_be_empty_error(uint32_t arg_num)
 
 ZEND_API ZEND_COLD void zend_class_redeclaration_error_ex(int type, zend_string *new_name, const zend_class_entry *old_ce)
 {
+	if (old_ce->ce_flags2 & ZEND_ACC2_MODULE) {
+		/* PHP Modules: modules and class-likes share one symbol space; name the module
+		 * that holds the name rather than re-reporting it as the new declaration's kind. */
+		zend_error(type, "Cannot declare %s: the name is already in use by module %s (declared in %s:%d)",
+			ZSTR_VAL(new_name), ZSTR_VAL(old_ce->name),
+			ZSTR_VAL(old_ce->info.user.filename), old_ce->info.user.line_start);
+		return;
+	}
 	if (old_ce->type == ZEND_INTERNAL_CLASS) {
 		zend_error(type, "Cannot redeclare %s %s",
 			zend_get_object_type(old_ce),
@@ -1879,7 +1887,7 @@ static zend_always_inline zend_result _object_and_properties_init(zval *arg, zen
 			zend_throw_error(NULL, "Cannot instantiate trait %s", ZSTR_VAL(ce->name));
 		} else if (ce->ce_flags & ZEND_ACC_ENUM) {
 			zend_throw_error(NULL, "Cannot instantiate enum %s", ZSTR_VAL(ce->name));
-		} else if (ce->ce_flags & ZEND_ACC_MODULE) {
+		} else if (ce->ce_flags2 & ZEND_ACC2_MODULE) {
 			zend_throw_error(NULL, "Cannot instantiate module %s", ZSTR_VAL(ce->name));
 		} else {
 			ZEND_ASSERT(ce->ce_flags & (ZEND_ACC_IMPLICIT_ABSTRACT_CLASS|ZEND_ACC_EXPLICIT_ABSTRACT_CLASS));
@@ -4035,7 +4043,7 @@ get_function_via_handler:
 					retval = false;
 				}
 			}
-			/* PHP Modules: an `internal` method is ZEND_ACC_PUBLIC|ZEND_ACC_MODULE_INTERNAL,
+			/* PHP Modules: an `internal` method is ZEND_ACC_PUBLIC + ZEND_ACC2_FN_MODULE_INTERNAL,
 			 * so the visibility check above never fires for it. The VM call opcodes reach the
 			 * gate through zend_std_get_method() / zend_std_get_static_method(), but this
 			 * resolver takes a method straight out of ce->function_table and only consults the
@@ -4045,7 +4053,7 @@ get_function_via_handler:
 			 * than a throw, so is_callable() reports false and a ZPP callable argument raises
 			 * a TypeError -- matching the module-function gate in zend_is_callable_at_frame(). */
 			if (retval
-			 && UNEXPECTED(fcc->function_handler->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
+			 && UNEXPECTED(fcc->function_handler->common.fn_flags2 & ZEND_ACC2_FN_MODULE_INTERNAL)
 			 && !zend_module_scope_or_caller_allows(
 					fcc->function_handler->common.scope, get_scope(frame))) {
 				if (error) {
@@ -4220,7 +4228,7 @@ again:
 					if (EXPECTED(func != NULL)) {
 						/* PHP Modules: gate an internal module function reached as a string callable
 						* (array_map, is_callable, Closure::fromCallable). */
-						if (UNEXPECTED(zend_module_function_access_denied(func))) {
+						if (ZEND_MODULE_FN_DENIED(func)) {
 							if (error) {
 								zend_spprintf(error, 0,
 									"cannot call internal module function %s() from outside its module",
@@ -5283,6 +5291,10 @@ ZEND_API ZEND_COLD const char *zend_get_object_type_case(const zend_class_entry 
 		return upper_case ? "Interface" : "interface";
 	} else if (ce->ce_flags & ZEND_ACC_ENUM) {
 		return upper_case ? "Enum" : "enum";
+	} else if (ce->ce_flags2 & ZEND_ACC2_MODULE) {
+		/* PHP Modules: a module's backing class is an implementation detail; report it
+		 * as the module it is. */
+		return upper_case ? "Module" : "module";
 	} else {
 		return upper_case ? "Class" : "class";
 	}

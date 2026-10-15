@@ -23,11 +23,11 @@ module Shop {
 
 $r = new ReflectionModule("Shop");
 echo "name:       ", $r->getName(), "\n";
-echo "classes:    ", implode(",", $r->getClasses()), "\n";
-echo "interfaces: ", implode(",", $r->getInterfaces()), "\n";
-echo "enums:      ", implode(",", $r->getEnums()), "\n";
-echo "modules:    ", implode(",", $r->getModules()), "\n";
-echo "functions:  ", implode(",", $r->getFunctions()), "\n";
+echo "classes:    ", implode(",", $r->getClassNames()), "\n";
+echo "interfaces: ", implode(",", $r->getInterfaceNames()), "\n";
+echo "enums:      ", implode(",", $r->getEnumNames()), "\n";
+echo "modules:    ", implode(",", $r->getModuleNames()), "\n";
+echo "functions:  ", implode(",", $r->getFunctionNames()), "\n";
 echo "constants:  ", json_encode($r->getConstants()), "\n";
 echo "vis Cart:   ", $r->getSymbolVisibility("Shop::Cart"), "\n";
 echo "vis Ledger: ", $r->getSymbolVisibility("Shop::Ledger"), "\n";
