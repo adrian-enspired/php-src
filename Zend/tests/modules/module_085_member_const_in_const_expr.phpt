@@ -13,11 +13,11 @@ module M {
     public enum Suit: string { case Spades = 's'; case Hearts = 'h'; }
     public class Card {
         // in-module self-reference in a parameter default
-        public function fromInside(M::Suit $s = module::Suit::Spades): string { return $s->value; }
+        public function fromInside(\M::Suit $s = module::Suit::Spades): string { return $s->value; }
     }
     // module member class constant in a property initializer (const expr)
     public class Deck {
-        public M::Suit $default = module::Suit::Hearts;
+        public \M::Suit $default = module::Suit::Hearts;
     }
 }
 

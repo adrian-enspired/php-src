@@ -594,6 +594,17 @@ ZEND_API zend_result open_file_for_scanning(zend_file_handle *file_handle)
 	return SUCCESS;
 }
 
+/* PHP Modules: whether the token being scanned directly follows "::" (whitespace
+ * between them allowed), where `module` / `internal` can only be a member name. */
+static bool zend_scan_follows_double_colon(void)
+{
+	const unsigned char *p = SCNG(yy_text);
+	while (p > SCNG(yy_start) && (p[-1] == ' ' || p[-1] == '\t' || p[-1] == '\n' || p[-1] == '\r')) {
+		p--;
+	}
+	return p - SCNG(yy_start) >= 2 && p[-1] == ':' && p[-2] == ':';
+}
+
 static zend_op_array *zend_compile_ast_internal(int type)
 {
 	ZEND_ASSERT(CG(in_compilation));
@@ -1549,11 +1560,53 @@ OPTIONAL_WHITESPACE_OR_COMMENTS ({WHITESPACE}|{MULTI_LINE_COMMENT}|{SINGLE_LINE_
 	RETURN_TOKEN_WITH_IDENT(T_MATCH);
 }
 
-<ST_IN_SCRIPTING>"module" {
+/* PHP Modules: `module` and `internal` are CONTEXTUAL keywords, recognized only where
+ * they can start module syntax (like `enum`). Everywhere else they lex as T_STRING, so
+ * `class Module {}`, `function internal() {}`, `const MODULE = 1;`, `new Module`,
+ * `Module $m`, `Internal::create()` keep working.
+ *
+ * `module` is a keyword when followed by a name (`module M;`, `module M {`,
+ * `public module Inner {`) or by "::" (`module::Helper`). Outside a module the compiler
+ * resolves `module::X` as an ordinary class reference to a class named "module", so
+ * `Module::class` / `Module::create()` keep their meaning there.
+ *
+ * `internal` is a keyword when followed by something that can follow a modifier: a
+ * name or type (`internal function`, `internal Helper;`, `internal int $x`), a nullable
+ * type (`?int`, but not `??`), `\`, `(` (DNF type), or a variable (`internal $x`). In a
+ * parameter list a lone `Internal $x` is settled by the compiler (ZEND_PARAM_INTERNAL_OR_TYPE).
+ *
+ * Neither is a keyword right after "::" (`M::Internal $x`, `M::Module $m`): a member
+ * segment is always a name. *
+ * Neither is a keyword when the following word is one that can follow a class NAME:
+ * `class Module extends X`, `use Foo as Module`, `$x instanceof Internal and $y`. */
+<ST_IN_SCRIPTING>"module"{WHITESPACE_OR_COMMENTS}("extends"|"implements"|"as"|"and"|"or"|"xor"|"instanceof"|"insteadof")[^a-zA-Z0-9_\x80-\xff] {
+	yyless(6);
+	RETURN_TOKEN_WITH_STR(T_STRING, 0);
+}
+<ST_IN_SCRIPTING>"module"{WHITESPACE_OR_COMMENTS}[a-zA-Z_\x80-\xff\\] {
+	yyless(6);
+	if (zend_scan_follows_double_colon()) {
+		RETURN_TOKEN_WITH_STR(T_STRING, 0);
+	}
+	RETURN_TOKEN_WITH_IDENT(T_MODULE);
+}
+<ST_IN_SCRIPTING>"module"{OPTIONAL_WHITESPACE_OR_COMMENTS}"::" {
+	yyless(6);
+	if (zend_scan_follows_double_colon()) {
+		RETURN_TOKEN_WITH_STR(T_STRING, 0);
+	}
 	RETURN_TOKEN_WITH_IDENT(T_MODULE);
 }
 
-<ST_IN_SCRIPTING>"internal" {
+<ST_IN_SCRIPTING>"internal"{WHITESPACE_OR_COMMENTS}("extends"|"implements"|"as"|"and"|"or"|"xor"|"instanceof"|"insteadof")[^a-zA-Z0-9_\x80-\xff] {
+	yyless(8);
+	RETURN_TOKEN_WITH_STR(T_STRING, 0);
+}
+<ST_IN_SCRIPTING>"internal"{WHITESPACE_OR_COMMENTS}([a-zA-Z_\x80-\xff\\($]|"?"[a-zA-Z_\x80-\xff\\]) {
+	yyless(8);
+	if (zend_scan_follows_double_colon()) {
+		RETURN_TOKEN_WITH_STR(T_STRING, 0);
+	}
 	RETURN_TOKEN_WITH_IDENT(T_INTERNAL);
 }
 

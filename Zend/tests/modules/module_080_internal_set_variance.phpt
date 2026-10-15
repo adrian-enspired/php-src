@@ -27,7 +27,7 @@ function ok(string $label, string $code): void {
 
 echo "-- reject --\n";
 bad('cross-module override', 'from outside its module',
-    'module M { public class Base { public internal(set) int $v = 1; } } module N { public class Child extends M::Base { public internal(set) int $v = 1; } }');
+    'module M { public class Base { public internal(set) int $v = 1; } } module N { public class Child extends \\M::Base { public internal(set) int $v = 1; } }');
 bad('public parent -> internal(set)', 'may only override an internal(set)',
     'class Base { public int $v = 1; } module M { public class Child extends \Base { public internal(set) int $v = 1; } }');
 bad('narrow to private(set)', 'must be public(set) or internal(set)',
@@ -42,7 +42,7 @@ bad('public trait carrier', 'declares an internal(set) property',
 echo "-- allow --\n";
 ok('same-module keep',        'module M { public class Base { public internal(set) int $v = 1; } public class Child extends Base { public internal(set) int $v = 1; } }');
 ok('same-module widen (set)', 'module M { public class Base { public internal(set) int $v = 1; } public class Child extends Base { public public(set) int $v = 1; } }');
-ok('cross-module widen',      'module M { public class Base { public internal(set) int $v = 1; } } module N { public class Child extends M::Base { public int $v = 1; } }');
+ok('cross-module widen',      'module M { public class Base { public internal(set) int $v = 1; } } module N { public class Child extends \\M::Base { public int $v = 1; } }');
 ok('internal trait carrier',  'module M { internal trait T { public internal(set) int $x = 0; } public class U { use T; } }');
 ?>
 --EXPECT--

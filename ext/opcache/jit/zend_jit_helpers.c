@@ -60,6 +60,13 @@ static zend_function* ZEND_FASTCALL zend_jit_find_func_helper(zend_string *name,
 		return NULL;
 	}
 	fbc = Z_FUNC_P(func);
+	/* PHP Modules: same resolution-time gate as the VM's INIT_*FCALL handlers. A denied
+	 * site throws, never caches, and returns NULL; the undefined-function stub sees the
+	 * pending exception and does not report a second error. */
+	if (ZEND_MODULE_FN_DENIED(fbc)) {
+		zend_throw_module_function_access_error(fbc);
+		return NULL;
+	}
 	if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
 		fbc = _zend_jit_init_func_run_time_cache(&fbc->op_array);
 	}
@@ -87,6 +94,13 @@ static zend_function* ZEND_FASTCALL zend_jit_find_ns_func_helper(zval *func_name
 		}
 	}
 	fbc = Z_FUNC_P(func);
+	/* PHP Modules: same resolution-time gate as the VM's INIT_*FCALL handlers. A denied
+	 * site throws, never caches, and returns NULL; the undefined-function stub sees the
+	 * pending exception and does not report a second error. */
+	if (ZEND_MODULE_FN_DENIED(fbc)) {
+		zend_throw_module_function_access_error(fbc);
+		return NULL;
+	}
 	if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
 		fbc = _zend_jit_init_func_run_time_cache(&fbc->op_array);
 	}
@@ -195,6 +209,10 @@ static zend_class_entry* ZEND_FASTCALL zend_jit_find_class_helper(zend_execute_d
 		ce = CACHED_PTR(opline->result.num);
 		if (UNEXPECTED(ce == NULL)) {
 			ce = zend_fetch_class_by_name(Z_STR_P(RT_CONSTANT(opline, opline->op1)), Z_STR_P(RT_CONSTANT(opline, opline->op1) + 1), ZEND_FETCH_CLASS_DEFAULT | ZEND_FETCH_CLASS_EXCEPTION);
+		} else if (UNEXPECTED(ZEND_MODULE_CACHED_CE_DENIED(ce))) {
+			/* PHP Modules: cache hit -- re-gate, as the VM handler does. */
+			zend_throw_module_access_error(ce);
+			return NULL;
 		}
 	} else if (opline->op1_type == IS_UNUSED) {
 		ce = zend_fetch_class(NULL, opline->op1.num);
@@ -202,6 +220,17 @@ static zend_class_entry* ZEND_FASTCALL zend_jit_find_class_helper(zend_execute_d
 		ce = Z_CE_P(EX_VAR(opline->op1.var));
 	}
 	return ce;
+}
+
+/* PHP Modules: re-gate a class entry read from a populated runtime cache slot (the slot
+ * caches resolution, not authorization). Called only for module member classes. */
+static bool ZEND_FASTCALL zend_jit_module_cached_ce_denied(zend_class_entry *ce)
+{
+	if (zend_module_runtime_access_denied(ce)) {
+		zend_throw_module_access_error(ce);
+		return true;
+	}
+	return false;
 }
 
 static zend_function* ZEND_FASTCALL zend_jit_find_static_method_helper(zend_execute_data *execute_data, zend_class_entry *ce)
@@ -233,7 +262,9 @@ static zend_function* ZEND_FASTCALL zend_jit_find_static_method_helper(zend_exec
 			return NULL;
 		}
 		if (EXPECTED(!(fbc->common.fn_flags & (ZEND_ACC_CALL_VIA_TRAMPOLINE|ZEND_ACC_NEVER_CACHE))) &&
-			EXPECTED(!(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
+			/* PHP Modules: a module function reached through its module's backing class
+			 * has no class scope (see the VM's INIT_STATIC_METHOD_CALL). */
+			EXPECTED(!fbc->common.scope || !(fbc->common.scope->ce_flags & ZEND_ACC_TRAIT))) {
 			CACHE_POLYMORPHIC_PTR(opline->result.num, ce, fbc);
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {
@@ -2803,12 +2834,12 @@ static void ZEND_FASTCALL zend_jit_assign_obj_helper(zend_object *zobj, zend_str
 
 static zend_always_inline bool verify_readonly_and_avis(zval *property_val, zend_property_info *info, bool indirect)
 {
-	if (UNEXPECTED(info->flags & (ZEND_ACC_READONLY|ZEND_ACC_PPP_SET_MASK))) {
+	if (UNEXPECTED(info->flags & (ZEND_ACC_READONLY|ZEND_ACC_ALL_SET_MASK))) {
 		if ((info->flags & ZEND_ACC_READONLY) && !(Z_PROP_FLAG_P(property_val) & IS_PROP_REINITABLE)) {
 			zend_readonly_property_modification_error(info);
 			return false;
 		}
-		if ((info->flags & ZEND_ACC_PPP_SET_MASK) && !zend_asymmetric_property_has_set_access(info)) {
+		if ((info->flags & ZEND_ACC_ALL_SET_MASK) && !zend_asymmetric_property_has_set_access(info)) {
 			const char *operation = indirect ? "indirectly modify" : "modify";
 			zend_asymmetric_visibility_property_modification_error(info, operation);
 			return false;

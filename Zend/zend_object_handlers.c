@@ -2077,7 +2077,7 @@ ZEND_API ZEND_COLD zend_never_inline void zend_abstract_method_call(const zend_f
  * class name; a caller with no module, or a different module, is denied. */
 /* Is `scope` (the caller's class scope) inside the same module as `member_ce`
  * (the declaring class of an internal member)? A class belongs to a module either
- * because it is the module's own backing class (ZEND_ACC_MODULE — its name IS the
+ * because it is the module's own backing class (ZEND_ACC2_MODULE — its name IS the
  * module name) or because it is a member class keyed "Module::Name" (module = the
  * part before "::"). Both member classes and backing-class members route here. */
 /* The owning module of a member class named "A::B::…::Member" is everything up to
@@ -2124,7 +2124,7 @@ static zend_always_inline bool zend_module_owner_path(
 		const zend_class_entry *ce, const char **val, size_t *len)
 {
 	const char *v = ZSTR_VAL(ce->name);
-	if (ce->ce_flags & ZEND_ACC_MODULE) {
+	if (ce->ce_flags2 & ZEND_ACC2_MODULE) {
 		*val = v;
 		*len = ZSTR_LEN(ce->name);
 		return true;
@@ -2333,7 +2333,7 @@ ZEND_API zend_function *zend_std_get_method(zend_object **obj_ptr, zend_string *
 	fbc = Z_FUNC_P(func);
 
 	/* PHP Modules: gate an "internal" method to same-module callers. */
-	if (UNEXPECTED(fbc->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)) {
+	if (UNEXPECTED(fbc->common.fn_flags2 & ZEND_ACC2_FN_MODULE_INTERNAL)) {
 		const zend_class_entry *scope = zend_get_executed_scope();
 		if (!zend_module_scope_or_caller_allows(fbc->common.scope, scope)) {
 			if (zobj->ce->__call) {
@@ -2418,7 +2418,7 @@ ZEND_API zend_function *zend_std_get_static_method(const zend_class_entry *ce, z
 	if (EXPECTED(func)) {
 		fbc = Z_FUNC_P(func);
 		/* PHP Modules: gate an "internal" static method to same-module callers. */
-		if (UNEXPECTED(fbc->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)) {
+		if (UNEXPECTED(fbc->common.fn_flags2 & ZEND_ACC2_FN_MODULE_INTERNAL)) {
 			const zend_class_entry *scope = zend_get_executed_scope();
 			if (!zend_module_scope_or_caller_allows(fbc->common.scope, scope)) {
 				zend_function *fallback_fbc = get_static_method_fallback(ce, function_name);
@@ -2450,7 +2450,7 @@ module_checked: ;
 		 * — the call site then caches the result exactly like a static method, so the
 		 * gate runs once per call site. Returns directly: a module function has no class
 		 * scope, so the trait/abstract tail below must not run for it. */
-		if (UNEXPECTED(ce->ce_flags & ZEND_ACC_MODULE)) {
+		if (UNEXPECTED(ce->ce_flags2 & ZEND_ACC2_MODULE)) {
 			zend_string *lc_canonical = zend_string_alloc(
 				ZSTR_LEN(ce->name) + 2 + ZSTR_LEN(lc_function_name), 0);
 			zend_str_tolower_copy(ZSTR_VAL(lc_canonical), ZSTR_VAL(ce->name), ZSTR_LEN(ce->name));
@@ -2463,10 +2463,8 @@ module_checked: ;
 				if (UNEXPECTED(!key)) {
 					zend_string_release_ex(lc_function_name, 0);
 				}
-				if (UNEXPECTED(zend_module_function_access_denied(mfn))) {
-					zend_throw_error(NULL,
-						"Cannot call internal module function %s() from outside its module",
-						ZSTR_VAL(mfn->common.function_name));
+				if (ZEND_MODULE_FN_DENIED(mfn)) {
+					zend_throw_module_function_access_error(mfn);
 					return NULL;
 				}
 				return mfn;
@@ -2646,7 +2644,7 @@ ZEND_API zend_function *zend_std_get_constructor(zend_object *zobj) /* {{{ */
 				zend_object_store_ctor_failed(zobj);
 				constructor = NULL;
 			}
-		} else if (UNEXPECTED(constructor->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)) {
+		} else if (UNEXPECTED(constructor->common.fn_flags2 & ZEND_ACC2_FN_MODULE_INTERNAL)) {
 			/* PHP Modules: a public class with an `internal` constructor is visible
 			 * everywhere but instantiable only from inside its module. */
 			const zend_class_entry *scope = get_fake_or_executed_scope();

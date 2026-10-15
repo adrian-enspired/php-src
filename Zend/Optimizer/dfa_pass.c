@@ -297,6 +297,10 @@ static inline bool can_elide_return_type_check(
 	if (use_type & MAY_BE_REF) {
 		return false;
 	}
+	/* PHP Modules: the opcode also runs the deferred public-surface check. */
+	if (op_array->fn_flags2 & ZEND_ACC2_FN_PUBLICATION_UNVERIFIED) {
+		return false;
+	}
 
 	if (use_type & MAY_BE_UNDEF) {
 		use_type &= ~MAY_BE_UNDEF;

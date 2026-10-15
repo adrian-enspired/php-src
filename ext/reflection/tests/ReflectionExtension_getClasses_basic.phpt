@@ -14,11 +14,6 @@ array(27) {
     ["name"]=>
     string(19) "ReflectionException"
   }
-  ["ReflectionModule"]=>
-  object(ReflectionClass)#%d (1) {
-    ["name"]=>
-    string(16) "ReflectionModule"
-  }
   ["Reflection"]=>
   object(ReflectionClass)#%d (1) {
     ["name"]=>
@@ -113,6 +108,11 @@ array(27) {
   object(ReflectionClass)#%d (1) {
     ["name"]=>
     string(19) "ReflectionAttribute"
+  }
+  ["ReflectionModule"]=>
+  object(ReflectionClass)#%d (1) {
+    ["name"]=>
+    string(16) "ReflectionModule"
   }
   ["ReflectionEnum"]=>
   object(ReflectionClass)#%d (1) {

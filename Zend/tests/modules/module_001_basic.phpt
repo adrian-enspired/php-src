@@ -12,7 +12,7 @@ module User {
 }
 
 // Module-owned classes are reachable by their canonical FQN (single "::" at the
-// module boundary), NOT by a plain namespace path.
+// module boundary), and by their ordinary namespaced name.
 var_dump(class_exists('Vendor\User::Profile'));
 var_dump(class_exists('Vendor\User::GuestUser'));
 var_dump(class_exists('Vendor\User\Profile'));
@@ -26,7 +26,7 @@ echo get_class($o), "\n";
 --EXPECT--
 bool(true)
 bool(true)
-bool(false)
+bool(true)
 string(6) "adrian"
 Vendor\User::Profile
 Vendor\User::Profile

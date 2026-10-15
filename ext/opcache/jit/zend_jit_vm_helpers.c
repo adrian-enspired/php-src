@@ -429,6 +429,23 @@ static zend_always_inline zend_constant* _zend_quick_get_constant(
 		return NULL;
 	}
 
+	/* PHP Modules: resolve (alias hop) and gate (`internal`) a module constant, exactly
+	 * as the VM's _zend_quick_get_constant does; the resolved entry is what gets cached. */
+	if (UNEXPECTED(ZEND_CONSTANT_FLAGS(c)
+			& (CONST_MODULE_ALIAS | CONST_MODULE_INTERNAL | CONST_MODULE_VIS_UNKNOWN))) {
+		c = zend_module_constant_resolve(c, check_defined_only);
+		if (!c) {
+			if (!check_defined_only) {
+				if (!EG(exception)) {
+					zend_throw_error(NULL, "Undefined constant \"%s\"",
+						Z_STRVAL_P(RT_CONSTANT(opline, opline->op2)));
+				}
+				ZVAL_UNDEF(EX_VAR(opline->result.var));
+			}
+			return NULL;
+		}
+	}
+
 	if (!check_defined_only) {
 		if (ZEND_CONSTANT_FLAGS(c) & CONST_DEPRECATED) {
 			if (!CONST_IS_RECURSIVE(c)) {

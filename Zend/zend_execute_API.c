@@ -1353,7 +1353,7 @@ ZEND_API zend_class_entry *zend_lookup_class_ex(zend_string *name, zend_string *
 					}
 				}
 				zend_string_release_ex(prefix_lc, 0);
-				if (!pce || !(pce->ce_flags & ZEND_ACC_MODULE)) {
+				if (!pce || !(pce->ce_flags2 & ZEND_ACC2_MODULE)) {
 					/* Not a module at this level -> "A::B::C" is an ordinary (missing)
 					 * class name; fall through to normal autoload, reported unchanged. */
 					is_module_path = false;
@@ -1873,7 +1873,7 @@ static ZEND_COLD void report_class_fetch_error(const zend_string *class_name, ui
 			zend_str_tolower_copy(ZSTR_VAL(mod_lc), cv, last - cv);
 			zend_class_entry *mce = zend_hash_find_ptr(EG(class_table), mod_lc);
 			zend_string_release(mod_lc);
-			if (mce && (mce->ce_flags & ZEND_ACC_MODULE)) {
+			if (mce && (mce->ce_flags2 & ZEND_ACC2_MODULE)) {
 				zend_string *member = zend_string_init(last + 2, cend - (last + 2), 0);
 				zend_string *canon = zend_module_member_canonical_name(mce, member);
 				zend_string_release(member);
@@ -1944,8 +1944,7 @@ check_fetch_type:
 	 * exactly as a literal `instanceof` and `is_a()` do. Skip the gate for SILENT. */
 	if (!(fetch_type & ZEND_FETCH_CLASS_SILENT)
 	 && UNEXPECTED(zend_module_runtime_access_denied(ce))) {
-		zend_throw_error(NULL,
-			"Cannot access internal module member \"%s\" from outside its module", ZSTR_VAL(class_name));
+		zend_throw_module_access_error_ex(ce, class_name);
 		return NULL;
 	}
 	return ce;
@@ -1988,8 +1987,7 @@ zend_class_entry *zend_fetch_class_with_scope(
 	 * exactly as a literal `instanceof` and `is_a()` do. Skip the gate for SILENT. */
 	if (!(fetch_type & ZEND_FETCH_CLASS_SILENT)
 	 && UNEXPECTED(zend_module_runtime_access_denied(ce))) {
-		zend_throw_error(NULL,
-			"Cannot access internal module member \"%s\" from outside its module", ZSTR_VAL(class_name));
+		zend_throw_module_access_error_ex(ce, class_name);
 		return NULL;
 	}
 	return ce;
@@ -2012,7 +2010,7 @@ static zend_class_entry *zend_module_current_user_scope(void)
 ZEND_API bool zend_module_member_is_internal(const zend_class_entry *ce)
 {
 	uint32_t f = ce->ce_flags2;
-	bool is_module = (ce->ce_flags & ZEND_ACC_MODULE) != 0;
+	bool is_module = (ce->ce_flags2 & ZEND_ACC2_MODULE) != 0;
 	/* A leaf member class's visibility is its container's decision, cached (baked) onto the CE —
 	 * the common, fast path. A nested-module BACKING never caches its own visibility: a module has
 	 * no concept of its external visibility; its container decides and records it. So a backing —
@@ -2048,10 +2046,73 @@ ZEND_API bool zend_module_member_is_internal(const zend_class_entry *ce)
 	return (!vis || (uintptr_t) vis == ZEND_MODULE_MEMBER_INTERNAL);
 }
 
+/* PHP Modules: report a denied runtime access. The containment walk denies at the
+ * OUTERMOST boundary the accessor may not cross, which is not necessarily the leaf: a
+ * public member of an internal nested module is denied because the nested module is
+ * internal. Name the boundary that actually denied, so the message does not claim a
+ * public member is internal. `display` is the name as written (it may be an ordinary
+ * or member alias); the walk runs over the canonical ce->name. */
+ZEND_API ZEND_COLD void zend_throw_module_access_error_ex(const zend_class_entry *ce, const zend_string *display)
+{
+	const char *val = ZSTR_VAL(ce->name);
+	const char *end = val + ZSTR_LEN(ce->name);
+	const char *first = zend_memnstr(val, "::", 2, end);
+	/* Nested modules are the "::"-prefixes after the first one ("A::B" of "A::B::C");
+	 * a top-level module ("A") is always public. */
+	for (const char *p = first ? zend_memnstr(first + 2, "::", 2, end) : NULL; p;
+			p = zend_memnstr(p + 2, "::", 2, end)) {
+		zend_string *lc = zend_string_alloc((size_t) (p - val), 0);
+		zend_str_tolower_copy(ZSTR_VAL(lc), val, (size_t) (p - val));
+		const zend_class_entry *mce = zend_hash_find_ptr(EG(class_table), lc);
+		zend_string_release(lc);
+		if (mce && (mce->ce_flags2 & ZEND_ACC2_MODULE) && zend_module_runtime_access_denied(mce)) {
+			zend_throw_error(NULL,
+				"Cannot access \"%s\": module \"%s\" is internal to its parent module",
+				ZSTR_VAL(display), ZSTR_VAL(mce->name));
+			return;
+		}
+	}
+	zend_throw_error(NULL,
+		"Cannot access internal module member \"%s\" from outside its module", ZSTR_VAL(display));
+}
+
+/* PHP Modules: report a denied module-function call. Like the class variant, a PUBLIC
+ * function of an INTERNAL nested module is denied by that module, so name it. */
+ZEND_API ZEND_COLD void zend_throw_module_function_access_error(const zend_function *fn)
+{
+	const char *mod;
+	size_t mlen;
+	if (!zend_module_function_is_internal(fn) && zend_module_function_owner_prefix(fn, &mod, &mlen)) {
+		const char *end = mod + mlen;
+		const char *first = zend_memnstr(mod, "::", 2, end);
+		/* candidate boundaries: every nested-module prefix of the owner, and the owner */
+		for (const char *p = first ? zend_memnstr(first + 2, "::", 2, end) : NULL; ; p = zend_memnstr(p + 2, "::", 2, end)) {
+			size_t plen = p ? (size_t) (p - mod) : mlen;
+			if (first && plen > (size_t) (first - mod)) {
+				zend_string *lc = zend_string_alloc(plen, 0);
+				zend_str_tolower_copy(ZSTR_VAL(lc), mod, plen);
+				const zend_class_entry *mce = zend_hash_find_ptr(EG(class_table), lc);
+				zend_string_release(lc);
+				if (mce && (mce->ce_flags2 & ZEND_ACC2_MODULE) && zend_module_runtime_access_denied(mce)) {
+					zend_throw_error(NULL,
+						"Cannot call %s(): module \"%s\" is internal to its parent module",
+						ZSTR_VAL(fn->common.function_name), ZSTR_VAL(mce->name));
+					return;
+				}
+			}
+			if (!p) {
+				break;
+			}
+		}
+	}
+	zend_throw_error(NULL,
+		"Cannot call internal module function %s() from outside its module",
+		ZSTR_VAL(fn->common.function_name));
+}
+
 ZEND_API ZEND_COLD void zend_throw_module_access_error(const zend_class_entry *ce)
 {
-	zend_throw_error(NULL,
-		"Cannot access internal module member \"%s\" from outside its module", ZSTR_VAL(ce->name));
+	zend_throw_module_access_error_ex(ce, ce->name);
 }
 
 /* PHP Modules: verify a deferred function's DECLARED return type names only publicly
@@ -2071,6 +2132,14 @@ ZEND_API ZEND_COLD void zend_module_verify_declared_return(const zend_function *
 	const zend_arg_info *ret_info = fn->common.arg_info - 1;
 	const zend_type *single_type;
 
+	/* A function deferred while its own visibility was unknown (cold) may have resolved
+	 * internal: then its return type is not public surface. */
+	if (fn->common.scope
+		? zend_module_access_denied_from(fn->common.scope, NULL, 0, false, false, NULL)
+		: zend_module_function_is_internal(fn)) {
+		return;
+	}
+
 	ZEND_TYPE_FOREACH(ret_info->type, single_type) {
 		if (!ZEND_TYPE_HAS_NAME(*single_type)) {
 			continue;
@@ -2080,7 +2149,9 @@ ZEND_API ZEND_COLD void zend_module_verify_declared_return(const zend_function *
 		if (!ce) {
 			continue;                      /* unresolvable -- not ours to report */
 		}
-		if (zend_module_member_is_internal(ce)) {
+		/* Reachable from outside every module? Walks each boundary, so a public member of
+		 * an internal nested module is caught too. */
+		if (zend_module_access_denied_from(ce, NULL, 0, false, false, NULL)) {
 			zend_throw_error(NULL,
 				"the return type of %s%s%s() references \"%s\", which is not reachable from "
 				"outside the module: a module's public surface may not expose internal or "
@@ -2169,8 +2240,8 @@ ZEND_API bool zend_module_access_denied_from(const zend_class_entry *ce,
  * the CE, so it stays correct under opcache and preload. */
 ZEND_API bool zend_module_runtime_access_denied(const zend_class_entry *ce)
 {
-	if (EXPECTED(!(ce->ce_flags2 &
-			(ZEND_ACC2_MODULE_MEMBER | ZEND_ACC2_MODULE_INTERNAL | ZEND_ACC2_MODULE_VIS_UNKNOWN)))) {
+	/* Non-module classes and baked-public members of top-level modules are never denied. */
+	if (EXPECTED(!(ce->ce_flags2 & ZEND_ACC2_MODULE_GATED))) {
 		return false;
 	}
 
@@ -2239,7 +2310,7 @@ ZEND_API bool zend_module_current_caller_module(const char **pval, size_t *plen)
 	if (scope) {
 		const char *v = ZSTR_VAL(scope->name);
 		const char *e = v + ZSTR_LEN(scope->name);
-		if (scope->ce_flags & ZEND_ACC_MODULE) {
+		if (scope->ce_flags2 & ZEND_ACC2_MODULE) {
 			*pval = v;
 			*plen = ZSTR_LEN(scope->name);
 			return true;
@@ -2286,7 +2357,7 @@ ZEND_API bool zend_module_function_is_internal(const zend_function *fn)
 		zend_string_release(lc_name);
 		return (!vis || (uintptr_t) vis == ZEND_MODULE_MEMBER_INTERNAL);
 	}
-	return (fn->common.fn_flags & ZEND_ACC_MODULE_INTERNAL) != 0;
+	return (fn->common.fn_flags2 & ZEND_ACC2_FN_MODULE_INTERNAL) != 0;
 }
 
 /* PHP Modules: true if the currently-executing code may NOT call module function `fn`.
@@ -2307,6 +2378,14 @@ ZEND_API bool zend_module_function_access_denied(const zend_function *fn)
 	const char *mod;
 	size_t mlen;
 	if (!zend_module_function_owner_prefix(fn, &mod, &mlen)) {
+		return false;
+	}
+
+	/* Fast path: a baked-public function of a TOP-LEVEL module (no nested boundary above
+	 * it) is callable by everyone -- skip the caller lookup. */
+	if (EXPECTED(!(f2 & ZEND_ACC2_FN_MODULE_VIS_UNKNOWN))
+	 && EXPECTED(!(fn->common.fn_flags2 & ZEND_ACC2_FN_MODULE_INTERNAL))
+	 && !zend_memnstr(mod, "::", 2, mod + mlen)) {
 		return false;
 	}
 
@@ -2340,7 +2419,7 @@ ZEND_API bool zend_module_function_access_denied(const zend_function *fn)
 			zend_str_tolower_copy(ZSTR_VAL(lc), mod, child_len);
 			zend_class_entry *child_ce = zend_hash_find_ptr(EG(class_table), lc);
 			zend_string_release(lc);
-			if (child_ce && (child_ce->ce_flags & ZEND_ACC_MODULE)
+			if (child_ce && (child_ce->ce_flags2 & ZEND_ACC2_MODULE)
 			 && UNEXPECTED(zend_module_member_is_internal(child_ce))) {
 				if (!have_caller
 				 || !zend_module_container_allows_prefix(child_ce, cval, clen)) {
@@ -2368,7 +2447,7 @@ ZEND_API bool zend_module_function_access_denied(const zend_function *fn)
 ZEND_API zend_string *zend_module_member_canonical_name(
 		const zend_class_entry *module_ce, zend_string *member_name)
 {
-	if (!(module_ce->ce_flags & ZEND_ACC_MODULE)) {
+	if (!(module_ce->ce_flags2 & ZEND_ACC2_MODULE)) {
 		return NULL;
 	}
 	zend_string *lc_mod = zend_string_tolower(module_ce->name);
@@ -2407,8 +2486,7 @@ zend_class_entry *zend_fetch_class_by_name(zend_string *class_name, zend_string 
 	 * runtime scope in which the class declaration happens to execute. */
 	if (!(fetch_type & (ZEND_FETCH_CLASS_SILENT | ZEND_FETCH_CLASS_NO_MODULE_GATE))
 	 && UNEXPECTED(zend_module_runtime_access_denied(ce))) {
-		zend_throw_error(NULL,
-			"Cannot access internal module member \"%s\" from outside its module", ZSTR_VAL(class_name));
+		zend_throw_module_access_error_ex(ce, class_name);
 		return NULL;
 	}
 	return ce;

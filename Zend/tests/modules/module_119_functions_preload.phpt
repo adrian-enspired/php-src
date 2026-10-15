@@ -23,7 +23,7 @@ try { PreFn::sec(); echo "LEAK\n"; } catch (\Error $e) { echo $e->getMessage(), 
 try { \PreFn\sec(); echo "LEAK\n"; } catch (\Error $e) { echo $e->getMessage(), "\n"; }
 try { PreFn::inlsec(); echo "LEAK\n"; } catch (\Error $e) { echo $e->getMessage(), "\n"; }
 
-$fns = (new ReflectionModule('PreFn'))->getFunctions();
+$fns = (new ReflectionModule('PreFn'))->getFunctionNames();
 sort($fns);
 print_r($fns);
 ?>

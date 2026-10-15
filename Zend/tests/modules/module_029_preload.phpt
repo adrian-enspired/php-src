@@ -14,7 +14,7 @@ if (substr(PHP_OS, 0, 3) == 'WIN') die('skip not for Windows');
 /* Vendor\App is PRELOADED. This file never requires it, so the runtime
  * ZEND_DECLARE_MODULE op never runs and the per-request module registry is empty —
  * enforcement therefore proves it runs entirely off the persisted class entries. */
-echo class_exists("Vendor\\App") ? "present\n" : "absent\n";
+try { new ReflectionModule("Vendor\\App"); echo "present\n"; } catch (ReflectionException) { echo "absent\n"; }
 echo (new Vendor\App::Service())->ok(), "\n";
 echo (new ReflectionModule("Vendor\\App"))->getName(), "\n";
 echo Vendor\App::OPEN, "\n";

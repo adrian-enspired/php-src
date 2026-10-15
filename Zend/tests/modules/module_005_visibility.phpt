@@ -6,7 +6,7 @@ module Billing {
     public class Invoice {
         public function makeLedger(): object {
             // Internal collaboration within the module boundary is allowed.
-            return new Billing::Ledger();
+            return new \Billing::Ledger();
         }
     }
     internal class Ledger {

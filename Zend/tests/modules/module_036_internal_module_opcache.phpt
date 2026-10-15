@@ -51,5 +51,5 @@ function rrmdir(string $d): void {
 rrmdir(__DIR__ . '/oc_imod_tmp');
 ?>
 --EXPECT--
-run1: Cannot access internal module member "Outer::Inner::Gadget" from outside its module
-run2: Cannot access internal module member "Outer::Inner::Gadget" from outside its module
+run1: Cannot access "Outer::Inner::Gadget": module "Outer::Inner" is internal to its parent module
+run2: Cannot access "Outer::Inner::Gadget": module "Outer::Inner" is internal to its parent module

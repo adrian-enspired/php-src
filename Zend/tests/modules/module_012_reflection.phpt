@@ -14,7 +14,7 @@ $r = new \ReflectionModule('Vendor\Shop');
 echo $r->getName(), "\n";
 echo $r->name, "\n";
 
-$classes = $r->getClasses();
+$classes = $r->getClassNames();
 sort($classes);
 var_dump($classes);
 

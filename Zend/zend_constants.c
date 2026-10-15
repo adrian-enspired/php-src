@@ -357,8 +357,7 @@ ZEND_API zval *zend_get_class_constant_ex(zend_string *class_name, zend_string *
 		 * `constant("M::Secret::HIDDEN")` or a chained `A::PATH::HIDDEN`). */
 		if (UNEXPECTED(zend_module_runtime_access_denied(ce))) {
 			if ((flags & ZEND_FETCH_CLASS_SILENT) == 0) {
-				zend_throw_error(NULL,
-					"Cannot access internal module member \"%s\" from outside its module", ZSTR_VAL(class_name));
+				zend_throw_module_access_error_ex(ce, class_name);
 			}
 			goto failure;
 		}
@@ -368,7 +367,7 @@ ZEND_API zval *zend_get_class_constant_ex(zend_string *class_name, zend_string *
 			 * class ("M::K", "module::K", constant("M::K")). Inline module constants are
 			 * backing-class class constants and answer above; a member-file constant
 			 * lives in EG(zend_constants) under its canonical key. */
-			if (UNEXPECTED(ce->ce_flags & ZEND_ACC_MODULE)) {
+			if (UNEXPECTED(ce->ce_flags2 & ZEND_ACC2_MODULE)) {
 				zend_constant *mc = zend_module_lookup_module_constant(
 					ce, constant_name, (flags & ZEND_FETCH_CLASS_SILENT) != 0);
 				if (mc) {

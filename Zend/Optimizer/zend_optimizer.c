@@ -649,7 +649,9 @@ bool zend_optimizer_replace_by_const(zend_op_array *op_array,
 				case ZEND_VERIFY_RETURN_TYPE: {
 					const zend_arg_info *ret_info = op_array->arg_info - 1;
 					if (!ZEND_TYPE_CONTAINS_CODE(ret_info->type, Z_TYPE_P(val))
-						|| (op_array->fn_flags & ZEND_ACC_RETURN_REFERENCE)) {
+						|| (op_array->fn_flags & ZEND_ACC_RETURN_REFERENCE)
+						/* PHP Modules: the opcode also runs the deferred public-surface check. */
+						|| (op_array->fn_flags2 & ZEND_ACC2_FN_PUBLICATION_UNVERIFIED)) {
 						return false;
 					}
 					MAKE_NOP(opline);
@@ -830,7 +832,7 @@ static bool zend_optimizer_accessor_module(
 		const zend_class_entry *scope = op_array->scope;
 		const char *sv = ZSTR_VAL(scope->name);
 		const char *send = sv + ZSTR_LEN(scope->name);
-		if (scope->ce_flags & ZEND_ACC_MODULE) {
+		if (scope->ce_flags2 & ZEND_ACC2_MODULE) {
 			*cv = sv;
 			*clen = ZSTR_LEN(scope->name);
 			return true;
@@ -862,7 +864,7 @@ static bool zend_optimizer_module_member_reachable(
 	const char *mv = ZSTR_VAL(decl_ce->name);
 	size_t nlen = ZSTR_LEN(decl_ce->name);
 	size_t mlen;
-	if (decl_ce->ce_flags & ZEND_ACC_MODULE) {
+	if (decl_ce->ce_flags2 & ZEND_ACC2_MODULE) {
 		mlen = nlen;                        /* the module's own internal statics */
 	} else {
 		const char *lastsep = NULL;
@@ -1025,7 +1027,7 @@ static bool zend_optimizer_module_function_usable(
 	if (!zend_module_function_owner_prefix(func, &mv, &mlen)) {
 		return false;
 	}
-	if (!(func->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
+	if (!(func->common.fn_flags2 & ZEND_ACC2_FN_MODULE_INTERNAL)
 	 && zend_memnstr(mv, "::", 2, mv + mlen) == NULL) {
 		return true; /* public function of a top-level module: callable from anywhere */
 	}
@@ -1093,7 +1095,7 @@ zend_function *zend_optimizer_get_called_func(
 						/* PHP Modules: an `internal` method is public at the class level;
 						 * binding it here would bypass the runtime gate. Its declaring
 						 * class must be reachable from the code being optimized. */
-						bool module_ok = !(fbc->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
+						bool module_ok = !(fbc->common.fn_flags2 & ZEND_ACC2_FN_MODULE_INTERNAL)
 							|| (fbc->common.scope
 								&& zend_optimizer_module_member_reachable(
 										fbc->common.scope, op_array));

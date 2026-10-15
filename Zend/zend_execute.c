@@ -5130,6 +5130,32 @@ static zend_never_inline zend_execute_data *zend_init_dynamic_call_string(zend_s
 		size_t cname_length = colon - ZSTR_VAL(function) - 1;
 		size_t mname_length = ZSTR_LEN(function) - cname_length - (sizeof("::") - 1);
 
+		/* PHP Modules: only a module function can have "::" in its function-table key
+		 * ("M::f"), so try that first -- one lookup, instead of resolving "M" as a class
+		 * and falling back from its (method-less) backing class. */
+		{
+			const char *fv = ZSTR_VAL(function);
+			size_t fl = ZSTR_LEN(function);
+			if (fl && fv[0] == '\\') {
+				fv++;
+				fl--;
+			}
+			/* (No module declared yet in this request -> no module functions exist.) */
+			zend_function *mfn = EG(module_registry)
+				? zend_hash_str_find_ptr_lc(EG(function_table), fv, fl) : NULL;
+			if (mfn && (mfn->common.fn_flags2 & ZEND_ACC2_FN_MODULE_MEMBER)) {
+				if (ZEND_MODULE_FN_DENIED(mfn)) {
+					zend_throw_module_function_access_error(mfn);
+					return NULL;
+				}
+				if (EXPECTED(mfn->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&mfn->op_array))) {
+					init_func_run_time_cache(&mfn->op_array);
+				}
+				return zend_vm_stack_push_call_frame(ZEND_CALL_NESTED_FUNCTION | ZEND_CALL_DYNAMIC,
+					mfn, num_args, NULL);
+			}
+		}
+
 		lcname = zend_string_init(ZSTR_VAL(function), cname_length, 0);
 
 		called_scope = zend_fetch_class_by_name(lcname, NULL, ZEND_FETCH_CLASS_DEFAULT | ZEND_FETCH_CLASS_EXCEPTION);
@@ -5186,10 +5212,8 @@ static zend_never_inline zend_execute_data *zend_init_dynamic_call_string(zend_s
 		/* PHP Modules: gate an internal module function reached by a dynamic name
 		 * ("$f()" with 'M\f'). This path is per-call and uncached — one
 		 * predicted-not-taken flag test for every non-module callee. */
-		if (UNEXPECTED(zend_module_function_access_denied(fbc))) {
-			zend_throw_error(NULL,
-				"Cannot call internal module function %s() from outside its module",
-				ZSTR_VAL(fbc->common.function_name));
+		if (ZEND_MODULE_FN_DENIED(fbc)) {
+			zend_throw_module_function_access_error(fbc);
 			return NULL;
 		}
 		if (EXPECTED(fbc->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&fbc->op_array))) {

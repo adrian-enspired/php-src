@@ -25,7 +25,7 @@ require $dir . '/manifest.php';
 require $dir . '/funcs.php';
 
 $r = new ReflectionModule('Refl');
-$fns = $r->getFunctions();
+$fns = $r->getFunctionNames();
 sort($fns);
 print_r($fns);
 

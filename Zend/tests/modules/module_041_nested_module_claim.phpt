@@ -31,7 +31,7 @@ require "$dir/pub.php";
 require "$dir/priv.php";
 
 $r = new ReflectionModule("Outer");
-echo "modules: ", implode(",", $r->getModules()), "\n";
+echo "modules: ", implode(",", $r->getModuleNames()), "\n";
 echo "vis Pub:  ", $r->getSymbolVisibility("Outer::Pub"), "\n";
 echo "vis Priv: ", $r->getSymbolVisibility("Outer::Priv"), "\n";
 

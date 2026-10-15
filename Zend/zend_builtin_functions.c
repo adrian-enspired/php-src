@@ -101,7 +101,7 @@ ZEND_FUNCTION(clone)
 
 	/* PHP Modules: an "internal" __clone() gates cloning to same-module callers,
 	 * mirroring how a private __clone() prevents cloning from outside. */
-	if (clone && (clone->common.fn_flags & ZEND_ACC_MODULE_INTERNAL)
+	if (clone && (clone->common.fn_flags2 & ZEND_ACC2_FN_MODULE_INTERNAL)
 			&& !zend_module_scope_or_caller_allows(clone->common.scope, scope)) {
 		zend_throw_error(NULL,
 			"Cannot call internal method %s::__clone() from outside its module",
@@ -762,7 +762,9 @@ static void add_class_vars(const zend_class_entry *scope, zend_class_entry *ce, 
 			 !zend_check_protected(prop_info->ce, scope)) ||
 			((prop_info->flags & ZEND_ACC_PRIVATE) &&
 			  prop_info->ce != scope) ||
-			(prop_info->flags & ZEND_ACC_VIRTUAL)) {
+			(prop_info->flags & ZEND_ACC_VIRTUAL) ||
+			/* PHP Modules: hide `internal` properties from outside their module. */
+			zend_module_property_hidden(prop_info, scope)) {
 			continue;
 		}
 		prop = NULL;
@@ -950,7 +952,11 @@ ZEND_FUNCTION(get_class_methods)
 	const zend_class_entry *scope = zend_get_executed_scope();
 
 	ZEND_HASH_MAP_FOREACH_PTR(&ce->function_table, mptr) {
-		if (zend_check_method_accessible(mptr, scope)) {
+		if (zend_check_method_accessible(mptr, scope)
+			/* PHP Modules: like private/protected, an `internal` method is listed only
+			 * for callers that could call it (its module, or a module nested beneath). */
+			&& (!(mptr->common.fn_flags2 & ZEND_ACC2_FN_MODULE_INTERNAL)
+				|| zend_module_scope_or_caller_allows(mptr->common.scope, scope))) {
 			ZVAL_STR_COPY(&method_name, mptr->common.function_name);
 			zend_hash_next_index_insert_new(Z_ARRVAL_P(return_value), &method_name);
 		}
@@ -1086,7 +1092,8 @@ static zend_always_inline void _class_exists_impl(zval *return_value, zend_strin
 	if (ZSTR_HAS_CE_CACHE(name)) {
 		ce = ZSTR_GET_CE_CACHE(name);
 		if (ce) {
-			RETURN_BOOL(((ce->ce_flags & flags) == flags) && !(ce->ce_flags & skip_flags));
+			RETURN_BOOL(((ce->ce_flags & flags) == flags) && !(ce->ce_flags & skip_flags)
+				&& !(ce->ce_flags2 & ZEND_ACC2_MODULE));
 		}
 	}
 
@@ -1105,7 +1112,9 @@ static zend_always_inline void _class_exists_impl(zval *return_value, zend_strin
 		ce = zend_lookup_class(name);
 	}
 
-	RETURN_BOOL(ce && ((ce->ce_flags & flags) == flags) && !(ce->ce_flags & skip_flags));
+	/* PHP Modules: a module's backing class is not a class, interface, trait or enum. */
+	RETURN_BOOL(ce && ((ce->ce_flags & flags) == flags) && !(ce->ce_flags & skip_flags)
+		&& !(ce->ce_flags2 & ZEND_ACC2_MODULE));
 }
 /* {{{ */
 
@@ -1419,7 +1428,9 @@ static inline void get_declared_class_impl(INTERNAL_FUNCTION_PARAMETERS, int fla
 	ZEND_HASH_FILL_PACKED(Z_ARRVAL_P(return_value)) {
 		ZEND_HASH_MAP_FOREACH_STR_KEY_VAL(EG(class_table), key, zv) {
 			const zend_class_entry *ce = Z_PTR_P(zv);
+			/* PHP Modules: module backing classes are kept out of every listing. */
 			if ((ce->ce_flags & (ZEND_ACC_LINKED|ZEND_ACC_INTERFACE|ZEND_ACC_TRAIT)) == flags
+			 && !(ce->ce_flags2 & ZEND_ACC2_MODULE)
 			 && key
 			 && ZSTR_VAL(key)[0] != 0) {
 				ZEND_HASH_FILL_GROW();

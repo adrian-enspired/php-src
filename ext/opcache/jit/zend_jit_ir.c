@@ -2177,6 +2177,10 @@ static int zend_jit_undefined_function_stub(zend_jit_ctx *jit)
 	}
 	arg3 = ir_ADD_OFFSET(arg3, offsetof(zend_string, val));
 
+	/* PHP Modules: the lookup helper returns NULL with an exception already pending
+	 * when it refused an internal module function; don't report it as undefined. */
+	ir_GUARD_NOT(ir_LOAD_A(jit_EG(exception)), jit_STUB_ADDR(jit, jit_stub_exception_handler));
+
 	ir_CALL_3(IR_VOID,
 		ir_CONST_FUNC_PROTO(zend_throw_error,
 			ir_proto_2(&jit->ctx, IR_VARARG_FUNC, IR_VOID, IR_ADDR, IR_ADDR)),
@@ -3121,6 +3125,7 @@ static void zend_jit_setup_disasm(void)
 	REGISTER_HELPER(zend_jit_push_static_method_call_frame_tmp);
 	REGISTER_HELPER(zend_jit_find_class_helper);
 	REGISTER_HELPER(zend_jit_find_static_method_helper);
+	REGISTER_HELPER(zend_jit_module_cached_ce_denied);
 	REGISTER_HELPER(zend_jit_push_this_method_call_frame);
 	REGISTER_HELPER(zend_jit_free_trampoline_helper);
 	REGISTER_HELPER(zend_jit_verify_return_slow);
@@ -8846,6 +8851,15 @@ static int zend_jit_init_fcall(zend_jit_ctx *jit, const zend_op *opline, uint32_
 #endif
 	}
 
+	/* PHP Modules: a module function's access gate runs at call resolution (the lookup
+	 * helpers). Its cache slot must therefore only ever be filled by a helper -- never
+	 * by the "load constant once" shortcut below. (A direct self-recursive call is
+	 * always inside its own module.) The static `func` info is still used. */
+	bool gated_module_func = func
+	 && func->type == ZEND_USER_FUNCTION
+	 && (func->common.fn_flags2 & ZEND_ACC2_FN_MODULE_MEMBER)
+	 && op_array != &func->op_array;
+
 #ifdef _WIN32
 	if (0) {
 #else
@@ -8882,13 +8896,19 @@ static int zend_jit_init_fcall(zend_jit_ctx *jit, const zend_op *opline, uint32_
 		if (opline->opcode == ZEND_INIT_FCALL
 		 && func
 		 && func->type == ZEND_USER_FUNCTION
-		 && (func->op_array.fn_flags & ZEND_ACC_IMMUTABLE)) {
+		 && (func->op_array.fn_flags & ZEND_ACC_IMMUTABLE)
+		 && !gated_module_func) {
 			ref = ir_HARD_COPY_A(ir_CONST_ADDR(func)); /* load constant once */
 		    ir_STORE(cache_slot_ref, ref);
 			ref = ir_CALL_1(IR_ADDR, ir_CONST_FC_FUNC(zend_jit_init_func_run_time_cache_helper), ref);
 		} else {
 			zval *zv = RT_CONSTANT(opline, opline->op2);
 
+			/* PHP Modules: the lookup helpers may throw (an internal module function
+			 * called from outside its module), so EX(opline) must be current before the
+			 * call, and a pending exception is dispatched rather than treated as an
+			 * undefined function / trace exit. Cold path only. */
+			jit_SET_EX_OPLINE(jit, opline);
 			if (opline->opcode == ZEND_INIT_FCALL) {
 				ref = ir_CALL_2(IR_ADDR, ir_CONST_FC_FUNC(zend_jit_find_func_helper),
 					ir_CONST_ADDR(Z_STR_P(zv)),
@@ -8904,6 +8924,7 @@ static int zend_jit_init_fcall(zend_jit_ctx *jit, const zend_op *opline, uint32_
 			} else {
 				ZEND_UNREACHABLE();
 			}
+			ir_GUARD_NOT(ir_LOAD_A(jit_EG(exception)), jit_STUB_ADDR(jit, jit_stub_exception_handler));
 			if (JIT_G(trigger) == ZEND_JIT_ON_HOT_TRACE) {
 				int32_t exit_point = zend_jit_trace_get_exit_point(opline,
 					func && (func->common.fn_flags & ZEND_ACC_IMMUTABLE) ? ZEND_JIT_EXIT_INVALIDATE : 0);
@@ -9291,6 +9312,20 @@ static int zend_jit_init_static_method_call(zend_jit_ctx         *jit,
 		scope_ref = ir_CONST_ADDR(ce);
 	} else {
 		scope_ref = ir_LOAD_A(ir_ADD_OFFSET(ir_LOAD_A(jit_EX(run_time_cache)), opline->result.num));
+	}
+	/* PHP Modules: cache hit -- re-gate a module member class, as the VM handler does
+	 * (the slot caches resolution, not authorization). Statically skipped when the class
+	 * is known not to be a module member. */
+	if (opline->op1_type == IS_CONST
+	 && (!ce || (ce->ce_flags2 & ZEND_ACC2_MODULE_GATED))) {
+		ir_ref if_member = ir_IF(ir_AND_U32(
+			ir_LOAD_U32(ir_ADD_OFFSET(scope_ref, offsetof(zend_class_entry, ce_flags2))),
+			ir_CONST_U32(ZEND_ACC2_MODULE_GATED)));
+		ir_IF_TRUE_cold(if_member);
+		jit_SET_EX_OPLINE(jit, opline);
+		ir_GUARD_NOT(ir_CALL_1(IR_BOOL, ir_CONST_FC_FUNC(zend_jit_module_cached_ce_denied), scope_ref),
+			jit_STUB_ADDR(jit, jit_stub_exception_handler));
+		ir_MERGE_WITH_EMPTY_FALSE(if_member);
 	}
 
 	ir_MERGE_2(cold_path, ir_END());
@@ -14457,7 +14492,7 @@ static int zend_jit_fetch_obj(zend_jit_ctx         *jit,
 			ir_IF_TRUE_cold(if_has_prop_info);
 
 			ir_ref prop_flags = ir_LOAD_U32(ir_ADD_OFFSET(prop_info_ref, offsetof(zend_property_info, flags)));
-			ir_ref if_readonly_or_avis = ir_IF(ir_AND_U32(prop_flags, ir_CONST_U32(ZEND_ACC_READONLY|ZEND_ACC_PPP_SET_MASK)));
+			ir_ref if_readonly_or_avis = ir_IF(ir_AND_U32(prop_flags, ir_CONST_U32(ZEND_ACC_READONLY|ZEND_ACC_ALL_SET_MASK)));
 
 			ir_IF_FALSE(if_readonly_or_avis);
 			ir_END_list(allowed_inputs);
@@ -14560,7 +14595,7 @@ static int zend_jit_fetch_obj(zend_jit_ctx         *jit,
 			ir_END_list(end_inputs);
 
 			goto result_fetched;
-		} else if (opline->opcode == ZEND_FETCH_OBJ_W && (prop_info->flags & ZEND_ACC_PPP_SET_MASK)) {
+		} else if (opline->opcode == ZEND_FETCH_OBJ_W && (prop_info->flags & ZEND_ACC_ALL_SET_MASK)) {
 			/* Readonly properties which are also asymmetric are never mutable indirectly, which is
 			 * handled by the previous branch. */
 			ir_ref has_access = ir_CALL_1(IR_BOOL, ir_CONST_FC_FUNC(zend_asymmetric_property_has_set_access), ir_CONST_ADDR(prop_info));

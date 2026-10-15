@@ -15,7 +15,7 @@ if (substr(PHP_OS, 0, 3) == 'WIN') die('skip not for Windows');
  * runtime ZEND_DECLARE_MODULE / alias ops never run and the per-request module registry is empty.
  * Reachability by canonical, member name, and namespaced name — plus internal gating — therefore
  * all run off the persisted class entries and aliases. */
-echo class_exists("Ven2\\Usr") ? "present\n" : "absent\n";
+try { new ReflectionModule("Ven2\\Usr"); echo "present\n"; } catch (ReflectionException) { echo "absent\n"; }
 echo (new Ven2\Usr\Api\Check())->t(), "\n";   // namespaced name (persisted alias)
 echo (new Ven2\Usr::Check())->t(), "\n";       // member name / handle (persisted alias)
 echo (new Ven2\Usr::Api\Check())::class, "\n"; // canonical (the persisted class itself)
