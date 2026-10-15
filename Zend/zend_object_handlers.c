@@ -2448,17 +2448,14 @@ module_checked: ;
 		 * scope, so the trait/abstract tail below must not run for it. */
 		if (UNEXPECTED(ce->ce_flags2 & ZEND_ACC2_MODULE)) {
 			zend_string *lc_canonical = zend_string_alloc(
-				ZSTR_LEN(ce->name) + 2 + ZSTR_LEN(lc_function_name), 0);
+				ZSTR_LEN(ce->name) + 2 + ZSTR_LEN(function_name), 0);
 			zend_str_tolower_copy(ZSTR_VAL(lc_canonical), ZSTR_VAL(ce->name), ZSTR_LEN(ce->name));
 			memcpy(ZSTR_VAL(lc_canonical) + ZSTR_LEN(ce->name), "::", 2);
-			memcpy(ZSTR_VAL(lc_canonical) + ZSTR_LEN(ce->name) + 2,
-				ZSTR_VAL(lc_function_name), ZSTR_LEN(lc_function_name) + 1);
+			zend_str_tolower_copy(ZSTR_VAL(lc_canonical) + ZSTR_LEN(ce->name) + 2,
+				ZSTR_VAL(function_name), ZSTR_LEN(function_name));
 			zend_function *mfn = zend_hash_find_ptr(EG(function_table), lc_canonical);
 			zend_string_release(lc_canonical);
 			if (mfn && (mfn->common.fn_flags2 & ZEND_ACC2_FN_MODULE_MEMBER)) {
-				if (UNEXPECTED(!key)) {
-					zend_string_release_ex(lc_function_name, 0);
-				}
 				if (ZEND_MODULE_FN_DENIED(mfn)) {
 					zend_throw_module_function_access_error(mfn);
 					return NULL;

@@ -1388,8 +1388,8 @@ ZEND_API zend_class_entry *zend_lookup_class_ex(zend_string *name, zend_string *
 					zend_string_release_ex(load_lc, 0);
 					pce = zend_hash_find_ptr(EG(class_table), prefix_lc);
 					/* The member may become defined inline as a level loads. */
-					if (!zv) {
-						zv = zend_hash_find(EG(class_table), lc_name);
+					if (!ce) {
+						ce = zend_hash_find_ptr(EG(class_table), lc_name);
 					}
 				}
 				zend_string_release_ex(prefix_lc, 0);
@@ -1405,7 +1405,7 @@ ZEND_API zend_class_entry *zend_lookup_class_ex(zend_string *name, zend_string *
 				/* Member: if still uncompiled after the enclosing levels loaded (one of
 				 * them may have defined it inline), autoload its sub-file under the
 				 * transformed "\\" name; it registers under the canonical "::" key. */
-				if (!zv) {
+				if (!ce) {
 					/* Naive "::"->"\\" transform: correct for a canonical name and for a root member
 					 * (flat name == canonical), and it also serves layouts that map the flat member-name
 					 * transform directly onto the member file. Tried FIRST so existing setups are
@@ -1415,8 +1415,8 @@ ZEND_API zend_class_entry *zend_lookup_class_ex(zend_string *name, zend_string *
 					zend_autoload(bs_name, bs_lc);
 					zend_string_release_ex(bs_name, 0);
 					zend_string_release_ex(bs_lc, 0);
-					zv = zend_hash_find(EG(class_table), lc_name);
-					if (!zv) {
+					ce = zend_hash_find_ptr(EG(class_table), lc_name);
+					if (!ce) {
 						/* Fallback (Decision C): a sub-namespaced member reached by its flat MEMBER NAME
 						 * ("M::K") — the naive transform ("M\\K") misses its "M\\N\\K" file. After the
 						 * module loaded above, consult its member-name -> namespaced-name map and load it. */
@@ -1436,7 +1436,7 @@ ZEND_API zend_class_entry *zend_lookup_class_ex(zend_string *name, zend_string *
 							zend_autoload(ns, ns_lc);
 							zend_string_release_ex(ns, 0);
 							zend_string_release_ex(ns_lc, 0);
-							zv = zend_hash_find(EG(class_table), lc_name);
+							ce = zend_hash_find_ptr(EG(class_table), lc_name);
 						}
 					}
 				}
@@ -1444,8 +1444,7 @@ ZEND_API zend_class_entry *zend_lookup_class_ex(zend_string *name, zend_string *
 				if (!key) {
 					zend_string_release_ex(lc_name, 0);
 				}
-				if (zv) {
-					ce = (zend_class_entry *) Z_PTR_P(zv);
+				if (ce) {
 					if (ce_cache) {
 						SET_CE_CACHE(ce_cache, ce);
 					}

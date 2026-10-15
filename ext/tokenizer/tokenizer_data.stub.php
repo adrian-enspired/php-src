@@ -249,6 +249,11 @@ const T_MODULE = UNKNOWN;
 const T_INTERNAL = UNKNOWN;
 /**
  * @var int
+ * @cvalue T_INTERNAL_SET
+ */
+const T_INTERNAL_SET = UNKNOWN;
+/**
+ * @var int
  * @cvalue T_BREAK
  */
 const T_BREAK = UNKNOWN;
