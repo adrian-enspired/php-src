@@ -2058,6 +2058,9 @@ ZEND_API bool zend_module_member_is_internal(const zend_class_entry *ce)
 	if (!is_module && EXPECTED(!(f & ZEND_ACC2_MODULE_VIS_UNKNOWN))) {
 		return (f & ZEND_ACC2_MODULE_INTERNAL) != 0;
 	}
+	if (is_module && (f & ZEND_ACC2_MODULE_VIS_BAKED)) {
+		return (f & ZEND_ACC2_MODULE_INTERNAL) != 0;   /* resolved at the end of preloading */
+	}
 	/* Resolve from the CONTAINER's member table. The container is the name's prefix up to the LAST
 	 * "::" ("Outer::Inner" -> "Outer"; "M::N\C" -> "M"). A top-level module (no "::") has no
 	 * container and is always public. Fails CLOSED (internal) if the container is not loaded. */
@@ -2241,6 +2244,92 @@ ZEND_API ZEND_COLD zend_result zend_module_verify_declared_properties(zend_class
 		} ZEND_TYPE_FOREACH_END();
 	} ZEND_HASH_FOREACH_END();
 	return SUCCESS;
+}
+
+/* PHP Modules: the visibility of `ce` as decided by its container's member table, or -1 if
+ * that can't be told here (top-level, or the container module isn't registered). */
+static int zend_module_container_decision(const zend_class_entry *ce)
+{
+	const char *val = ZSTR_VAL(ce->name), *end = val + ZSTR_LEN(ce->name), *last = NULL;
+	for (const char *p = zend_memnstr(val, "::", 2, end); p; p = zend_memnstr(p + 2, "::", 2, end)) {
+		last = p;
+	}
+	if (!last) {
+		return -1;
+	}
+	zend_string *lc_mod = zend_string_alloc((size_t) (last - val), 0);
+	zend_str_tolower_copy(ZSTR_VAL(lc_mod), val, (size_t) (last - val));
+	zend_php_module *mod = zend_lookup_module(lc_mod);
+	zend_string_release(lc_mod);
+	if (!mod) {
+		return -1;
+	}
+	zend_string *lc = zend_string_tolower(ce->name);
+	void *vis = zend_hash_find_ptr(&mod->members, lc);
+	zend_string_release(lc);
+	return (!vis || (uintptr_t) vis == ZEND_MODULE_MEMBER_INTERNAL);
+}
+
+/* PHP Modules: preloaded classes and functions keep their flags in shared memory, but the
+ * module registry is not rebuilt per request for preloaded modules (their definitions never
+ * run again). Visibility that is normally resolved from the registry at runtime -- a member
+ * compiled before its module's definition (VIS_UNKNOWN), and every nested module's backing
+ * class -- is therefore resolved now, at the end of preloading, while the registry built by
+ * the preload script still exists. Anything whose module was not preloaded is left as is. */
+ZEND_API void zend_module_bake_preloaded_visibility(void)
+{
+	zend_class_entry *ce;
+	ZEND_HASH_MAP_FOREACH_PTR(EG(class_table), ce) {
+		if (ce->type != ZEND_USER_CLASS) {
+			continue;
+		}
+		bool cold = (ce->ce_flags2 & ZEND_ACC2_MODULE_VIS_UNKNOWN) != 0;
+		bool nested_backing = (ce->ce_flags2 & ZEND_ACC2_MODULE)
+			&& zend_memnstr(ZSTR_VAL(ce->name), "::", 2, ZSTR_VAL(ce->name) + ZSTR_LEN(ce->name));
+		if (!cold && !nested_backing) {
+			continue;
+		}
+		int internal = zend_module_container_decision(ce);
+		if (internal < 0) {
+			continue;
+		}
+		if (internal) {
+			ce->ce_flags2 |= ZEND_ACC2_MODULE_INTERNAL;
+		} else {
+			ce->ce_flags2 &= ~ZEND_ACC2_MODULE_INTERNAL;
+		}
+		ce->ce_flags2 &= ~ZEND_ACC2_MODULE_VIS_UNKNOWN;
+		if (nested_backing) {
+			ce->ce_flags2 |= ZEND_ACC2_MODULE_VIS_BAKED;
+		}
+	} ZEND_HASH_FOREACH_END();
+
+	zend_function *fn;
+	ZEND_HASH_MAP_FOREACH_PTR(EG(function_table), fn) {
+		if (fn->type != ZEND_USER_FUNCTION
+		 || !(fn->common.fn_flags2 & ZEND_ACC2_FN_MODULE_VIS_UNKNOWN)) {
+			continue;
+		}
+		const char *mod;
+		size_t mlen;
+		if (!zend_module_function_owner_prefix(fn, &mod, &mlen)) {
+			continue;
+		}
+		zend_string *lc_mod = zend_string_alloc(mlen, 0);
+		zend_str_tolower_copy(ZSTR_VAL(lc_mod), mod, mlen);
+		bool registered = zend_lookup_module(lc_mod) != NULL;
+		zend_string_release(lc_mod);
+		if (!registered) {
+			continue;
+		}
+		bool internal = zend_module_function_is_internal(fn);   /* resolves from the registry */
+		fn->common.fn_flags2 &= ~ZEND_ACC2_FN_MODULE_VIS_UNKNOWN;
+		if (internal) {
+			fn->common.fn_flags2 |= ZEND_ACC2_FN_MODULE_INTERNAL;
+		} else {
+			fn->common.fn_flags2 &= ~ZEND_ACC2_FN_MODULE_INTERNAL;
+		}
+	} ZEND_HASH_FOREACH_END();
 }
 
 /* PHP Modules: the containment walk, against an EXPLICIT accessor module.

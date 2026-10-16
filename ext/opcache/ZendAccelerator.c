@@ -4972,6 +4972,9 @@ static zend_result accel_preload(const char *config, bool in_child)
 			goto finish;
 		} zend_end_try();
 
+		/* PHP Modules: resolve registry-dependent visibility while the registry exists. */
+		zend_module_bake_preloaded_visibility();
+
 		preload_remove_empty_includes();
 
 		script = create_persistent_script();
