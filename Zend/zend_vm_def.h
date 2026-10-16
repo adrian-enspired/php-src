@@ -8513,18 +8513,18 @@ ZEND_VM_HANDLER(214, ZEND_DECLARE_MODULE, CONST, CONST)
 
 ZEND_VM_HANDLER(215, ZEND_DECLARE_MODULE_MEMBER_ALIAS, CONST, CONST)
 {
-	/* PHP Modules (Decision B): register a member's outward namespace *projection*
-	 * ("A\B\C") as a class alias to its canonical "M::C" entry. Runtime-driven so it
-	 * survives an opcache cache hit (this op replays) and preloading (the alias becomes a
-	 * persisted class-table entry). op1 = projection name, op2 = canonical member name. */
+	/* PHP Modules: register a member class's member name (from its claim) as a class alias.
+	 * Runtime-driven so it is rebuilt on every request, including opcache cache hits (where the
+	 * compiler is skipped). op1 = the alias, or empty = resolve it from the module's claims;
+	 * op2 = the member's name. */
 	USE_OPLINE
-	zval *projection;
+	zval *alias;
 	zval *canonical;
 
 	SAVE_OPLINE();
-	projection = GET_OP1_ZVAL_PTR(BP_VAR_R);
+	alias = GET_OP1_ZVAL_PTR(BP_VAR_R);
 	canonical  = GET_OP2_ZVAL_PTR(BP_VAR_R);
-	zend_declare_module_member_alias_runtime(Z_STR_P(projection), Z_STR_P(canonical));
+	zend_declare_module_member_alias_runtime(Z_STR_P(alias), Z_STR_P(canonical));
 	FREE_OP1();
 	FREE_OP2();
 	ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();

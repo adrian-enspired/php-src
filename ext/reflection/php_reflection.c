@@ -8226,7 +8226,7 @@ static void reflection_module_factory(zend_class_entry *bce, zval *object)
 	ZVAL_STR_COPY(reflection_prop_name(object), bce->name);
 }
 
-/* The module containing class `ce` ("A::B" for "A::B::C"; "M" for "M::Sub\K"). NULL when
+/* The module containing class `ce` ("A\B" for "A\B\C"; "M" for "M\Sub\K"). NULL when
  * it isn't a module member or nested module, or the module isn't loaded. */
 static zend_class_entry *reflection_module_owner_of(const zend_class_entry *ce)
 {
@@ -8234,7 +8234,7 @@ static zend_class_entry *reflection_module_owner_of(const zend_class_entry *ce)
 }
 
 /* Is the class-table entry (key, ce) the canonical entry of a DIRECT member of module
- * `bce`? Excludes alias entries (projections, `as` handles), runtime-definition keys,
+ * `bce`? Excludes alias entries (member names from claims), runtime-definition keys,
  * and members of nested modules. */
 static bool reflection_module_owns_class(const zend_class_entry *bce, const zend_string *key, const zend_class_entry *ce)
 {
@@ -8370,7 +8370,7 @@ static bool reflection_module_file_constant_is_internal(const zend_constant *c)
 		zend_string *lcm = zend_string_init(lv, (size_t) (lsep - lv), 0);
 		zend_php_module *m = zend_lookup_module(lcm);
 		zend_string_release(lcm);
-		/* claims are keyed by the member's namespaced name ("m\\k") */
+		/* claims are keyed by the member's namespaced name ("m\k") */
 		zend_string *lc_claim = zend_string_concat3(lv, (size_t) (lsep - lv), "\\", 1,
 			lsep + 2, (size_t) (lend - lsep - 2));
 		void *vis = m ? zend_hash_find_ptr(&m->members, lc_claim) : NULL;
@@ -8384,8 +8384,8 @@ static bool reflection_module_file_constant_is_internal(const zend_constant *c)
 typedef enum { RMV_NONE, RMV_PUBLIC, RMV_INTERNAL } reflection_module_visibility;
 
 /* Resolve a member of module `bce` named either relative to the module ("Widget",
- * "Crypto\\Checker", an `as` member name, "Inner" for a nested module, a constant "K", a
- * function "f") or by its full name ("M\\Widget"), and report its declared visibility.
+ * "Crypto\Checker", an `as` member name, "Inner" for a nested module, a constant "K", a
+ * function "f") or by its full name ("M\Widget"), and report its declared visibility.
  * Member names are unique across kinds within a module. */
 static reflection_module_visibility reflection_module_member_visibility(zend_class_entry *bce, zend_string *symbol)
 {
@@ -8552,8 +8552,8 @@ ZEND_METHOD(ReflectionModule, getName)
 	RETURN_STR_COPY(bce->name);
 }
 
-/* The module's own name segment: after the last "\\" ("Vendor\\Auth\\Session" -> "Session";
- * nested "A\\B" -> "B"). */
+/* The module's own name segment: after the last "\" ("Vendor\Auth\Session" -> "Session";
+ * nested "A\B" -> "B"). */
 ZEND_METHOD(ReflectionModule, getShortName)
 {
 	zend_class_entry *bce;
@@ -8565,8 +8565,8 @@ ZEND_METHOD(ReflectionModule, getShortName)
 	RETURN_STRINGL(start, end - start);
 }
 
-/* The namespace the (outermost) module is declared in: "Vendor\\Auth" for
- * "Vendor\\Auth\\Session" and for its nested "Vendor\\Auth\\Session\\Inner"; "" at the root. */
+/* The namespace the (outermost) module is declared in: "Vendor\Auth" for
+ * "Vendor\Auth\Session" and for its nested "Vendor\Auth\Session\Inner"; "" at the root. */
 static size_t reflection_module_ns_len(const zend_class_entry *bce)
 {
 	const zend_class_entry *root = bce;

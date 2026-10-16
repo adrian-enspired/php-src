@@ -719,7 +719,7 @@ ZEND_API zend_constant *zend_module_constant_resolve(zend_constant *c, bool sile
 		zend_php_module *m = zend_lookup_module(lc_mod);
 		zend_string_release(lc_mod);
 		if (m) {
-			/* Claims are kind-less and keyed by the member's namespaced name ("m\\k"). */
+			/* Claims are kind-less and keyed by the member's namespaced name ("m\k"). */
 			zend_string *lc_name = zend_string_alloc(ZSTR_LEN(c->name) - 1, 0);
 			zend_str_tolower_copy(ZSTR_VAL(lc_name), val, mlen);
 			ZSTR_VAL(lc_name)[mlen] = '\\';

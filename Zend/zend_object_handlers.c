@@ -130,7 +130,7 @@ ZEND_API bool zend_module_property_hidden(const zend_property_info *prop_info, c
 static HashTable *zend_module_filter_internal_properties(zend_class_entry *ce, HashTable *ht)
 {
 	/* PHP Modules (perf): only module member classes can declare internal properties, and
-	 * ZEND_ACC2_MODULE_MEMBER is set at class creation for exactly those ("::"-qualified) names.
+	 * ZEND_ACC2_MODULE_MEMBER is set at class creation for exactly those classes.
 	 * A single predicted-not-taken flag test replaces a per-object name scan on the json/(array)
 	 * -cast path — non-module objects (json_encode / (array) casts) pay nothing here. */
 	if (EXPECTED(!(ce->ce_flags2 & ZEND_ACC2_MODULE_MEMBER))) {
@@ -2073,9 +2073,6 @@ ZEND_API ZEND_COLD zend_never_inline void zend_abstract_method_call(const zend_f
 }
 /* }}} */
 
-/* PHP Modules: does the caller (scope) belong to the same module as a class that
- * declares an "internal" method? The module is the "<module>::" prefix of the
- * class name; a caller with no module, or a different module, is denied. */
 /* Is `scope` (the caller's class scope) inside the same module as `member_ce`
  * (the declaring class of an internal member)? A class belongs to a module either
  * because it is the module's own backing class (ZEND_ACC2_MODULE — its name IS the
@@ -2084,7 +2081,7 @@ ZEND_API ZEND_COLD zend_never_inline void zend_abstract_method_call(const zend_f
  * module gates against its immediate module). Both member classes and backing-class
  * members route here. */
 /* PHP Modules: is module (aval,alen) an ancestor of module (dval,dlen)? The name says only
- * that it is a namespace prefix: "Vendor\\Shop" may be nested in module "Vendor" or be a
+ * that it is a namespace prefix: "Vendor\Shop" may be nested in module "Vendor" or be a
  * separate top-level module in that namespace. Nesting is recorded on the backing classes
  * (module_len is the container), so walk D's chain of containers. */
 static ZEND_COLD bool zend_module_is_ancestor(
@@ -2103,7 +2100,7 @@ static ZEND_COLD bool zend_module_is_ancestor(
 /* PHP Modules: ancestor-or-self test over module paths. True iff the module (aval,alen) is
  * (dval,dlen) itself, or a module D is nested in (to any depth). This is THE visibility
  * comparison — every gate reduces to it. The common case, the same module, is a string
- * compare; a module name that is a "\\"-prefix of D's is checked against D's nesting. */
+ * compare; a module name that is a "\"-prefix of D's is checked against D's nesting. */
 static zend_always_inline bool zend_module_path_covers(
 		const char *aval, size_t alen, const char *dval, size_t dlen)
 {
@@ -2438,8 +2435,8 @@ module_checked: ;
 	} else {
 		/* PHP Modules: a MODULE FUNCTION spelled through its module — "M::f()",
 		 * "module::f()", a "M::f" string callable. A module backing class has no methods,
-		 * so a method miss on it consults the function table for "M\\f" (a claimed member
-		 * name's alias key answers the same probe, so `Sub\\f as g` resolves as "M\\g"). Visibility is gated here, at resolution
+		 * so a method miss on it consults the function table for "M\f" (a claimed member
+		 * name's alias key answers the same probe, so `Sub\f as g` resolves as "M\g"). Visibility is gated here, at resolution
 		 * — the call site then caches the result exactly like a static method, so the
 		 * gate runs once per call site. Returns directly: a module function has no class
 		 * scope, so the trait/abstract tail below must not run for it. */

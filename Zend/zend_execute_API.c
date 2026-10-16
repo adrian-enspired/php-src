@@ -1245,7 +1245,7 @@ ZEND_API bool zend_is_valid_class_name(const zend_string *name) {
 static zend_class_entry *zend_module_autoload_miss(zend_string *name, zend_string *lc_name)
 {
 	const char *v = ZSTR_VAL(lc_name);
-	/* `name` keeps its case for the autoloader; it may carry a leading "\\" lc_name dropped */
+	/* `name` keeps its case for the autoloader; it may carry a leading "\" lc_name dropped */
 	const char *nv = ZSTR_VAL(name) + (ZSTR_VAL(name)[0] == '\\');
 	for (const char *bs = zend_memrchr(v, '\\', ZSTR_LEN(lc_name)); bs;
 			bs = zend_memrchr(v, '\\', (size_t) (bs - v))) {
@@ -1274,7 +1274,7 @@ static zend_class_entry *zend_module_autoload_miss(zend_string *name, zend_strin
 		if (!mod) {
 			return NULL;
 		}
-		zend_string *canonical = zend_hash_find_ptr(&mod->member_projections, lc_name);
+		zend_string *canonical = zend_hash_find_ptr(&mod->member_names, lc_name);
 		if (!canonical) {
 			return NULL;
 		}
@@ -1988,7 +1988,7 @@ ZEND_API bool zend_module_member_is_internal(const zend_class_entry *ce)
 		return (f & ZEND_ACC2_MODULE_INTERNAL) != 0;   /* resolved at the end of preloading */
 	}
 	/* Resolve from the CONTAINER's member table. The container is the name's first module_len
-	 * bytes ("Outer::Inner" -> "Outer"; "M::N\C" -> "M"). A top-level module has no container
+	 * bytes ("Outer\Inner" -> "Outer"; "M\N\C" -> "M"). A top-level module has no container
 	 * and is always public. Fails CLOSED (internal) if the container is not loaded. */
 	if (!ce->module_len) {
 		return !is_module;
@@ -2246,18 +2246,16 @@ ZEND_API void zend_module_bake_preloaded_visibility(void)
 
 /* PHP Modules: the containment walk, against an EXPLICIT accessor module.
  *
- * To reach "A::B::…::leaf" the accessor must cross each "::" boundary in turn, OUTERMOST
- * first: at each one, ask the CONTAINER whether it exposes its child. The FIRST boundary
- * that denies short-circuits — inner boundaries are never consulted, because you cannot
- * cross into an internal module to name what is inside it. The leaf's own visibility is
- * therefore checked LAST, and only if every enclosing boundary let us through. Each
- * child's visibility is its container's decision, resolved by zend_module_member_is_internal
- * (which for a nested-module backing reads the container's registry, never a self-flag).
+ * To reach a member, the accessor must cross each module boundary on the way: the member's
+ * module, the module that one is nested in, and so on up to a top-level module. At each, the
+ * CONTAINER decides whether it exposes its child (zend_module_member_is_internal, which for a
+ * nested-module backing reads the container's registry, never a self-flag). Any boundary that
+ * denies denies the access.
  *
- * `unknown_denies` selects what to do when an intermediate module is not loaded and its
- * visibility cannot be established here. The runtime skips it (it will be gated when it is
- * actually crossed); a COMPILE-time caller must instead treat it as denied, because its
- * only alternative is to bake in a binding that outruns the gate entirely. */
+ * `unknown_denies` selects what to do when a container is not loaded and its own container
+ * cannot be established here. At runtime that doesn't arise for code being run; a
+ * COMPILE-time caller must treat it as denied, because its only alternative is to bake in a
+ * binding that outruns the gate entirely. */
 ZEND_API bool zend_module_access_denied_from(const zend_class_entry *ce,
 		const char *cval, size_t clen, bool have_module, bool unknown_denies,
 		const HashTable *local_classes)
@@ -2314,13 +2312,12 @@ ZEND_API bool zend_module_access_denied_from(const zend_class_entry *ce,
 /* PHP Modules: the runtime entry point — resolve the accessor from the executing frame,
  * then run the shared walk. The accessor may be a class scope, or scope-less module code
  * (a MODULE FUNCTION or a module-born closure, e.g. `new module::C()` in a function body),
- * which carries its module in its name.
+ * which records its module (op_array.module_len).
  *
- * (perf) Only a class whose canonical name carries the "::" module boundary can ever be
- * gated. ZEND_ACC2_MODULE_MEMBER is set at class creation for exactly those classes and is
- * a superset of MODULE_INTERNAL / MODULE_VIS_UNKNOWN, so this single predicted-not-taken
- * flag test replaces the per-call name scan for all non-module code. The flag is baked on
- * the CE, so it stays correct under opcache and preload. */
+ * (perf) Only a module member (or a nested module's backing class) can ever be gated.
+ * ZEND_ACC2_MODULE_GATED is set at class creation for exactly those that may need the walk,
+ * so this single predicted-not-taken flag test is all non-module code pays. The flag is baked
+ * on the CE, so it stays correct under opcache and preload. */
 ZEND_API bool zend_module_runtime_access_denied(const zend_class_entry *ce)
 {
 	/* Non-module classes and baked-public members of top-level modules are never denied. */
@@ -2342,8 +2339,8 @@ ZEND_API bool zend_module_runtime_access_denied(const zend_class_entry *ce)
 }
 
 /* PHP Modules: the owning-module prefix of a module-owned function's name, recorded at
- * compile time as op_array.module_len: "M" of "M::f" / "M::Sub\f", "Outer::Inner" of
- * "Outer::Inner::f", and the module a closure was born in for "M::{closure:...}". */
+ * compile time as op_array.module_len: "M" of "M\f" / "M\Sub\f", "Outer\Inner" of
+ * "Outer\Inner\f", and the module a closure was born in for "M\{closure:...}". */
 ZEND_API bool zend_module_function_owner_prefix(const zend_function *fn, const char **prefix, size_t *prefix_len)
 {
 	if (!ZEND_USER_CODE(fn->type) || !fn->op_array.module_len) {

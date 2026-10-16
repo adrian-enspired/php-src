@@ -114,9 +114,9 @@ typedef struct _zend_file_context {
 	bool in_namespace;
 	bool has_bracketed_namespaces;
 
-	/* PHP Modules (experimental): name of the enclosing module manifest/membership
-	 * scope for the current file, or NULL. Module-owned symbols are prefixed with
-	 * "<module>::" (the module boundary), then namespace-prefixed with "\" as usual. */
+	/* PHP Modules (experimental): name of the enclosing module definition/membership scope
+	 * for the current file, or NULL. While it is set, the namespace is the module (plus a
+	 * member file's sub-namespace), so module-owned symbols are named "<module>\...". */
 	zend_string *current_module;
 	/* PHP Modules: when compiling eval'd code called from module code, that module, or NULL.
 	 * Eval'd code runs as its caller (like it runs in its caller's class scope): `module::`
@@ -136,10 +136,8 @@ typedef struct _zend_file_context {
 	bool current_member_internal;
 	/* PHP Modules: true while compiling the members *inside* a `module { … }` definition
 	 * block (inline members), false at file scope under a `module M;` membership directive.
-	 * Inline members are module-only (no outward projection); member-file members project
-	 * their file-namespace name — at the root namespace, simply their bare name. This flag
-	 * is what distinguishes the two (both have current_module set and, for a root member,
-	 * a NULL current_namespace, so current_namespace alone cannot tell them apart). */
+	 * Inline members take their visibility from the block and need no member-name alias;
+	 * member-file members take it from the module's claims. */
 	bool in_module_block;
 
 	HashTable *imports;
@@ -162,21 +160,17 @@ void zend_const_expr_to_zval(zval *result, zend_ast **ast_ptr, bool allow_dynami
 
 /* PHP Modules (experimental) */
 typedef struct _zend_php_module {
-	zend_string *name;      /* canonical (as-declared) module name, e.g. "Vendor\User" */
+	zend_string *name;      /* module name, e.g. "Vendor\User" */
 	zend_string *lc_name;   /* lowercased key */
-	/* member visibility map (canonical-lc symbol name -> visibility flag) is added
-	 * in a later increment; increment 1 only records module existence + ownership. */
-	HashTable members;      /* lc member canonical FQN ("m::n\c") -> (void*)(uintptr_t) visibility */
-	HashTable member_handles; /* PHP Modules (Decision C): lc member canonical ("m::n\k") ->
-	                           * flat public handle zend_string ("K" or the `as` alias), so the
-	                           * member registers "M::K" as an alias to its canonical "M::N\K".
-	                           * Absent for a root member whose handle equals its canonical. */
-	HashTable member_projections; /* PHP Modules (Decision C): lc flat member name ("m::k") ->
-	                           * namespaced name zend_string ("M\N\K", the autoload path). Lets a
-	                           * COLD access by a sub-namespaced member's flat name ("M::K") load
-	                           * the member file via the n-tier, since the naive "::"->"\" of the
-	                           * member name ("M\K") misses its "M\N\K" file. Populated only for a
-	                           * member whose flat name differs from its canonical. */
+	HashTable members;      /* lc member name ("m\n\c"; also member names from claims) ->
+	                         * (void*)(uintptr_t) visibility. Claims are kind-less: classes,
+	                         * functions, nested modules, constants ("m\k" for "M::K"). */
+	HashTable member_handles; /* lc member name ("m\n\k") -> the member name its claim gives it
+	                           * (zend_string: "K", or the `as` alias), registered at runtime as
+	                           * an alias "M\K". Absent when it is the member's own name. */
+	HashTable member_names; /* the reverse: lc member name from a claim ("m\k") -> the member's
+	                         * name ("M\N\K"), so a member name that misses autoload loads the
+	                         * member (zend_module_autoload_miss). */
 } zend_php_module;
 
 #define ZEND_MODULE_MEMBER_PUBLIC   1
@@ -191,7 +185,7 @@ ZEND_API zend_php_module *zend_lookup_module(zend_string *lc_name);
  * the compiler never ran, so the per-request registry is always rebuilt. */
 ZEND_API void zend_declare_module_runtime(zend_string *name, HashTable *members);
 ZEND_API void zend_module_ensure_loaded(zend_string *name, zend_string *lc_name);
-ZEND_API void zend_declare_module_member_alias_runtime(zend_string *projection, zend_string *canonical);
+ZEND_API void zend_declare_module_member_alias_runtime(zend_string *alias, zend_string *canonical);
 /* True if class scope `scope` may access an internal member declared in `member_ce`:
  * the accessor's module must BE that module or be nested beneath it (ancestor-or-self).
  * Used for internal methods and internal backing-class members. */
@@ -212,25 +206,24 @@ ZEND_API bool zend_module_container_allows(const zend_class_entry *ce, const zen
  * gated -- otherwise the first (permitted) resolution of a name silently licenses every
  * later use of the same slot, including uses the gate would refuse.
  *
- * Hot path is one predicted-not-taken flag test: ZEND_ACC2_MODULE_MEMBER is set at class
- * creation for exactly those classes whose canonical name carries a "::" boundary, and is
- * a superset of MODULE_INTERNAL / MODULE_VIS_UNKNOWN. Non-module code never calls out. */
+ * Hot path is one predicted-not-taken flag test (ZEND_ACC2_MODULE_GATED, set at class
+ * creation for module members that may be denied). Non-module code never calls out. */
 ZEND_API ZEND_COLD void zend_throw_module_access_error(const zend_class_entry *ce);
 ZEND_API ZEND_COLD void zend_throw_module_function_access_error(const zend_function *fn);
 /* As above, displaying `display` (the name as written) and naming the denying boundary. */
 ZEND_API ZEND_COLD void zend_throw_module_access_error_ex(const zend_class_entry *ce, const zend_string *display);
 /* The module owning `ce`'s own internal members (a backing class owns its own; a member
- * class is owned by the name before its last "::"). False if `ce` is not module code. */
+ * class is owned by its module, ce->module_len). False if `ce` is not module code. */
 ZEND_API bool zend_module_owner_path_of(const zend_class_entry *ce, const char **val, size_t *len);
-/* PHP Modules: the containment walk against an EXPLICIT accessor module — outermost
- * boundary first, first denial wins, leaf checked last. `unknown_denies` makes an
- * unloadable intermediate module deny (required for COMPILE-time callers, which would
+/* PHP Modules: the containment walk against an EXPLICIT accessor module — every module
+ * boundary between the accessor and `ce` must allow it. `unknown_denies` makes an
+ * unloaded container deny (required for COMPILE-time callers, which would
  * otherwise bake in a binding the runtime gate never sees). */
 ZEND_API bool zend_module_access_denied_from(const zend_class_entry *ce,
 		const char *cval, size_t clen, bool have_module, bool unknown_denies,
 		const HashTable *local_classes);
-/* Ancestor-or-self test over two canonical module paths: true iff (aval,alen) is
- * (dval,dlen) or a "::"-boundary ancestor prefix of it. */
+/* Ancestor-or-self test over two module names: true iff (aval,alen) is (dval,dlen) or a
+ * module that (dval,dlen) is nested in, to any depth (by the backing classes' nesting). */
 ZEND_API bool zend_module_path_covers_str(const char *aval, size_t alen, const char *dval, size_t dlen);
 /* PHP Modules: verify the DECLARED return type of a deferred function names only publicly
  * reachable types. Concerns the declaration only -- never the returned value, whose own type
@@ -244,15 +237,12 @@ ZEND_API bool zend_module_container_allows_prefix(const zend_class_entry *ce, co
  * class, or a public member of an internal nested module). Used to gate name-based fetch
  * and object-based construction ("new $escaped") uniformly. */
 ZEND_API bool zend_module_runtime_access_denied(const zend_class_entry *ce);
-/* PHP Modules (Decision C cold projection): true if member class `ce` is internal. The
+/* PHP Modules: true if member class `ce` is internal. The
  * common path is a single CE-flag test (baked at compile). If the member carries
  * ZEND_ACC2_MODULE_VIS_UNKNOWN (compiled COLD, manifest absent), its visibility is
  * resolved from the per-request module registry — populated by the directive's runtime
  * ensure-load — and it fails CLOSED (internal) if the module is still unavailable. */
 ZEND_API bool zend_module_member_is_internal(const zend_class_entry *ce);
-/* PHP Modules: if `module_ce` is a module backing class and `member_name` names a
- * declared member, return the canonical "Module::Member" name (owned); else NULL.
- * Lets an autoloaded "Module::Member::..." chain resolve at runtime (see B1 fix). */
 /* PHP Modules: the owning-module prefix of a module-owned function's name (see the
  * ZEND_ACC2_FN_MODULE_MEMBER flag). Writes [*prefix, *prefix_len); returns false for a
  * function that carries no module prefix (never true for a flagged function). */
@@ -522,7 +512,7 @@ typedef struct _zend_oparray_context {
 /* for internal-ness, replacing the per-request module registry roster at runtime. */
 #define ZEND_ACC2_MODULE_INTERNAL        (1 << 0) /*   X  |     |     |     */
 /*                                                        |     |     |     */
-/* PHP Modules (experimental, Decision C cold projection): this member's visibility */
+/* PHP Modules (experimental, cold compile): this member's visibility              */
 /* could not be baked at compile time because its module's manifest was not loaded  */
 /* when the member compiled COLD (accessed via its namespaced name before the       */
 /* module). Its real public/internal status is resolved at runtime from the module  */
@@ -531,17 +521,17 @@ typedef struct _zend_oparray_context {
 /* visibility is baked, and the bake IS their cache.                                */
 #define ZEND_ACC2_MODULE_VIS_UNKNOWN     (1 << 1) /*   X  |     |     |     */
 /*                                                        |     |     |     */
-/* PHP Modules (perf): this class's canonical name carries the "::" module boundary — i.e.  */
-/* it is a module member or a nested-module backing class, the only classes the runtime     */
-/* access gate and the json/(array)-cast internal-property filter can ever gate. Set once    */
-/* at class creation (baked, so it rides opcache/preload). Lets both hot paths early-out on   */
-/* a single predicted-not-taken flag test instead of scanning the class name for "::", so     */
-/* non-module code (which never carries this bit) pays nothing. It is a superset of           */
-/* ZEND_ACC2_MODULE_INTERNAL and ZEND_ACC2_MODULE_VIS_UNKNOWN (both imply a "::" name).        */
+/* PHP Modules (perf): this class is a module member or a nested-module backing class      */
+/* (ce->module_len names its module), the only classes the runtime access gate and the     */
+/* json/(array)-cast internal-property filter can ever gate. Set once at class creation    */
+/* (baked, so it rides opcache/preload), so both hot paths early-out on a single           */
+/* predicted-not-taken flag test and non-module code pays nothing. It is a superset of     */
+/* ZEND_ACC2_MODULE_INTERNAL and ZEND_ACC2_MODULE_VIS_UNKNOWN.                             */
 #define ZEND_ACC2_MODULE_MEMBER          (1 << 2) /*   X  |     |     |     */
 /*                                                        |     |     |     */
-/* PHP Modules (perf): this member sits below a NESTED module boundary ("A::B::C"), or is */
-/* itself a nested module's backing class ("A::B"). Its reachability then depends on a    */
+/* PHP Modules (perf): this member sits below a NESTED module ("A\B\C" in nested A\B; or  */
+/* may, when compiled before its definition), or is itself a nested module's backing class */
+/* ("A\B"). Its reachability then depends on a                                             */
 /* container's claim, resolved at access time. A member WITHOUT this bit, MODULE_INTERNAL */
 /* and MODULE_VIS_UNKNOWN is a baked-public member of a top-level module: no accessor can */
 /* be denied, so the gate is skipped entirely.                                            */
@@ -571,11 +561,9 @@ typedef struct _zend_oparray_context {
  * AUTHORIZATION to use it. A CE taken from a populated slot must therefore still be
  * gated -- otherwise the first permitted resolution of a name silently licenses every
  * later use of that slot, including uses the gate would refuse. (This is what let a
- * legal `catch (M::Internal)` warm the slot that a subsequent `new M::Internal` read
- * back.) Hot path is one predicted-not-taken flag test: ZEND_ACC2_MODULE_MEMBER is set
- * at class creation for exactly those classes whose canonical name carries a "::"
- * boundary, and is a superset of MODULE_INTERNAL / MODULE_VIS_UNKNOWN, so non-module
- * code never leaves the inline test. */
+ * legal `catch (M\Internal)` warm the slot that a subsequent `new M\Internal` read
+ * back.) Hot path is one predicted-not-taken flag test (ZEND_ACC2_MODULE_GATED), so
+ * non-module code never leaves the inline test. */
 #define ZEND_MODULE_CACHED_CE_DENIED(ce) ( \
 	UNEXPECTED((ce)->ce_flags2 & ZEND_ACC2_MODULE_GATED) \
 	&& UNEXPECTED(zend_module_runtime_access_denied(ce)))
@@ -662,15 +650,15 @@ typedef struct _zend_oparray_context {
 /* module is the first op_array.module_len bytes of the name.                           */
 #define ZEND_ACC2_FN_MODULE_MEMBER       (1 << 1)  /*     |  X  |     |     */
 /*                                                        |     |     |     */
-/* PHP Modules (Decision C cold): this module function compiled while its module's      */
+/* PHP Modules (cold compile): this module function compiled while its module's       */
 /* manifest was not loaded, so its claim visibility could not be baked. Resolved from   */
 /* the per-request module registry at gate time; fails CLOSED (internal). The exact     */
 /* fn-side twin of ZEND_ACC2_MODULE_VIS_UNKNOWN on classes.                             */
 #define ZEND_ACC2_FN_MODULE_VIS_UNKNOWN  (1 << 2)  /*     |  X  |     |     */
-/* PHP Modules: this function is a PUBLIC method of a PUBLIC module member whose declared
- * return type names a member that could not be decided at compile time -- a bare reference
- * resolving to the projection form, which is deliberately ambiguous between an unclaimed
- * member (internal) and an ordinary class in a matching namespace (public). Only the resolved
+/* PHP Modules: this function is a PUBLIC method of a PUBLIC module member (or a public module
+ * function) whose declared return type names a class that could not be decided at compile
+ * time -- a name under a module that no loaded roster lists, which is ambiguous between an
+ * unclaimed member (internal) and an ordinary class in a matching namespace (public). Only the resolved
  * class entry can tell them apart, so the publication check is deferred to first return. */
 #define ZEND_ACC2_FN_PUBLICATION_UNVERIFIED (1 << 3)  /*     |  X  |     |     */
 /* PHP Modules (experimental): an `internal` method or module function: public to  */

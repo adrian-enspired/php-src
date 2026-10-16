@@ -4004,7 +4004,7 @@ get_function_via_handler:
 			}
 		} else if (fcc->calling_scope && (fcc->calling_scope->ce_flags2 & ZEND_ACC2_MODULE)
 				&& !fcc->object) {
-			/* PHP Modules: "M::f" names module function "M\\f". Gated softly here, like a module
+			/* PHP Modules: "M::f" names module function "M\f". Gated softly here, like a module
 			 * function reached by its own name above (the static-method fallback throws). */
 			zend_string *fname = zend_string_concat3(
 				ZSTR_VAL(fcc->calling_scope->name), ZSTR_LEN(fcc->calling_scope->name), "\\", 1,
