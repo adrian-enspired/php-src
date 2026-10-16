@@ -8,8 +8,8 @@ access them. A module's backing class is not reported by class_exists()/get_decl
 module M {
     public class P {
         public $pub = 1;
-        internal $in = 2;
-        internal static $sin = 3;
+        internal int $in = 2;
+        internal static int $sin = 3;
         public function a() {}
         internal function b() {}
         public static function inside(): array {

@@ -2,11 +2,9 @@
 Modules: module/internal are contextual -- a class/function/constant named Module or Internal works in every position
 --DESCRIPTION--
 Each line is a position a name can occupy; each is compiled and run with the name spelled
-Module, module, Internal and internal.
-- Module/module: every position behaves as in PHP without modules.
-- Internal/internal: a reserved class name (like a visibility keyword). Every class-like position
-  fails; functions, constants, methods, properties, enum cases, labels, named args and namespace
-  segments still work. Listed below: the positions where it is accepted.
+Module, module, Internal and internal. All must behave as in PHP without modules. Directly before a
+variable `internal` is the type Internal (module visibility requires a type), so `static Internal $x`
+etc. are typed properties. The only error is `internal` used as a modifier outside a module.
 --FILE--
 <?php
 $corpus = <<<'CORPUS'
@@ -178,34 +176,25 @@ param-promoted-internal|class NAME {} class C { function __construct(internal NA
 CORPUS;
 $php = getenv('TEST_PHP_EXECUTABLE') ?: PHP_BINARY;
 $n = 0;
-$accepted = [];
 foreach (explode("\n", $corpus) as $line) {
     if (!str_contains($line, '|')) { continue; }
     [$pos, $code] = explode('|', $line, 2);
-    $ok = [];
     foreach (['Module', 'module', 'Internal', 'internal'] as $name) {
         $f = __DIR__ . '/module_314_case.inc';
         file_put_contents($f, "<?php\n" . str_replace('NAME', $name, $code) . "\n");
         $r = shell_exec(escapeshellarg($php) . ' -n ' . escapeshellarg($f) . ' 2>&1') ?? '';
         $n++;
-        $err = preg_match('/(Parse error|Fatal error): (.*?) in \//', $r, $m) ? $m[2] : null;
-        $ok[$name] = $err === null;
-        if ($err !== null && ($name === 'Module' || $name === 'module')) {
-            printf("%s %s: %s\n", $pos, $name, $err);
+        if (preg_match('/(Parse error|Fatal error): (.*?) in \//', $r, $m)) {
+            printf("%s %s: %s\n", $pos, $name, $m[2]);
         }
-    }
-    if ($ok['Internal'] !== $ok['internal']) {
-        echo "$pos: Internal/internal differ\n";
-    } elseif ($ok['Internal']) {
-        $accepted[] = $pos;
     }
 }
 @unlink(__DIR__ . '/module_314_case.inc');
-echo "Internal accepted: ", implode(' ', $accepted), "\n";
 echo "checked ", $n > 600 ? "all" : $n, "\n";
 ?>
 --EXPECT--
 param-promoted-internal Module: internal may only be used on a member of a module class
 param-promoted-internal module: internal may only be used on a member of a module class
-Internal accepted: function-decl function-decl-space function-decl-ref const-decl const-decl-space class-const class-const-typed method-decl method-decl-space static-method-decl property enum-case enum-case-value label use-import-alias-to use-function use-const namespace-seg namespace-end namespace-block call call-space call-ns const-fetch const-fetch-semicolon const-and const-coalesce const-ternary const-nullsafe-short const-concat const-array const-match const-case const-default-param named-arg method-call method-call-space nullsafe-method static-method-call static-method-call-space prop-fetch class-const-by-name first-class-callable callable-string docblock list-key echo-comma print return-const yield-const include-like
+param-promoted-internal Internal: internal may only be used on a member of a module class
+param-promoted-internal internal: internal may only be used on a member of a module class
 checked all

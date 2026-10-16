@@ -12,7 +12,7 @@ namespace V;
 #[Tag('mod')]
 module M {
     internal class I {}
-    public class P { internal function hid() {} internal const K = 1; internal $p; }
+    public class P { internal function hid() {} internal const K = 1; internal mixed $p; }
     trait T {}
     interface X {}
     enum E { case A; }

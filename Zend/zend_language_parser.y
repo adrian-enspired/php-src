@@ -269,6 +269,7 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
 %type <ast> foreach_statement declare_statement finally_statement unset_variable variable
 %type <ast> module_qualified_name module_member_list module_member module_member_inner ns_member_ref
 %type <ast> module_self internal_as_name keyword_as_type_name union_type_tail_element
+%type <ast> parameter_head property_head union_type_without_static_tail_element
 %type <num> member_visibility
 %type <ast> extends_from parameter optional_type_without_static argument argument_no_expr global_var
 %type <ast> static_var class_statement trait_adaptation trait_precedence trait_alias
@@ -300,8 +301,8 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
 %type <ast> property_hook property_hook_list optional_property_hook_list hooked_property property_hook_body
 %type <ast> optional_parameter_list clone_argument_list non_empty_clone_argument_list
 
-%type <num> returns_ref function fn is_reference is_variadic property_modifiers property_hook_modifiers
-%type <num> method_modifiers class_const_modifiers member_modifier optional_cpp_modifiers
+%type <num> returns_ref function fn is_reference is_variadic property_hook_modifiers
+%type <num> method_modifiers class_const_modifiers member_modifier member_visibility_explicit
 %type <num> class_modifiers class_modifier anonymous_class_modifiers anonymous_class_modifiers_optional use_type backup_fn_flags
 
 %type <str> backup_doc_comment
@@ -607,6 +608,8 @@ catch_name_list:
 	|	module_qualified_name { $$ = zend_ast_create_list(1, ZEND_AST_NAME_LIST, $1); }
 	|	catch_name_list '|' class_name { $$ = zend_ast_list_add($1, $3); }
 	|	catch_name_list '|' module_qualified_name { $$ = zend_ast_list_add($1, $3); }
+	|	internal_as_name { $$ = zend_ast_create_list(1, ZEND_AST_NAME_LIST, $1); }
+	|	catch_name_list '|' internal_as_name { $$ = zend_ast_list_add($1, $3); }
 ;
 
 optional_variable:
@@ -868,23 +871,29 @@ attributed_parameter:
 	|	parameter				{ $$ = $1; }
 ;
 
-optional_cpp_modifiers:
-		%empty
-			{ $$ = 0; }
-	|	non_empty_member_modifiers
-			{ $$ = zend_modifier_list_to_flags(ZEND_MODIFIER_TARGET_CPP, $1);
+/* PHP Modules: a parameter's head (promotion modifiers + type), built like property_head.
+ * `internal` directly before the variable is the type Internal (zend_member_head): a lone
+ * `Internal $x` is a parameter of type Internal, `internal Internal $x` an internal promoted
+ * property of that type. */
+parameter_head:
+		optional_type_without_static
+			{ $$ = zend_ast_create(ZEND_AST_PROP_GROUP, $1, NULL, NULL); $$->attr = 0; }
+	|	non_empty_member_modifiers optional_type_without_static
+			{ $$ = zend_member_head(ZEND_MODIFIER_TARGET_CPP, $1, $2);
 			  if (!$$) { YYERROR; } }
 ;
 
 parameter:
-		optional_cpp_modifiers optional_type_without_static
+		parameter_head
 		is_reference is_variadic T_VARIABLE backup_doc_comment optional_property_hook_list
-			{ $$ = zend_ast_create_ex(ZEND_AST_PARAM, $1 | $3 | $4, $2, $5, NULL,
-					NULL, $6 ? zend_ast_create_zval_from_str($6) : NULL, $7); }
-	|	optional_cpp_modifiers optional_type_without_static
+			{ $$ = zend_ast_create_ex(ZEND_AST_PARAM, $1->attr | $2 | $3, $1->child[0], $4, NULL,
+					NULL, $5 ? zend_ast_create_zval_from_str($5) : NULL, $6);
+			  $1->child[0] = NULL; zend_ast_destroy($1); }
+	|	parameter_head
 		is_reference is_variadic T_VARIABLE '=' expr backup_doc_comment optional_property_hook_list
-			{ $$ = zend_ast_create_ex(ZEND_AST_PARAM, $1 | $3 | $4, $2, $5, $7,
-					NULL, $8 ? zend_ast_create_zval_from_str($8) : NULL, $9); }
+			{ $$ = zend_ast_create_ex(ZEND_AST_PARAM, $1->attr | $2 | $3, $1->child[0], $4, $6,
+					NULL, $7 ? zend_ast_create_zval_from_str($7) : NULL, $8);
+			  $1->child[0] = NULL; zend_ast_destroy($1); }
 ;
 
 optional_type_without_static:
@@ -936,6 +945,7 @@ intersection_type:
 type_expr_without_static:
 		type_without_static			{ $$ = $1; }
 	|	'?' type_without_static		{ $$ = $2; $$->attr |= ZEND_TYPE_NULLABLE; }
+	|	'?' internal_as_name		{ $$ = $2; $$->attr |= ZEND_TYPE_NULLABLE; }	/* `?Internal $x` */
 	|	union_type_without_static	{ $$ = $1; }
 	|	intersection_type_without_static	{ $$ = $1; }
 ;
@@ -952,17 +962,27 @@ union_type_without_static_element:
         |        '(' intersection_type_without_static ')' { $$ = $2; }
 ;
 
+/* PHP Modules: after "|" (or "&") a T_INTERNAL can only be a class named Internal. */
+union_type_without_static_tail_element:
+		union_type_without_static_element	{ $$ = $1; }
+	|	internal_as_name					{ $$ = $1; }
+;
+
 union_type_without_static:
-		union_type_without_static_element '|' union_type_without_static_element
+		union_type_without_static_element '|' union_type_without_static_tail_element
 			{ $$ = zend_ast_create_list(2, ZEND_AST_TYPE_UNION, $1, $3); }
-	|	union_type_without_static '|' union_type_without_static_element
+	|	union_type_without_static '|' union_type_without_static_tail_element
 			{ $$ = zend_ast_list_add($1, $3); }
 ;
 
 intersection_type_without_static:
 		type_without_static T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG type_without_static
 			{ $$ = zend_ast_create_list(2, ZEND_AST_TYPE_INTERSECTION, $1, $3); }
+	|	type_without_static T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG internal_as_name
+			{ $$ = zend_ast_create_list(2, ZEND_AST_TYPE_INTERSECTION, $1, $3); }
 	|	intersection_type_without_static T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG type_without_static
+			{ $$ = zend_ast_list_add($1, $3); }
+	|	intersection_type_without_static T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG internal_as_name
 			{ $$ = zend_ast_list_add($1, $3); }
 ;
 
@@ -1055,12 +1075,10 @@ class_statement_list:
 
 
 attributed_class_statement:
-		property_modifiers optional_type_without_static property_list ';'
-			{ $$ = zend_ast_create(ZEND_AST_PROP_GROUP, $2, $3, NULL);
-			  $$->attr = $1; }
-	|	property_modifiers optional_type_without_static hooked_property
-			{ $$ = zend_ast_create(ZEND_AST_PROP_GROUP, $2, zend_ast_create_list(1, ZEND_AST_PROP_DECL, $3), NULL);
-			  $$->attr = $1; }
+		property_head property_list ';'
+			{ $$ = $1; $$->child[1] = $2; }
+	|	property_head hooked_property
+			{ $$ = $1; $$->child[1] = zend_ast_create_list(1, ZEND_AST_PROP_DECL, $2); }
 	|	class_const_modifiers T_CONST class_const_list ';'
 			{ $$ = zend_ast_create(ZEND_AST_CLASS_CONST_GROUP, $3, NULL, NULL);
 			  $$->attr = $1; }
@@ -1162,12 +1180,19 @@ method_body:
 	|	'{' inner_statement_list '}'	{ $$ = $2; }
 ;
 
-property_modifiers:
-		non_empty_member_modifiers
-			{ $$ = zend_modifier_list_to_flags(ZEND_MODIFIER_TARGET_PROPERTY, $1);
+/* A property declaration's modifiers + type, as a ZEND_AST_PROP_GROUP with no properties
+ * yet. PHP Modules: `internal` is a modifier, but `Internal` may also be a class name used
+ * as the type; zend_member_head decides (`public Internal $x` is the type). */
+property_head:
+		non_empty_member_modifiers optional_type_without_static
+			{ $$ = zend_member_head(ZEND_MODIFIER_TARGET_PROPERTY, $1, $2);
 			  if (!$$) { YYERROR; } }
-	|	T_VAR
-			{ $$ = ZEND_ACC_PUBLIC; }
+	|	T_VAR optional_type_without_static
+			{ $$ = zend_ast_create(ZEND_AST_PROP_GROUP, $2, NULL, NULL);
+			  $$->attr = ZEND_ACC_PUBLIC; }
+	|	T_VAR internal_as_name
+			{ $$ = zend_ast_create(ZEND_AST_PROP_GROUP, $2, NULL, NULL);
+			  $$->attr = ZEND_ACC_PUBLIC; }
 ;
 
 method_modifiers:
@@ -1206,7 +1231,7 @@ member_modifier:
 	|	T_ABSTRACT				{ $$ = T_ABSTRACT; }
 	|	T_FINAL					{ $$ = T_FINAL; }
 	|	T_READONLY				{ $$ = T_READONLY; }
-	|	T_INTERNAL				{ $$ = T_INTERNAL; }
+	|	T_INTERNAL				{ $$ = T_INTERNAL; CG(last_internal_modifier) = $1; }
 	|	T_INTERNAL_SET			{ $$ = T_INTERNAL_SET; }
 ;
 
@@ -1579,17 +1604,19 @@ module_self:
 			  $$ = zend_ast_create_zval_ex(&zv, ZEND_NAME_MODULE_SELF); }
 ;
 
-/* PHP Modules: a class named Module used as a type where the keyword lexes as a keyword
- * (followed by a name): `const Module K`. (Internal is a reserved class name.) */
+/* PHP Modules: a class named Module/Internal used as a type where the keyword lexes as a
+ * keyword (followed by a name): `const Module K`, `const Internal K`. */
 keyword_as_type_name:
-		T_MODULE
+		internal_as_name	{ $$ = $1; }
+	|	T_MODULE
 			{ zval zv;
 			  if (zend_lex_tstring(&zv, $1) == FAILURE) { YYABORT; }
 			  $$ = zend_ast_create_zval_ex(&zv, ZEND_NAME_NOT_FQ); }
 ;
 
-/* PHP Modules: a function named internal called as `internal ($x)` -- the contextual
- * keyword lexes as T_INTERNAL before "(". */
+/* PHP Modules: `internal` lexes as T_INTERNAL before a name, variable, "(" etc.; where only
+ * a name can appear (a type, `new Internal ()`, `catch (Internal $e)`, a call to a function
+ * named internal) it is that name. */
 internal_as_name:
 		T_INTERNAL
 			{ zval zv;
@@ -1609,7 +1636,11 @@ module_member_list:
 
 member_visibility:
 		%empty		{ $$ = ZEND_MODULE_MEMBER_PUBLIC; }
-	|	T_PUBLIC	{ $$ = ZEND_MODULE_MEMBER_PUBLIC; }
+	|	member_visibility_explicit	{ $$ = $1; }
+;
+
+member_visibility_explicit:
+		T_PUBLIC	{ $$ = ZEND_MODULE_MEMBER_PUBLIC; }
 	|	T_INTERNAL	{ $$ = ZEND_MODULE_MEMBER_INTERNAL; }
 ;
 	/* PHP Modules: visibility is OPTIONAL on the members of a module definition block and
@@ -1688,10 +1719,20 @@ module_member_inner:
 			/* PHP Modules: a body-less claim of a NESTED MODULE — the enclosing module
 			 * forward-declares "Inner" (defined in its own file). A MODULE node with a
 			 * NULL member list distinguishes it from the block form above. */
-	|	member_visibility namespace_name ';'
+	|	namespace_name ';'
+			/* PHP Modules: a claim without a visibility. ZEND_MODULE_CLAIM_IMPLICIT lets the
+			 * compiler reject `internal;` -- a visibility with no member, like `public;` --
+			 * while `public Internal;` claims a class named Internal. */
+			{ zend_ast *c = zend_ast_create(ZEND_AST_MODULE_CLAIM, $1);
+			  c->attr = ZEND_MODULE_CLAIM_IMPLICIT;
+			  $$ = zend_ast_create_ex(ZEND_AST_MODULE_MEMBER, ZEND_MODULE_MEMBER_PUBLIC, c); }
+	|	member_visibility_explicit namespace_name ';'
 			{ zend_ast *c = zend_ast_create(ZEND_AST_MODULE_CLAIM, $2);
 			  $$ = zend_ast_create_ex(ZEND_AST_MODULE_MEMBER, $1, c); }
-	|	member_visibility namespace_name T_AS identifier ';'
+	|	namespace_name T_AS identifier ';'
+			{ zend_ast *c = zend_ast_create(ZEND_AST_MODULE_CLAIM_AS, $1, $3);
+			  $$ = zend_ast_create_ex(ZEND_AST_MODULE_MEMBER, ZEND_MODULE_MEMBER_PUBLIC, c); }
+	|	member_visibility_explicit namespace_name T_AS identifier ';'
 			/* PHP Modules (Decision B): "Full\Name as Alias;" — the canonical membership
 			 * handle uses the Alias (module-rooted, "M::Alias"); the source name supplies the
 			 * member's outward projection. Resolves same-tail collisions between members from
@@ -1741,6 +1782,7 @@ ns_member_ref:
 
 class_name_reference:
 		class_name		{ $$ = $1; }
+	|	internal_as_name	{ $$ = $1; }	/* PHP Modules: `new Internal ()` */
 	|	new_variable	{ $$ = $1; }
 	|	'(' expr ')'	{ $$ = $2; }
 ;

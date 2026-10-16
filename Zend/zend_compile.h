@@ -168,6 +168,8 @@ typedef struct _zend_php_module {
 
 #define ZEND_MODULE_MEMBER_PUBLIC   1
 #define ZEND_MODULE_MEMBER_INTERNAL 2
+/* ZEND_AST_MODULE_CLAIM attr: the claim was written without a visibility. */
+#define ZEND_MODULE_CLAIM_IMPLICIT  1
 
 ZEND_API zend_php_module *zend_register_module(zend_string *name);
 ZEND_API zend_php_module *zend_lookup_module(zend_string *lc_name);
@@ -1175,6 +1177,7 @@ uint32_t zend_add_member_modifier(uint32_t flags, uint32_t new_flag, zend_modifi
 
 uint32_t zend_modifier_token_to_flag(zend_modifier_target target, uint32_t flags);
 uint32_t zend_modifier_list_to_flags(zend_modifier_target target, zend_ast *modifiers);
+zend_ast *zend_member_head(zend_modifier_target target, zend_ast *modifiers, zend_ast *type);
 
 bool zend_handle_encoding_declaration(zend_ast *ast);
 

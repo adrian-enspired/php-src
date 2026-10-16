@@ -142,6 +142,8 @@ struct _zend_compiler_globals {
 
 	zend_ast *ast;
 	zend_arena *ast_arena;
+	/* PHP Modules: source of the last `internal` modifier token (see zend_member_head). */
+	unsigned char *last_internal_modifier;
 
 	zend_stack delayed_oplines_stack;
 	HashTable *memoized_exprs;

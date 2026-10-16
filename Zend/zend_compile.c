@@ -260,11 +260,6 @@ static bool zend_is_reserved_class_name(const zend_string *name) /* {{{ */
 		}
 	}
 
-	/* PHP Modules: `internal` is a visibility, like public/protected/private. */
-	if (zend_binary_strcasecmp(uqname, uqname_len, "internal", sizeof("internal") - 1) == 0) {
-		return true;
-	}
-
 	return false;
 }
 /* }}} */
@@ -1033,6 +1028,49 @@ uint32_t zend_modifier_list_to_flags(zend_modifier_target target, zend_ast *modi
 	}
 
 	return flags;
+}
+
+/* PHP Modules: build a property's or promoted parameter's head (modifiers + type) -- see
+ * property_head / parameter_head in the grammar. `internal` lexes as a modifier before a name
+ * or variable; directly before the variable (no type follows it) it is always the type: a
+ * class named Internal, spelled as written. Module visibility requires a type, so
+ * `public Internal $x` is a public property of type Internal, `internal Internal $x` an
+ * internal one, and a lone `Internal $x` parameter is a parameter of type Internal. A property
+ * needs a modifier, so `internal $x;` alone is an error rather than a public property. Returns
+ * a ZEND_AST_PROP_GROUP(type) carrying the flags. */
+zend_ast *zend_member_head(zend_modifier_target target, zend_ast *modifiers, zend_ast *type)
+{
+	zend_ast_list *list = zend_ast_get_list(modifiers);
+	if (!type && CG(last_internal_modifier)
+	 && Z_LVAL_P(zend_ast_get_zval(list->child[list->children - 1])) == T_INTERNAL) {
+		zval zv;
+		if (zend_lex_tstring(&zv, CG(last_internal_modifier)) == SUCCESS) {
+			zend_ast_destroy(list->child[--list->children]);
+			type = zend_ast_create_zval_ex(&zv, ZEND_NAME_NOT_FQ);
+			if (target == ZEND_MODIFIER_TARGET_PROPERTY && list->children == 0) {
+				CG(last_internal_modifier) = NULL;
+				zend_throw_exception(zend_ce_compile_error,
+					"An internal property must have a type: before a variable, \"internal\" is the "
+					"type Internal (write \"internal mixed $x\" for an untyped internal property, or "
+					"\"public Internal $x\")", 0);
+				zend_ast_destroy(type);
+				return NULL;
+			}
+		}
+	}
+	CG(last_internal_modifier) = NULL;
+	uint32_t flags = 0;
+	if (list->children) {
+		flags = zend_modifier_list_to_flags(target, modifiers);
+		if (!flags) {
+			/* YYERROR does not run destructors for the action's own RHS values */
+			zend_ast_destroy(type);
+			return NULL;
+		}
+	}
+	zend_ast *head = zend_ast_create(ZEND_AST_PROP_GROUP, type, NULL, NULL);
+	head->attr = flags;
+	return head;
 }
 
 uint32_t zend_add_class_modifier(uint32_t flags, uint32_t new_flag) /* {{{ */
@@ -11477,11 +11515,7 @@ static void zend_compile_use(zend_ast *ast) /* {{{ */
 			lookup_name = zend_string_tolower(new_name);
 		}
 
-		/* PHP Modules: `internal` is reserved as a class name, but no class can be named
-		 * Internal, so an `Internal` alias can only name a namespace (`use Amp\Internal;`
-		 * then `Internal\foo()`) -- keep that working. */
-		if (type == ZEND_SYMBOL_CLASS && zend_is_reserved_class_name(new_name)
-		 && !zend_string_equals_literal_ci(new_name, "internal")) {
+		if (type == ZEND_SYMBOL_CLASS && zend_is_reserved_class_name(new_name)) {
 			zend_error_noreturn(E_COMPILE_ERROR, "Cannot use %s as %s because '%s' "
 				"is a special class name", ZSTR_VAL(old_name), ZSTR_VAL(new_name), ZSTR_VAL(new_name));
 		}
@@ -12135,9 +12169,10 @@ static void zend_preregister_module_subtree(zend_string *mod_name, const zend_as
 			/* `internal` lexes as a name before ";" (contextual keyword), but at the head of a
 			 * member it is the visibility: `internal;` is a visibility with no member, like
 			 * `public;`, not a claim of a member named "internal". */
-			if (zend_string_equals_literal_ci(simple, "internal")) {
+			if ((decl->attr & ZEND_MODULE_CLAIM_IMPLICIT)
+			 && zend_string_equals_literal_ci(simple, "internal")) {
 				zend_error_noreturn(E_COMPILE_ERROR,
-					"Cannot claim a member named \"internal\" in module %s (a member is claimed as \"internal Name;\")",
+					"Missing member name after \"internal\" in module %s (to claim a member named Internal, write \"public Internal;\" or \"internal Internal;\")",
 					ZSTR_VAL(mod_name));
 			}
 		} else if (decl->kind == ZEND_AST_MODULE_CLAIM_AS) {

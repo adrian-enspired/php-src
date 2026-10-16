@@ -4571,6 +4571,17 @@ ZEND_API zend_property_info *zend_declare_typed_property(zend_class_entry *ce, z
 	if (!(access_type & ZEND_ACC_PPP_MASK)) {
 		access_type |= ZEND_ACC_PUBLIC;
 	}
+	/* PHP Modules: like readonly and asymmetric visibility, module visibility requires a type
+	 * (it is also what keeps `internal` unambiguous before a variable: there it is the type
+	 * Internal). */
+	if (UNEXPECTED(access_type & (ZEND_ACC_MODULE_INTERNAL_MEMBER | ZEND_ACC_MODULE_INTERNAL_SET))
+	 && !ZEND_TYPE_IS_SET(type)) {
+		zend_error_noreturn(ce->type == ZEND_INTERNAL_CLASS ? E_CORE_ERROR : E_COMPILE_ERROR,
+			(access_type & ZEND_ACC_MODULE_INTERNAL_MEMBER)
+				? "Internal property %s::$%s must have type"
+				: "Property with asymmetric visibility %s::$%s must have type",
+			ZSTR_VAL(ce->name), ZSTR_VAL(name));
+	}
 	/* Add the protected(set) bit for public readonly properties with no set visibility. */
 	if ((access_type & (ZEND_ACC_PUBLIC|ZEND_ACC_READONLY|ZEND_ACC_PPP_SET_MASK)) == (ZEND_ACC_PUBLIC|ZEND_ACC_READONLY)) {
 		access_type |= ZEND_ACC_PROTECTED_SET;

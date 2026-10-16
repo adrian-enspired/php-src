@@ -1571,8 +1571,9 @@ OPTIONAL_WHITESPACE_OR_COMMENTS ({WHITESPACE}|{MULTI_LINE_COMMENT}|{SINGLE_LINE_
  *
  * `internal` is a keyword when followed by something that can follow a modifier: a
  * name or type (`internal function`, `internal Helper;`, `internal int $x`), a nullable
- * type (`?int`, but not `??`), `\`, `(` (DNF type), or a variable (`internal $x`). In a
- * parameter list a lone `Internal $x` is settled by the compiler (ZEND_PARAM_INTERNAL_OR_TYPE).
+ * type (`?int`, but not `??`), `\`, `(` (DNF type), or a variable (`internal $x`). In
+ * a property or parameter, `internal` directly before the variable is the type Internal
+ * (module visibility requires a type; see zend_member_head).
  *
  * Neither is a keyword right after "::" (`M::Internal $x`, `M::Module $m`): a member
  * segment is always a name. *
