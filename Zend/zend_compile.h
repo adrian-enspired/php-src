@@ -244,6 +244,12 @@ ZEND_API zend_string *zend_module_member_canonical_name(const zend_class_entry *
  * ZEND_ACC2_FN_MODULE_MEMBER flag). Writes [*prefix, *prefix_len); returns false for a
  * function that carries no module prefix (never true for a flagged function). */
 ZEND_API bool zend_module_function_owner_prefix(const zend_function *fn, const char **prefix, size_t *prefix_len);
+
+/* PHP Modules: the length of the module part of a module-qualified name -- up to its last "::"
+ * ("M::N" of "M::N::C"), 0 if there is none. An anonymous class's name stops at its NUL (the
+ * rest is the declaring file). Computed once when a class or function is declared and
+ * stored as module_len. */
+ZEND_API uint32_t zend_module_name_container_len(const zend_string *name);
 /* PHP Modules: true if the currently-executing code may NOT call module function `fn`
  * (an `internal` module function called from outside its module). One flag test for
  * non-module functions. Called at call-RESOLUTION points only (INIT_*FCALL cache-fill,
@@ -797,6 +803,9 @@ struct _zend_op_array {
 	uint32_t cache_size; /* number of run_time_cache_slots * sizeof(void*) */
 	int last_var;        /* number of CV variables */
 	uint32_t last;       /* number of opcodes */
+	/* PHP Modules: length of the owning module's name, which is a prefix of function_name
+	 * ("M" of "M::f" and of "M::{closure:…}"; 0 if not module code). */
+	uint32_t module_len;
 
 	zend_op *opcodes;
 	ZEND_MAP_PTR_DEF(HashTable *, static_variables_ptr);

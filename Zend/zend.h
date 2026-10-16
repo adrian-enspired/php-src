@@ -162,6 +162,9 @@ struct _zend_class_entry {
 
 	int default_properties_count;
 	uint32_t default_static_members_count;
+	/* PHP Modules: length of the containing module's name, which is a prefix of `name`
+	 * ("M::N" of "M::N::C"; 0 for non-module classes and top-level modules). */
+	uint32_t module_len;
 	zval *default_properties_table;
 	zval *default_static_members_table;
 	ZEND_MAP_PTR_DEF(zval *, static_members_table);

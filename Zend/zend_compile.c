@@ -2332,11 +2332,21 @@ int ZEND_FASTCALL zendlex(zend_parser_stack_elem *elem) /* {{{ */
 }
 /* }}} */
 
+ZEND_API uint32_t zend_module_name_container_len(const zend_string *name)
+{
+	const char *val = ZSTR_VAL(name), *end = val + strnlen(val, ZSTR_LEN(name)), *last = NULL;
+	for (const char *p = val; (p = zend_memnstr(p, "::", 2, end)) != NULL; p += 2) {
+		last = p;
+	}
+	return last ? (uint32_t) (last - val) : 0;
+}
+
 ZEND_API void zend_initialize_class_data(zend_class_entry *ce, bool nullify_handlers) /* {{{ */
 {
 	bool persistent_hashes = ce->type == ZEND_INTERNAL_CLASS;
 
 	ce->refcount = 1;
+	ce->module_len = 0;
 	ce->ce_flags = ZEND_ACC_CONSTANTS_UPDATED;
 	ce->ce_flags2 = 0;
 
@@ -9789,6 +9799,7 @@ static zend_string *zend_begin_func_decl(znode *result, zend_op_array *op_array,
 				ZSTR_VAL(plain), ZSTR_LEN(plain));
 			zend_string_release(plain);
 			op_array->fn_flags2 |= ZEND_ACC2_FN_MODULE_MEMBER;
+			op_array->module_len = (uint32_t) ZSTR_LEN(FC(current_module));
 		}
 		op_array->function_name = name = unqualified_name;
 	} else {
@@ -9820,6 +9831,7 @@ static zend_string *zend_begin_func_decl(znode *result, zend_op_array *op_array,
 			name = zend_module_member_canonical(unqualified_name);
 			op_array->fn_flags |= ZEND_ACC_STATIC;
 			op_array->fn_flags2 |= ZEND_ACC2_FN_MODULE_MEMBER;
+			op_array->module_len = zend_module_name_container_len(name);
 			zend_module_stamp_function_visibility(op_array, name);
 		} else {
 			name = zend_prefix_with_ns(unqualified_name);
@@ -11012,6 +11024,7 @@ static void zend_compile_class_decl(znode *result, const zend_ast *ast, bool top
 	  || zend_memnstr(ZSTR_VAL(ce->name), "::", 2, ZSTR_VAL(ce->name) + ZSTR_LEN(ce->name)) != NULL)) {
 		ce->ce_flags2 |= ZEND_ACC2_MODULE_MEMBER;
 		const char *cv = ZSTR_VAL(ce->name), *cend = cv + ZSTR_LEN(ce->name);
+		ce->module_len = zend_module_name_container_len(ce->name);
 		const char *first = zend_memnstr(cv, "::", 2, cend);
 		if ((decl->attr & ZEND_CLASS_DECL_MODULE)
 		 || (first && zend_memnstr(first + 2, "::", 2, cend))) {

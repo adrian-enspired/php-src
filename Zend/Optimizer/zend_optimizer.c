@@ -838,25 +838,7 @@ static bool zend_optimizer_accessor_module(
 		return false;
 	}
 	if (op_array->scope) {
-		const zend_class_entry *scope = op_array->scope;
-		const char *sv = ZSTR_VAL(scope->name);
-		const char *send = sv + ZSTR_LEN(scope->name);
-		if (scope->ce_flags2 & ZEND_ACC2_MODULE) {
-			*cv = sv;
-			*clen = ZSTR_LEN(scope->name);
-			return true;
-		}
-		const char *lastsep = NULL;
-		for (const char *q = zend_memnstr(sv, "::", 2, send); q;
-				q = zend_memnstr(q + 2, "::", 2, send)) {
-			lastsep = q;
-		}
-		if (!lastsep) {
-			return false;
-		}
-		*cv = sv;
-		*clen = (size_t) (lastsep - sv);
-		return true;
+		return zend_module_owner_path_of(op_array->scope, cv, clen);
 	}
 	if (op_array->fn_flags2 & ZEND_ACC2_FN_MODULE_MEMBER) {
 		return zend_module_function_owner_prefix((const zend_function *) op_array, cv, clen);
@@ -870,21 +852,10 @@ static bool zend_optimizer_accessor_module(
 static bool zend_optimizer_module_member_reachable(
 		const zend_class_entry *decl_ce, const zend_op_array *op_array)
 {
-	const char *mv = ZSTR_VAL(decl_ce->name);
-	size_t nlen = ZSTR_LEN(decl_ce->name);
+	const char *mv;
 	size_t mlen;
-	if (decl_ce->ce_flags2 & ZEND_ACC2_MODULE) {
-		mlen = nlen;                        /* the module's own internal statics */
-	} else {
-		const char *lastsep = NULL;
-		for (const char *q = zend_memnstr(mv, "::", 2, mv + nlen); q;
-				q = zend_memnstr(q + 2, "::", 2, mv + nlen)) {
-			lastsep = q;
-		}
-		if (!lastsep) {
-			return true;                    /* declaring class is not in a module */
-		}
-		mlen = (size_t) (lastsep - mv);
+	if (!zend_module_owner_path_of(decl_ce, &mv, &mlen)) {
+		return true;                        /* declaring class is not in a module */
 	}
 	const char *cv;
 	size_t clen;

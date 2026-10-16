@@ -2080,22 +2080,9 @@ ZEND_API ZEND_COLD zend_never_inline void zend_abstract_method_call(const zend_f
  * (the declaring class of an internal member)? A class belongs to a module either
  * because it is the module's own backing class (ZEND_ACC2_MODULE — its name IS the
  * module name) or because it is a member class keyed "Module::Name" (module = the
- * part before "::"). Both member classes and backing-class members route here. */
-/* The owning module of a member class named "A::B::…::Member" is everything up to
- * the LAST "::" (here "A::B::…"). Using the last separator — not the first — makes a
- * member of a nested module ("Outer::Inner::Secret") gate against its immediate module
- * ("Outer::Inner") rather than the outermost segment ("Outer"). Returns the separator,
- * or NULL if the name has none (not a module member). */
-static const char *zend_module_owner_last_sep(const char *val, size_t len)
-{
-	const char *last = NULL;
-	const char *end = val + len;
-	for (const char *p = val; (p = zend_memnstr(p, "::", 2, end)) != NULL; p += 2) {
-		last = p;
-	}
-	return last;
-}
-
+ * first ce->module_len bytes of its name: up to the LAST "::", so a member of a nested
+ * module gates against its immediate module). Both member classes and backing-class
+ * members route here. */
 /* PHP Modules: ancestor-or-self test over canonical module paths. True iff the module
  * path (aval,alen) is (dval,dlen) itself, or a "::"-boundary ancestor prefix of it. This
  * is THE visibility comparison — every gate reduces to it.
@@ -2119,28 +2106,26 @@ static zend_always_inline bool zend_module_path_covers(
 
 /* The module that OWNS `ce`'s own internal members (methods, properties, constants).
  * For a module backing class that is the module itself (its internal statics belong to
- * it); for a member class it is the name before the last "::". False => not in a
+ * it); for a member class it is its containing module (ce->module_len). False => not in a
  * module, nothing to gate. */
 static zend_always_inline bool zend_module_owner_path(
 		const zend_class_entry *ce, const char **val, size_t *len)
 {
-	const char *v = ZSTR_VAL(ce->name);
 	if (ce->ce_flags2 & ZEND_ACC2_MODULE) {
-		*val = v;
+		*val = ZSTR_VAL(ce->name);
 		*len = ZSTR_LEN(ce->name);
 		return true;
 	}
-	const char *sep = zend_module_owner_last_sep(v, ZSTR_LEN(ce->name));
-	if (!sep) {
+	if (!ce->module_len) {
 		return false;
 	}
-	*val = v;
-	*len = (size_t) (sep - v);
+	*val = ZSTR_VAL(ce->name);
+	*len = ce->module_len;
 	return true;
 }
 
-/* The module that DECIDES `ce`'s visibility AS A MEMBER — always its container, i.e.
- * the name before the last "::", for every kind of member alike (class, interface,
+/* The module that DECIDES `ce`'s visibility AS A MEMBER — always its container
+ * (ce->module_len), for every kind of member alike (class, interface,
  * enum, trait, and a nested module's backing class). This is the twin of
  * zend_module_member_is_internal(), which resolves the same container to answer "is it
  * internal?"; this answers "may this scope cross into it?". Keeping the two on the same
@@ -2148,13 +2133,11 @@ static zend_always_inline bool zend_module_owner_path(
 static zend_always_inline bool zend_module_container_path(
 		const zend_class_entry *ce, const char **val, size_t *len)
 {
-	const char *v = ZSTR_VAL(ce->name);
-	const char *sep = zend_module_owner_last_sep(v, ZSTR_LEN(ce->name));
-	if (!sep) {
+	if (!ce->module_len) {
 		return false;   /* top-level: no container, always public */
 	}
-	*val = v;
-	*len = (size_t) (sep - v);
+	*val = ZSTR_VAL(ce->name);
+	*len = ce->module_len;
 	return true;
 }
 

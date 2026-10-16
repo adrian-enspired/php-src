@@ -8226,16 +8226,11 @@ static void reflection_module_factory(zend_class_entry *bce, zval *object)
 	ZVAL_STR_COPY(reflection_prop_name(object), bce->name);
 }
 
-/* The owning module of a canonical "Owner::Member" name: everything before the LAST
- * "::" ("A::B::C" -> "A::B"; "M::Sub\K" -> "M"). NULL when the name has no boundary or
- * the owner is not a module. */
-static zend_class_entry *reflection_module_owner_of(const zend_string *name)
+/* The module containing class `ce` ("A::B" for "A::B::C"; "M" for "M::Sub\K"). NULL when
+ * it isn't a module member or nested module, or the module isn't loaded. */
+static zend_class_entry *reflection_module_owner_of(const zend_class_entry *ce)
 {
-	const char *val = ZSTR_VAL(name), *end = val + ZSTR_LEN(name), *last = NULL;
-	for (const char *p = zend_memnstr(val, "::", 2, end); p; p = zend_memnstr(p + 2, "::", 2, end)) {
-		last = p;
-	}
-	return last ? reflection_module_lookup(val, (size_t) (last - val)) : NULL;
+	return ce->module_len ? reflection_module_lookup(ZSTR_VAL(ce->name), ce->module_len) : NULL;
 }
 
 /* Is the class-table entry (key, ce) the canonical entry of a DIRECT member of module
@@ -8249,12 +8244,8 @@ static bool reflection_module_owns_class(const zend_class_entry *bce, const zend
 		return false;
 	}
 	size_t ml = ZSTR_LEN(bce->name);
-	const char *v = ZSTR_VAL(ce->name), *end = v + ZSTR_LEN(ce->name);
-	if (ZSTR_LEN(ce->name) <= ml + 2 || v[ml] != ':' || v[ml + 1] != ':'
-	 || zend_binary_strncasecmp(v, ml, ZSTR_VAL(bce->name), ml, ml) != 0) {
-		return false;
-	}
-	return zend_memnstr(v + ml + 2, "::", 2, end) == NULL;
+	return ce->module_len == ml
+		&& zend_binary_strncasecmp(ZSTR_VAL(ce->name), ml, ZSTR_VAL(bce->name), ml, ml) == 0;
 }
 
 /* Is `fn` (found under function-table key `key`) the canonical entry of a module function
@@ -8285,7 +8276,7 @@ static bool reflection_module_class_is_internal(const zend_class_entry *ce)
 	if (!(ce->ce_flags2 & ZEND_ACC2_MODULE_MEMBER) && !(ce->ce_flags2 & ZEND_ACC2_MODULE)) {
 		return false;
 	}
-	return reflection_module_owner_of(ce->name) && zend_module_member_is_internal(ce);
+	return reflection_module_owner_of(ce) && zend_module_member_is_internal(ce);
 }
 
 typedef enum { RM_CLASS, RM_INTERFACE, RM_TRAIT, RM_ENUM, RM_MODULE } reflection_module_kind;
@@ -8420,7 +8411,7 @@ static reflection_module_visibility reflection_module_member_visibility(zend_cla
 
 	/* class-like member or nested module (canonical key, or an `as`-handle alias key) */
 	zend_class_entry *member_ce = zend_hash_find_ptr(EG(class_table), lc);
-	if (member_ce && member_ce != bce && reflection_module_owner_of(member_ce->name) == bce) {
+	if (member_ce && member_ce != bce && reflection_module_owner_of(member_ce) == bce) {
 		result = reflection_module_class_is_internal(member_ce) ? RMV_INTERNAL : RMV_PUBLIC;
 		goto done;
 	}
@@ -8533,7 +8524,7 @@ ZEND_METHOD(ReflectionModule, __toString)
 	GET_REFLECTION_MODULE(bce);
 
 	smart_str str = {0};
-	zend_class_entry *parent = reflection_module_owner_of(bce->name);
+	zend_class_entry *parent = reflection_module_owner_of(bce);
 	smart_str_append_printf(&str, "Module [ <user> %s%s ] {\n",
 		parent && zend_module_member_is_internal(bce) ? "internal " : "", ZSTR_VAL(bce->name));
 	if (bce->type == ZEND_USER_CLASS && bce->info.user.filename) {
@@ -8606,7 +8597,7 @@ ZEND_METHOD(ReflectionModule, getParentModule)
 	zend_class_entry *bce;
 	ZEND_PARSE_PARAMETERS_NONE();
 	GET_REFLECTION_MODULE(bce);
-	zend_class_entry *parent = reflection_module_owner_of(bce->name);
+	zend_class_entry *parent = reflection_module_owner_of(bce);
 	if (!parent) {
 		RETURN_NULL();
 	}
@@ -8794,7 +8785,7 @@ ZEND_METHOD(ReflectionClass, getModule)
 	GET_REFLECTION_OBJECT_PTR(ce);
 	zend_class_entry *owner = NULL;
 	if ((ce->ce_flags2 & ZEND_ACC2_MODULE_MEMBER) || (ce->ce_flags2 & ZEND_ACC2_MODULE)) {
-		owner = reflection_module_owner_of(ce->name);
+		owner = reflection_module_owner_of(ce);
 	}
 	if (!owner) {
 		RETURN_NULL();

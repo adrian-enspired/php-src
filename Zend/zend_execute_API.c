@@ -2061,21 +2061,14 @@ ZEND_API bool zend_module_member_is_internal(const zend_class_entry *ce)
 	if (is_module && (f & ZEND_ACC2_MODULE_VIS_BAKED)) {
 		return (f & ZEND_ACC2_MODULE_INTERNAL) != 0;   /* resolved at the end of preloading */
 	}
-	/* Resolve from the CONTAINER's member table. The container is the name's prefix up to the LAST
-	 * "::" ("Outer::Inner" -> "Outer"; "M::N\C" -> "M"). A top-level module (no "::") has no
-	 * container and is always public. Fails CLOSED (internal) if the container is not loaded. */
-	const char *val = ZSTR_VAL(ce->name);
-	const char *end = val + ZSTR_LEN(ce->name);
-	const char *last = NULL;
-	for (const char *p = zend_memnstr(val, "::", 2, end); p;
-			p = zend_memnstr(p + 2, "::", 2, end)) {
-		last = p;
-	}
-	if (!last) {
+	/* Resolve from the CONTAINER's member table. The container is the name's first module_len
+	 * bytes ("Outer::Inner" -> "Outer"; "M::N\C" -> "M"). A top-level module has no container
+	 * and is always public. Fails CLOSED (internal) if the container is not loaded. */
+	if (!ce->module_len) {
 		return !is_module;
 	}
-	zend_string *lc_mod = zend_string_alloc((size_t) (last - val), 0);
-	zend_str_tolower_copy(ZSTR_VAL(lc_mod), val, (size_t) (last - val));
+	zend_string *lc_mod = zend_string_alloc(ce->module_len, 0);
+	zend_str_tolower_copy(ZSTR_VAL(lc_mod), ZSTR_VAL(ce->name), ce->module_len);
 	zend_php_module *mod = zend_lookup_module(lc_mod);
 	zend_string_release(lc_mod);
 	if (!mod) {
@@ -2250,15 +2243,11 @@ ZEND_API ZEND_COLD zend_result zend_module_verify_declared_properties(zend_class
  * that can't be told here (top-level, or the container module isn't registered). */
 static int zend_module_container_decision(const zend_class_entry *ce)
 {
-	const char *val = ZSTR_VAL(ce->name), *end = val + ZSTR_LEN(ce->name), *last = NULL;
-	for (const char *p = zend_memnstr(val, "::", 2, end); p; p = zend_memnstr(p + 2, "::", 2, end)) {
-		last = p;
-	}
-	if (!last) {
+	if (!ce->module_len) {
 		return -1;
 	}
-	zend_string *lc_mod = zend_string_alloc((size_t) (last - val), 0);
-	zend_str_tolower_copy(ZSTR_VAL(lc_mod), val, (size_t) (last - val));
+	zend_string *lc_mod = zend_string_alloc(ce->module_len, 0);
+	zend_str_tolower_copy(ZSTR_VAL(lc_mod), ZSTR_VAL(ce->name), ce->module_len);
 	zend_php_module *mod = zend_lookup_module(lc_mod);
 	zend_string_release(lc_mod);
 	if (!mod) {
@@ -2284,8 +2273,7 @@ ZEND_API void zend_module_bake_preloaded_visibility(void)
 			continue;
 		}
 		bool cold = (ce->ce_flags2 & ZEND_ACC2_MODULE_VIS_UNKNOWN) != 0;
-		bool nested_backing = (ce->ce_flags2 & ZEND_ACC2_MODULE)
-			&& zend_memnstr(ZSTR_VAL(ce->name), "::", 2, ZSTR_VAL(ce->name) + ZSTR_LEN(ce->name));
+		bool nested_backing = (ce->ce_flags2 & ZEND_ACC2_MODULE) && ce->module_len;
 		if (!cold && !nested_backing) {
 			continue;
 		}
@@ -2355,45 +2343,58 @@ ZEND_API bool zend_module_access_denied_from(const zend_class_entry *ce,
 		return false;
 	}
 
+	/* Walk from the leaf up through its containers (module_len), checking every level that
+	 * has a container; a top-level module has none and is always public. Any denied level
+	 * denies, so the order of the walk doesn't change the result. */
+	if (!ce->module_len) {
+		return false;
+	}
 	const char *val = ZSTR_VAL(ce->name);
-	const char *end = val + ZSTR_LEN(ce->name);
-	size_t full_len = ZSTR_LEN(ce->name);
-
-	for (const char *sep = zend_memnstr(val, "::", 2, end); sep;
-			sep = zend_memnstr(sep + 2, "::", 2, end)) {
-		const char *next = zend_memnstr(sep + 2, "::", 2, end);
-		size_t child_len = next ? (size_t) (next - val) : full_len;
-		bool is_leaf = (child_len == full_len);
-
-		zend_class_entry *child_ce;
-		if (is_leaf) {
-			child_ce = (zend_class_entry *) ce;
-		} else {
-			zend_string *lc = zend_string_alloc(child_len, 0);
-			zend_str_tolower_copy(ZSTR_VAL(lc), val, child_len);
-			/* A compile-time caller's enclosing modules may still be pending in the
-			 * script's own table, not yet inserted into the live class table. */
-			child_ce = local_classes ? zend_hash_find_ptr((HashTable *) local_classes, lc) : NULL;
-			if (!child_ce) {
-				child_ce = zend_hash_find_ptr(EG(class_table), lc);
-			}
-			zend_string_release(lc);
-			if (!child_ce) {
-				if (unknown_denies) {
-					return true;
-				}
-				continue; /* an intermediate module not loaded — cannot check here; skip */
-			}
-		}
-
-		if (UNEXPECTED(zend_module_member_is_internal(child_ce))) {
+	const zend_class_entry *child_ce = ce;
+	size_t child_len = ZSTR_LEN(ce->name);
+	for (;;) {
+		if (child_ce && UNEXPECTED(zend_module_member_is_internal(child_ce))) {
 			if (!have_module
 			 || !zend_module_container_allows_prefix(child_ce, cval, clen)) {
-				return true; /* outermost denial wins; short-circuit */
+				return true;
 			}
 		}
+		size_t container_len;
+		if (child_ce) {
+			container_len = child_ce->module_len;
+		} else {
+			/* an intermediate module that isn't loaded: its container from its name */
+			const char *last = NULL;
+			for (const char *p = zend_memnstr(val, "::", 2, val + child_len); p;
+					p = zend_memnstr(p + 2, "::", 2, val + child_len)) {
+				last = p;
+			}
+			container_len = last ? (size_t) (last - val) : 0;
+		}
+		if (!container_len) {
+			return false;
+		}
+		child_len = container_len;
+		zend_string *lc = zend_string_alloc(child_len, 0);
+		zend_str_tolower_copy(ZSTR_VAL(lc), val, child_len);
+		/* A compile-time caller's enclosing modules may still be pending in the
+		 * script's own table, not yet inserted into the live class table. */
+		child_ce = local_classes ? zend_hash_find_ptr((HashTable *) local_classes, lc) : NULL;
+		if (!child_ce) {
+			child_ce = zend_hash_find_ptr(EG(class_table), lc);
+		}
+		zend_string_release(lc);
+		if (child_ce) {
+			if (!child_ce->module_len) {
+				return false;   /* top-level module: no container */
+			}
+		} else if (!zend_memnstr(val, "::", 2, val + child_len)) {
+			return false;       /* a top-level module, not loaded: nothing to cross */
+		} else if (unknown_denies) {
+			return true;
+		}
+		/* else: an intermediate module not loaded -- cannot check it here; go on up */
 	}
-	return false;
 }
 
 /* PHP Modules: the runtime entry point — resolve the accessor from the executing frame,
@@ -2426,38 +2427,16 @@ ZEND_API bool zend_module_runtime_access_denied(const zend_class_entry *ce)
 	return zend_module_access_denied_from(ce, cval, clen, have_module, false, NULL);
 }
 
-/* PHP Modules: the owning-module prefix of a module-owned function's name. A module
- * closure is "M::{closure:...}" — its module ends at the FIRST "::{closure" (the display
- * name after it may itself contain "::" from an enclosing canonical name). A module
- * function's canonical is "M::f" / "M::Sub\f" / "Outer::Inner::f" — its module is the
- * prefix before the LAST "::". */
+/* PHP Modules: the owning-module prefix of a module-owned function's name, recorded at
+ * compile time as op_array.module_len: "M" of "M::f" / "M::Sub\f", "Outer::Inner" of
+ * "Outer::Inner::f", and the module a closure was born in for "M::{closure:...}". */
 ZEND_API bool zend_module_function_owner_prefix(const zend_function *fn, const char **prefix, size_t *prefix_len)
 {
-	const zend_string *name = fn->common.function_name;
-	if (!name) {
+	if (!ZEND_USER_CODE(fn->type) || !fn->op_array.module_len) {
 		return false;
 	}
-	const char *val = ZSTR_VAL(name);
-	const char *end = val + ZSTR_LEN(name);
-	const char *cl = zend_memnstr(val, "::{closure", sizeof("::{closure") - 1, end);
-	if (cl) {
-		if (cl == val) {
-			return false;
-		}
-		*prefix = val;
-		*prefix_len = (size_t) (cl - val);
-		return true;
-	}
-	const char *last = NULL;
-	for (const char *p = zend_memnstr(val, "::", 2, end); p;
-			p = zend_memnstr(p + 2, "::", 2, end)) {
-		last = p;
-	}
-	if (!last) {
-		return false;
-	}
-	*prefix = val;
-	*prefix_len = (size_t) (last - val);
+	*prefix = ZSTR_VAL(fn->common.function_name);
+	*prefix_len = fn->op_array.module_len;
 	return true;
 }
 
@@ -2476,24 +2455,7 @@ ZEND_API bool zend_module_current_caller_module(const char **pval, size_t *plen)
 	}
 	const zend_class_entry *scope = ex->func->common.scope;
 	if (scope) {
-		const char *v = ZSTR_VAL(scope->name);
-		const char *e = v + ZSTR_LEN(scope->name);
-		if (scope->ce_flags2 & ZEND_ACC2_MODULE) {
-			*pval = v;
-			*plen = ZSTR_LEN(scope->name);
-			return true;
-		}
-		const char *last = NULL;
-		for (const char *p = zend_memnstr(v, "::", 2, e); p;
-				p = zend_memnstr(p + 2, "::", 2, e)) {
-			last = p;
-		}
-		if (!last) {
-			return false;
-		}
-		*pval = v;
-		*plen = (size_t) (last - v);
-		return true;
+		return zend_module_owner_path_of(scope, pval, plen);
 	}
 	if (ex->func->common.fn_flags2 & ZEND_ACC2_FN_MODULE_MEMBER) {
 		return zend_module_function_owner_prefix(ex->func, pval, plen);

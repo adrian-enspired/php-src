@@ -53,6 +53,7 @@ void init_op_array(zend_op_array *op_array, zend_function_type type, int initial
 
 	op_array->refcount = (uint32_t *) emalloc(sizeof(uint32_t));
 	*op_array->refcount = 1;
+	op_array->module_len = 0;
 	op_array->last = 0;
 	op_array->opcodes = emalloc(initial_ops_size * sizeof(zend_op));
 
