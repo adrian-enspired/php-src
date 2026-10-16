@@ -13,8 +13,8 @@ module M {
     }
 }
 
-$obj = (new ReflectionClass('M::Box'))->newInstanceWithoutConstructor();
-$rp = (new ReflectionClass('M::Box'))->getProperty('value');
+$obj = (new ReflectionClass('M\Box'))->newInstanceWithoutConstructor();
+$rp = (new ReflectionClass('M\Box'))->getProperty('value');
 
 echo "ordinary read: ";
 try { echo $obj->value, "\n"; echo "LEAKED\n"; }
@@ -26,6 +26,6 @@ $rp->setValue($obj, "changed");
 echo "ReflectionProperty::getValue after setValue: ", $rp->getValue($obj), "\n";
 ?>
 --EXPECT--
-ordinary read: Cannot access internal module property M::Box::$value from outside its module
+ordinary read: Cannot access internal module property M\Box::$value from outside its module
 ReflectionProperty::getValue: start
 ReflectionProperty::getValue after setValue: changed

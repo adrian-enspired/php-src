@@ -26,11 +26,11 @@ module M {
         public function inside(): array { return [$this->a::class, $this->b, $this->c, $this->e, $this->g::class]; }
     }
 }
-$a = M::A::mk();
+$a = M\A::mk();
 var_dump($a->inside(), $a->d);
 foreach (['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'] as $p) {
-    if (!property_exists(M::A::class, $p)) { echo "$p: not promoted\n"; continue; }
-    $r = new ReflectionProperty(M::A::class, $p);
+    if (!property_exists(M\A::class, $p)) { echo "$p: not promoted\n"; continue; }
+    $r = new ReflectionProperty(M\A::class, $p);
     printf("%s: %s%s %s%s%s\n", $p, $r->isModuleInternal() ? 'internal' : 'public',
         $r->isPromoted() ? ' promoted' : '', $r->getType(), $r->isReadOnly() ? ' readonly' : '',
         $r->isFinal() ? ' final' : '');
@@ -54,7 +54,7 @@ foreach ([
 --EXPECT--
 array(5) {
   [0]=>
-  string(4) "M::W"
+  string(3) "M\W"
   [1]=>
   string(1) "b"
   [2]=>
@@ -62,21 +62,21 @@ array(5) {
   [3]=>
   string(1) "e"
   [4]=>
-  string(11) "M::Internal"
+  string(10) "M\Internal"
 }
 int(1)
-a: internal promoted M::W
+a: internal promoted M\W
 b: internal promoted mixed
-c: internal promoted ?M::W readonly
+c: internal promoted ?M\W readonly
 d: public promoted int
 e: internal promoted string|int
 f: not promoted
-g: internal promoted ?M::Internal
-h: public promoted ?M::Internal
-i: public promoted ?M::Internal final
-Cannot access internal module property M::A::$a from outside its module
-Cannot access internal module property M::A::$b from outside its module
-Cannot access internal module property M::A::$g from outside its module
-Cannot modify internal(set) property M::A::$d from global scope
-Property with asymmetric visibility M::A::$x must have type
+g: internal promoted ?M\Internal
+h: public promoted ?M\Internal
+i: public promoted ?M\Internal final
+Cannot access internal module property M\A::$a from outside its module
+Cannot access internal module property M\A::$b from outside its module
+Cannot access internal module property M\A::$g from outside its module
+Cannot modify internal(set) property M\A::$d from global scope
+Property with asymmetric visibility M\A::$x must have type
 internal may only be used on a member of a module class

@@ -1,7 +1,7 @@
 --TEST--
 Modules (C): cold access by CANONICAL :: name loads the module then the member (n-tier)
 --DESCRIPTION--
-Reaching a member COLD by its canonical name (Vendor\User::Auth\PasswordChecker) goes through the
+Reaching a member COLD by its canonical name (Vendor\User\Auth\PasswordChecker) goes through the
 n-tier: tier-1 autoloads the module (Vendor\User); tier-2 autoloads the member by the canonical's
 "::"->"\" transform (Vendor\User\Auth\PasswordChecker), which under Decision C IS the member's
 namespaced name. The public member resolves with its canonical identity; an internal one is gated.
@@ -40,11 +40,11 @@ spl_autoload_register(function (string $n) use ($dir): void {
 });
 
 // COLD by canonical name: n-tier loads the module, then the member file.
-$c = new Vendor\User::Auth\PasswordChecker();
+$c = new Vendor\User\Auth\PasswordChecker();
 echo $c->tag(), "\n";                          // checker
-echo $c::class, "\n";                          // Vendor\User::Auth\PasswordChecker
+echo $c::class, "\n";                          // Vendor\User\Auth\PasswordChecker
 // An internal member reached cold by canonical is gated.
-try { new Vendor\User::Auth\Secret(); echo "LEAK\n"; } catch (\Error $e) { echo "gated\n"; }
+try { new Vendor\User\Auth\Secret(); echo "LEAK\n"; } catch (\Error $e) { echo "gated\n"; }
 ?>
 --CLEAN--
 <?php
@@ -54,5 +54,5 @@ $dir = __DIR__ . '/mod107';
 ?>
 --EXPECT--
 checker
-Vendor\User::Auth\PasswordChecker
+Vendor\User\Auth\PasswordChecker
 gated

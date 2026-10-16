@@ -48,22 +48,22 @@ module Vault {
 
 // Legal observation of an internal type from outside: catching and instanceof by name.
 // These must keep working AND must not warm a cache slot that a gated use can reuse.
-try { Vault::Thrower::boom(); }
-catch (Vault::Sealed $e) { echo "catch by internal name: ", $e->getMessage(), "\n"; }
-try { Vault::Thrower::boom(); }
-catch (\RuntimeException $e) { var_dump($e instanceof Vault::Sealed); }
+try { Vault\Thrower::boom(); }
+catch (Vault\Sealed $e) { echo "catch by internal name: ", $e->getMessage(), "\n"; }
+try { Vault\Thrower::boom(); }
+catch (\RuntimeException $e) { var_dump($e instanceof Vault\Sealed); }
 
 $probes = [
-    'internal class :: method' => fn() => Vault::Sealed::make(),
-    'internal class :: const'  => fn() => Vault::Sealed::TAG,
-    'internal class :: $prop'  => fn() => Vault::Sealed::$slot,
-    'internal class :: new'    => fn() => new Vault::Sealed('y'),
-    'internal method'          => fn() => Vault::Open::guts(),
-    'internal const'           => fn() => Vault::Open::IK,
+    'internal class :: method' => fn() => Vault\Sealed::make(),
+    'internal class :: const'  => fn() => Vault\Sealed::TAG,
+    'internal class :: $prop'  => fn() => Vault\Sealed::$slot,
+    'internal class :: new'    => fn() => new Vault\Sealed('y'),
+    'internal method'          => fn() => Vault\Open::guts(),
+    'internal const'           => fn() => Vault\Open::IK,
     'module const'             => fn() => Vault::MC,
     'module function'          => fn() => Vault::mf(),
-    'internal module :: const' => fn() => Vault::Inner::IV,
-    'internal module :: class' => fn() => Vault::Inner::Gadget::tag(),
+    'internal module :: const' => fn() => Vault\Inner::IV,
+    'internal module :: class' => fn() => Vault\Inner\Gadget::tag(),
 ];
 foreach ($probes as $label => $probe) {
     try { $probe(); echo str_pad($label, 26), ": LEAKED\n"; }
@@ -71,7 +71,7 @@ foreach ($probes as $label => $probe) {
 }
 
 // Public surface is unaffected, and in-module code still reaches everything.
-echo "public method             : ", Vault::Open::ok(), "\n";
+echo "public method             : ", Vault\Open::ok(), "\n";
 ?>
 --EXPECT--
 catch by internal name: x

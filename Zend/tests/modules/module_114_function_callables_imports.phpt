@@ -2,7 +2,7 @@
 Module functions: use function imports, string callables, first-class callables, dynamic calls
 --FILE--
 <?php
-use function Pkg::pub;
+use function Pkg\pub;
 
 module Pkg {
     public function pub(): string { return "pub"; }
@@ -12,7 +12,7 @@ module Pkg {
     }
 }
 
-// use function M::f -> bare call
+// use function M\f -> bare call
 var_dump(pub());
 
 // first-class callable of a public module function
@@ -31,7 +31,7 @@ try { $g = 'Pkg::priv'; $g(); } catch (\Error $e) { echo $e->getMessage(), "\n";
 try { array_map('Pkg::priv', [1]); } catch (\TypeError $e) { echo get_class($e), "\n"; }
 
 // ... but a first-class callable CREATED inside the module works anywhere
-$mk = new Pkg::Maker();
+$mk = new Pkg\Maker();
 $h = $mk->firstClassInternal();
 var_dump($h());
 ?>
@@ -41,7 +41,7 @@ string(3) "pub"
 string(3) "pub"
 string(3) "pub"
 bool(false)
-Cannot call internal module function Pkg::priv() from outside its module
-Cannot call internal module function Pkg::priv() from outside its module
+call_user_func(): Argument #1 ($callback) must be a valid callback, cannot call internal module function Pkg\priv() from outside its module
+Cannot call internal module function Pkg\priv() from outside its module
 TypeError
 string(4) "priv"

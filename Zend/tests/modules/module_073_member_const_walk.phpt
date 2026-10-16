@@ -14,8 +14,8 @@ module M {
     public class Pub { public const K = "pubK"; }
     internal class Sec { public const H = "secH"; }
 
-    public const PUBPATH = "M::Pub";   // public const holding a PUBLIC type's name
-    public const SECPATH = "M::Sec";   // public const holding an INTERNAL type's name
+    public const PUBPATH = "M\Pub";   // public const holding a PUBLIC type's name
+    public const SECPATH = "M\Sec";   // public const holding an INTERNAL type's name
 
     public class Api {
         // constant-walks from inside, via the module:: self-reference
@@ -27,9 +27,9 @@ module M {
 }
 
 echo "-- from inside the module (member class) --\n";
-echo "walkPub:   ", M::Api::walkPub(), "\n";     // pubK
-echo "walkSec:   ", M::Api::walkSec(), "\n";     // secH (internal, but reached from inside)
-echo "classWalk: ", M::Api::classWalk(), "\n";   // pubK
+echo "walkPub:   ", M\Api::walkPub(), "\n";     // pubK
+echo "walkSec:   ", M\Api::walkSec(), "\n";     // secH (internal, but reached from inside)
+echo "classWalk: ", M\Api::classWalk(), "\n";   // pubK
 
 echo "\n-- from outside the module --\n";
 echo "public walk M::PUBPATH::K: ", M::PUBPATH::K, "\n";   // pubK
@@ -39,7 +39,7 @@ try {
 } catch (\Error $e) {
     echo "internal walk M::SECPATH::H: ", $e->getMessage(), "\n";
 }
-echo "class walk M::Pub::K: ", M::Pub::K, "\n";            // pubK
+echo "class walk M\Pub::K: ", M\Pub::K, "\n";            // pubK
 ?>
 --EXPECT--
 -- from inside the module (member class) --
@@ -49,5 +49,5 @@ classWalk: pubK
 
 -- from outside the module --
 public walk M::PUBPATH::K: pubK
-internal walk M::SECPATH::H: Cannot access internal module member "M::Sec" from outside its module
-class walk M::Pub::K: pubK
+internal walk M::SECPATH::H: Cannot access internal module member "M\Sec" from outside its module
+class walk M\Pub::K: pubK

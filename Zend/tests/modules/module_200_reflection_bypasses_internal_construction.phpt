@@ -16,29 +16,29 @@ module M {
 }
 
 echo "literal new: ";
-try { new M::N(); echo "LEAKED\n"; }
+try { new M\N(); echo "LEAKED\n"; }
 catch (\Error $e) { echo $e->getMessage(), "\n"; }
 
 echo "dynamic new: ";
-$class = 'M::N';
+$class = 'M\N';
 try { new $class(); echo "LEAKED\n"; }
 catch (\Error $e) { echo $e->getMessage(), "\n"; }
 
 echo "ReflectionClass::newInstance: ";
-$obj = (new ReflectionClass('M::N'))->newInstance();
+$obj = (new ReflectionClass('M\N'))->newInstance();
 echo get_class($obj), "\n";
 
 echo "ReflectionClass::newInstanceArgs: ";
-$obj2 = (new ReflectionClass('M::N'))->newInstanceArgs([]);
+$obj2 = (new ReflectionClass('M\N'))->newInstanceArgs([]);
 echo get_class($obj2), "\n";
 
 echo "ReflectionClass::newInstanceWithoutConstructor: ";
-$obj3 = (new ReflectionClass('M::N'))->newInstanceWithoutConstructor();
+$obj3 = (new ReflectionClass('M\N'))->newInstanceWithoutConstructor();
 echo get_class($obj3), "\n";
 ?>
 --EXPECT--
-literal new: Cannot access internal module member "M::N" from outside its module
-dynamic new: Cannot access internal module member "M::N" from outside its module
-ReflectionClass::newInstance: M::N
-ReflectionClass::newInstanceArgs: M::N
-ReflectionClass::newInstanceWithoutConstructor: M::N
+literal new: Cannot access internal module member "M\N" from outside its module
+dynamic new: Cannot access internal module member "M\N" from outside its module
+ReflectionClass::newInstance: M\N
+ReflectionClass::newInstanceArgs: M\N
+ReflectionClass::newInstanceWithoutConstructor: M\N

@@ -28,7 +28,7 @@ file_put_contents("$dir/sibling.php", <<<'PHP'
 <?php
 module Shop;
 class Sibling {
-    public function reachHelper(): string { return (new \Shop::Helper())->tag; }     // same module: allowed
+    public function reachHelper(): string { return (new \Shop\Helper())->tag; }     // same module: allowed
     public function reachViaScope(): void { /* module::Helper would be a compile error: not a member */ }
 }
 PHP);
@@ -38,16 +38,16 @@ require "$dir/api.php";
 require "$dir/sibling.php";
 
 // The unclaimed class exists under its canonical name.
-var_dump(class_exists('Shop::Helper', false));
+var_dump(class_exists('Shop\Helper', false));
 
 // Intra-file use works.
-echo (new Shop::Api)->useHelperIntraFile(), "\n";
+echo (new Shop\Api)->useHelperIntraFile(), "\n";
 
 // Reachable from another file of the SAME module (internal = module-scoped).
-echo (new Shop::Sibling)->reachHelper(), "\n";
+echo (new Shop\Sibling)->reachHelper(), "\n";
 
 // Denied from OUTSIDE the module.
-try { new Shop::Helper(); echo "LEAKED\n"; }
+try { new Shop\Helper(); echo "LEAKED\n"; }
 catch (\Error $e) { echo $e->getMessage(), "\n"; }
 ?>
 --CLEAN--
@@ -60,4 +60,4 @@ $dir = __DIR__ . '/uc48_tmp';
 bool(true)
 helper
 helper
-Cannot access internal module member "Shop::Helper" from outside its module
+Cannot access internal module member "Shop\Helper" from outside its module

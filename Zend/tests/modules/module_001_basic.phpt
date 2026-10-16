@@ -13,11 +13,11 @@ module User {
 
 // Module-owned classes are reachable by their canonical FQN (single "::" at the
 // module boundary), and by their ordinary namespaced name.
-var_dump(class_exists('Vendor\User::Profile'));
-var_dump(class_exists('Vendor\User::GuestUser'));
+var_dump(class_exists('Vendor\User\Profile'));
+var_dump(class_exists('Vendor\User\GuestUser'));
 var_dump(class_exists('Vendor\User\Profile'));
 
-$c = 'Vendor\User::Profile';
+$c = 'Vendor\User\Profile';
 $o = new $c('adrian');
 var_dump($o->name);
 echo $o::class, "\n";
@@ -28,5 +28,5 @@ bool(true)
 bool(true)
 bool(true)
 string(6) "adrian"
-Vendor\User::Profile
-Vendor\User::Profile
+Vendor\User\Profile
+Vendor\User\Profile

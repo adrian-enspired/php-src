@@ -26,7 +26,7 @@ PHP);
 file_put_contents($dir . '/consumer.php', <<<'PHP'
 <?php
 require __DIR__ . '/mod.inc';
-try { new Outer::Inner::Gadget(); echo "LEAKED\n"; }
+try { new Outer\Inner\Gadget(); echo "LEAKED\n"; }
 catch (\Error $e) { echo $e->getMessage(), "\n"; }
 PHP);
 
@@ -51,5 +51,5 @@ function rrmdir(string $d): void {
 rrmdir(__DIR__ . '/oc_imod_tmp');
 ?>
 --EXPECT--
-run1: Cannot access "Outer::Inner::Gadget": module "Outer::Inner" is internal to its parent module
-run2: Cannot access "Outer::Inner::Gadget": module "Outer::Inner" is internal to its parent module
+run1: Cannot access "Outer\Inner\Gadget": module "Outer\Inner" is internal to its parent module
+run2: Cannot access "Outer\Inner\Gadget": module "Outer\Inner" is internal to its parent module

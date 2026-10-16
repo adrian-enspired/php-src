@@ -58,7 +58,7 @@ namespace {
             static function go() { return module::H::k() . (new module::H instanceof module::H ? '+' : '-'); }
         }
     }
-    var_dump(M::W::go());
+    var_dump(M\W::go());
 }
 ?>
 --EXPECT--

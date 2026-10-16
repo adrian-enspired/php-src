@@ -33,11 +33,11 @@ require $dir . '/def.php';
 require $dir . '/widget.php';
 require $dir . '/secret.php';
 
-echo (new Shop::Widget)->tag(), "\n";                                            // public -> reachable
+echo (new Shop\Widget)->tag(), "\n";                                            // public -> reachable
 $r = new ReflectionModule("Shop");
-echo $r->getSymbolVisibility("Shop::Widget"), " ", $r->getSymbolVisibility("Shop::Secret"), "\n";
+echo $r->getSymbolVisibility("Shop\Widget"), " ", $r->getSymbolVisibility("Shop\Secret"), "\n";
 
-try { new Shop::Secret(); echo "LEAKED\n"; }
+try { new Shop\Secret(); echo "LEAKED\n"; }
 catch (\Error $e) { echo $e->getMessage(), "\n"; }
 ?>
 --CLEAN--
@@ -49,4 +49,4 @@ $dir = __DIR__ . '/claims_opt_tmp';
 --EXPECT--
 widget
 public internal
-Cannot access internal module member "Shop::Secret" from outside its module
+Cannot access internal module member "Shop\Secret" from outside its module

@@ -23,7 +23,7 @@ module Outer {
 }
 
 echo "outer: ", (new ReflectionModule("Outer"))->getAttributes("Meta")[0]->newInstance()->s, "\n";
-echo "inner: ", (new ReflectionModule("Outer::Inner"))->getAttributes("Meta")[0]->newInstance()->s, "\n";
+echo "inner: ", (new ReflectionModule("Outer\Inner"))->getAttributes("Meta")[0]->newInstance()->s, "\n";
 
 function reject(string $label, string $code): void {
     $f = tempnam(sys_get_temp_dir(), 'mattr') . '.php';

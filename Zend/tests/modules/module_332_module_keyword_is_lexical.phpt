@@ -20,31 +20,31 @@ module M {
 module N {
     internal class Secret { const K = 'N-secret'; }
     public class Make {
-        static function anon() { return new class extends \M::Base { function own() { return get_class(new module::Secret); } }; }
+        static function anon() { return new class extends \M\Base { function own() { return get_class(new module::Secret); } }; }
     }
-    public class Sub extends \M::Base { function own() { return get_class(new module::Secret); } }
+    public class Sub extends \M\Base { function own() { return get_class(new module::Secret); } }
 }
-class Plain extends M::Base {}
+class Plain extends M\Base {}
 function show($label, $o) {
     foreach (['inherited', 'closure', 'own', 'fromTrait'] as $m) {
         if (!method_exists($o, $m)) continue;
         try { echo "$label->$m(): ", $o->$m(), "\n"; } catch (Error $e) { echo "$label->$m(): ERROR ", $e->getMessage(), "\n"; }
     }
 }
-show('anon in M extends M::Base', M::Make::anon());
-show('anon in N extends M::Base', N::Make::anon());
-show('N::Sub extends M::Base', new N::Sub);
-show('global Plain extends M::Base', new Plain);
+show('anon in M extends M\Base', M\Make::anon());
+show('anon in N extends M\Base', N\Make::anon());
+show('N\Sub extends M\Base', new N\Sub);
+show('global Plain extends M\Base', new Plain);
 ?>
 --EXPECT--
-anon in M extends M::Base->inherited(): M::Secret M-hid M-secret
-anon in M extends M::Base->closure(): M::Secret
-anon in M extends M::Base->own(): M::Secret
-anon in N extends M::Base->inherited(): M::Secret M-hid M-secret
-anon in N extends M::Base->closure(): M::Secret
-anon in N extends M::Base->own(): N::Secret
-N::Sub extends M::Base->inherited(): M::Secret M-hid M-secret
-N::Sub extends M::Base->closure(): M::Secret
-N::Sub extends M::Base->own(): N::Secret
-global Plain extends M::Base->inherited(): M::Secret M-hid M-secret
-global Plain extends M::Base->closure(): M::Secret
+anon in M extends M\Base->inherited(): M\Secret M-hid M-secret
+anon in M extends M\Base->closure(): M\Secret
+anon in M extends M\Base->own(): M\Secret
+anon in N extends M\Base->inherited(): M\Secret M-hid M-secret
+anon in N extends M\Base->closure(): M\Secret
+anon in N extends M\Base->own(): N\Secret
+N\Sub extends M\Base->inherited(): M\Secret M-hid M-secret
+N\Sub extends M\Base->closure(): M\Secret
+N\Sub extends M\Base->own(): N\Secret
+global Plain extends M\Base->inherited(): M\Secret M-hid M-secret
+global Plain extends M\Base->closure(): M\Secret

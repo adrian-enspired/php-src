@@ -13,11 +13,11 @@ namespace X\Y {
 }
 
 namespace {
-    // In the global namespace, "X\Y\Z::C" resolves absolutely.
-    var_dump(class_exists('X\Y\Z::C'));
-    echo (new X\Y\Z::C)::class, "\n";
+    // In the global namespace, "X\Y\Z\C" resolves absolutely.
+    var_dump(class_exists('X\Y\Z\C'));
+    echo (new X\Y\Z\C)::class, "\n";
 }
 ?>
 --EXPECT--
 bool(true)
-X\Y\Z::C
+X\Y\Z\C

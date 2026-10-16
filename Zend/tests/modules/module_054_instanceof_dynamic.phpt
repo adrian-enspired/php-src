@@ -6,13 +6,13 @@ module M {
     internal class Sec {}
     public class Api { public static function make(): object { return new module::Sec; } }
 }
-$o = M::Api::make();
-$n = "M::Sec";
+$o = M\Api::make();
+$n = "M\Sec";
 
 // Identity/observation is not gated, regardless of literal vs dynamic form.
-var_dump($o instanceof M::Sec);   // literal
+var_dump($o instanceof M\Sec);   // literal
 var_dump($o instanceof $n);       // dynamic (was wrongly denied before)
-var_dump(is_a($o, "M::Sec"));
+var_dump(is_a($o, "M\Sec"));
 var_dump(is_a($o, $n));
 var_dump((new stdClass) instanceof $n);   // dynamic, non-matching -> false (not an error)
 

@@ -51,19 +51,19 @@ require "$dir/U.php";
 require "$dir/K.php";
 
 echo "-- root member naming + sibling reference --\n";
-var_dump(class_exists('X\Y\Z::C'));                 // canonical
+var_dump(class_exists('X\Y\Z\C'));                 // canonical
 var_dump(class_exists('X\Y\Z\C'));                   // projection
-echo (new X\Y\Z::C)->tag(), "\n";                    // C
-echo (new X\Y\Z::C)::class, "\n";                    // X\Y\Z::C  (canonical reported)
-echo (new X\Y\Z::C)->makeD()->tag(), "\n";           // D  (bare ref resolved via projection)
+echo (new X\Y\Z\C)->tag(), "\n";                    // C
+echo (new X\Y\Z\C)::class, "\n";                    // X\Y\Z\C  (canonical reported)
+echo (new X\Y\Z\C)->makeD()->tag(), "\n";           // D  (bare ref resolved via projection)
 echo (new \X\Y\Z\C)->tag(), "\n";                    // C  (reached via projection)
 
 echo "-- use alias resolves to the imported FQN --\n";
-echo (new X\Y\Z::U)->make()->who(), "\n";            // ext
-echo (new X\Y\Z::U)->make()::class, "\n";            // Ext\Thing
+echo (new X\Y\Z\U)->make()->who(), "\n";            // ext
+echo (new X\Y\Z\U)->make()::class, "\n";            // Ext\Thing
 
 echo "-- namespaced member: canonical + projection resolve, gated internal in C1 --\n";
-var_dump(class_exists('X\Y\Z::N\K'));                // canonical (carries the sub-namespace)
+var_dump(class_exists('X\Y\Z\N\K'));                 // its name (carries the sub-namespace)
 var_dump(class_exists('X\Y\Z\N\K'));                  // projection
 try { new \X\Y\Z\N\K(); echo "NOT GATED\n"; }
 catch (\Error $e) { echo str_contains($e->getMessage(), 'internal module member') ? "gated\n" : "$e\n"; }
@@ -86,7 +86,7 @@ $dir = __DIR__ . '/mod097';
 bool(true)
 bool(true)
 C
-X\Y\Z::C
+X\Y\Z\C
 D
 C
 -- use alias resolves to the imported FQN --

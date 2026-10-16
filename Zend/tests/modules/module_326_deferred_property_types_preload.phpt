@@ -19,7 +19,7 @@ file_put_contents("$dir/other.php", "<?php\nnamespace W;\nclass Other {}\n");
 file_put_contents("$dir/preload.php", "<?php\nrequire __DIR__ . '/def.php';\nrequire __DIR__ . '/other.php';\nrequire __DIR__ . '/mem.php';\n");
 file_put_contents("$dir/run.php", <<<'PHP'
 <?php
-foreach (['W::Api', 'W::Api', 'W::Fine'] as $c) {
+foreach (['W\Api', 'W\Api', 'W\Fine'] as $c) {
     try { echo get_class(new $c), "\n"; } catch (Error $e) { echo $e->getMessage(), "\n"; }
 }
 PHP);
@@ -35,9 +35,9 @@ foreach (['def', 'mem', 'other', 'preload', 'run'] as $f) { @unlink("$dir/$f.php
 @rmdir($dir);
 ?>
 --EXPECT--
-the type of property W::Api::$p references "W::Impl", which is not reachable from outside the module: a module's public surface may not expose internal or unclaimed types (declare a public supertype instead)
-the type of property W::Api::$p references "W::Impl", which is not reachable from outside the module: a module's public surface may not expose internal or unclaimed types (declare a public supertype instead)
-W::Fine
-the type of property W::Api::$p references "W::Impl", which is not reachable from outside the module: a module's public surface may not expose internal or unclaimed types (declare a public supertype instead)
-the type of property W::Api::$p references "W::Impl", which is not reachable from outside the module: a module's public surface may not expose internal or unclaimed types (declare a public supertype instead)
-W::Fine
+the type of property W\Api::$p references "W\Impl", which is not reachable from outside the module: a module's public surface may not expose internal or unclaimed types (declare a public supertype instead)
+the type of property W\Api::$p references "W\Impl", which is not reachable from outside the module: a module's public surface may not expose internal or unclaimed types (declare a public supertype instead)
+W\Fine
+the type of property W\Api::$p references "W\Impl", which is not reachable from outside the module: a module's public surface may not expose internal or unclaimed types (declare a public supertype instead)
+the type of property W\Api::$p references "W\Impl", which is not reachable from outside the module: a module's public surface may not expose internal or unclaimed types (declare a public supertype instead)
+W\Fine

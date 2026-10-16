@@ -14,7 +14,7 @@ module M {
     }
 }
 foreach (['make', 'konst'] as $m) {
-    try { (new M::B)->$m(); } catch (Error $e) { echo $m, ': ', $e->getMessage(), "\n"; }
+    try { (new M\B)->$m(); } catch (Error $e) { echo $m, ': ', $e->getMessage(), "\n"; }
 }
 ?>
 --EXPECT--

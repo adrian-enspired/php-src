@@ -29,7 +29,7 @@ $fns = $r->getFunctionNames();
 sort($fns);
 print_r($fns);
 
-var_dump($r->getSymbolVisibility('Refl::x'));
+var_dump($r->getSymbolVisibility('Refl\x'));
 var_dump($r->getSymbolVisibility('Refl::hidden'));
 var_dump($r->getSymbolVisibility('Refl::inl'));
 var_dump($r->getSymbolVisibility('Refl::RATE'));
@@ -51,15 +51,15 @@ $dir = __DIR__ . '/mod120_tmp';
 --EXPECT--
 Array
 (
-    [0] => Refl::hidden
-    [1] => Refl::inl
-    [2] => Refl::x
+    [0] => Refl\hidden
+    [1] => Refl\inl
+    [2] => Refl\x
 )
 string(6) "public"
 string(8) "internal"
 string(6) "public"
 string(8) "internal"
-string(7) "Refl::x"
+string(6) "Refl\x"
 Array
 (
     [RATE] => 5

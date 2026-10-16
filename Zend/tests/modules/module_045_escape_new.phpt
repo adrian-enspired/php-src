@@ -13,7 +13,7 @@ module M {
     }
 }
 
-$w = M::Api::make();
+$w = M\Api::make();
 
 // Public surface of the escaped object still usable.
 echo "surface: ", $w->pub(), "\n";
@@ -31,11 +31,11 @@ try { $x = new $cn; echo "new get_class: made\n"; }
 catch (\Error $e) { echo "new get_class: ", $e->getMessage(), "\n"; }
 
 // Inside the module, re-instantiation from the escaped object is allowed.
-echo "inside: ", get_class(M::Api::reNew($w)), "\n";
+echo "inside: ", get_class(M\Api::reNew($w)), "\n";
 ?>
 --EXPECT--
 surface: pub
-new $w: Cannot instantiate internal module member "M::Widget" from outside its module
-new ::class: Cannot access internal module member "M::Widget" from outside its module
-new get_class: Cannot access internal module member "M::Widget" from outside its module
-inside: M::Widget
+new $w: Cannot instantiate internal module member "M\Widget" from outside its module
+new ::class: Cannot access internal module member "M\Widget" from outside its module
+new get_class: Cannot access internal module member "M\Widget" from outside its module
+inside: M\Widget

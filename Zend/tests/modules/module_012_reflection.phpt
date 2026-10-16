@@ -18,8 +18,8 @@ $classes = $r->getClassNames();
 sort($classes);
 var_dump($classes);
 
-echo $r->getSymbolVisibility('Vendor\Shop::Cart'), "\n";
-echo $r->getSymbolVisibility('Vendor\Shop::Ledger'), "\n";
+echo $r->getSymbolVisibility('Vendor\Shop\Cart'), "\n";
+echo $r->getSymbolVisibility('Vendor\Shop\Ledger'), "\n";
 
 // Unknown module -> ReflectionException
 try {
@@ -40,11 +40,11 @@ Vendor\Shop
 Vendor\Shop
 array(3) {
   [0]=>
-  string(17) "Vendor\Shop::Cart"
+  string(16) "Vendor\Shop\Cart"
   [1]=>
-  string(19) "Vendor\Shop::Ledger"
+  string(18) "Vendor\Shop\Ledger"
   [2]=>
-  string(18) "Vendor\Shop::Order"
+  string(17) "Vendor\Shop\Order"
 }
 public
 internal

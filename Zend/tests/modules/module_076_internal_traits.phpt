@@ -22,7 +22,7 @@ module M {
         public function callSec(): string { return $this->sec(); }  // inside module: allowed
     }
 }
-$o = new M::InUser();
+$o = new M\InUser();
 echo $o->pub(), "\n";           // public trait method, usable from outside via the public class
 echo $o->callSec(), "\n";       // internal trait method, reached from inside the module
 try { $o->sec(); } catch (\Error $e) { echo $e->getMessage(), "\n"; }  // internal: denied outside
@@ -38,9 +38,9 @@ function run(string $code): string {
 
 echo "--\n";
 // internal trait used by a non-module (global) class -> denied
-echo run('module M { internal trait T { public function p(){ return "p"; } } } class Outside { use M::T; } echo "LEAK";'), "\n";
+echo run('module M { internal trait T { public function p(){ return "p"; } } } class Outside { use M\T; } echo "LEAK";'), "\n";
 // internal trait used by a class in ANOTHER module -> denied
-echo run('module M { internal trait T { public function p(){ return "p"; } } } module N { public class U { use \M::T; } } echo "LEAK";'), "\n";
+echo run('module M { internal trait T { public function p(){ return "p"; } } } module N { public class U { use \M\T; } } echo "LEAK";'), "\n";
 // Rule #1: public trait with an internal method -> compile error
 echo run('module M { public trait T { public function a(){} internal function b(){} } } echo "LEAK";'), "\n";
 // Rule #1: public trait with an internal property -> compile error
@@ -51,17 +51,17 @@ echo run('module M { trait T { internal function b(){} } } echo "LEAK";'), "\n";
 echo "--\n";
 // A public trait with only public/private members is fine, and usable from outside.
 echo run('module M { public trait T { public function a(){ return "a"; } private function h(){ return "h"; } } }'
-       . ' class Outside { use M::T; } echo (new Outside)->a();'), "\n";
+       . ' class Outside { use M\T; } echo (new Outside)->a();'), "\n";
 ?>
 --EXPECTF--
 pub
 sec
-Cannot call internal method M::InUser::sec() from outside its module
+Cannot call internal method M\InUser::sec() from outside its module
 --
-%aCannot access internal module member "M::T" from outside its module%a
-%aCannot access internal module member "M::T" from outside its module%a
-%aTrait M::T declares an internal method M::T::b() but is not itself internal; a trait with internal members must be declared `internal` so it can only be used within its own module%a
-%aTrait M::T declares an internal property M::T::$y but is not itself internal; a trait with internal members must be declared `internal` so it can only be used within its own module%a
-%aTrait M::T declares an internal method M::T::b() but is not itself internal; a trait with internal members must be declared `internal` so it can only be used within its own module%a
+%aCannot access internal module member "M\T" from outside its module%a
+%aCannot access internal module member "M\T" from outside its module%a
+%aTrait M\T declares an internal method M\T::b() but is not itself internal; a trait with internal members must be declared `internal` so it can only be used within its own module%a
+%aTrait M\T declares an internal property M\T::$y but is not itself internal; a trait with internal members must be declared `internal` so it can only be used within its own module%a
+%aTrait M\T declares an internal method M\T::b() but is not itself internal; a trait with internal members must be declared `internal` so it can only be used within its own module%a
 --
 a

@@ -1,8 +1,8 @@
 --TEST--
 Modules (C): static access (const/method/prop) to a sub-namespaced member; module:: self-reference
 --DESCRIPTION--
-A sub-namespaced member X\Y\Z::N\K is reachable for static access by its member name (X\Y\Z::K)
-and by its canonical (X\Y\Z::N\K). From inside the module, module::K and module::Hidden reach
+A sub-namespaced member X\Y\Z\N\K is reachable for static access by its member name (X\Y\Z\K)
+and by its canonical (X\Y\Z\N\K). From inside the module, module::K and module::Hidden reach
 siblings module-relative (by member name), including an internal one. An internal member's static
 surface is gated from outside.
 --FILE--
@@ -33,17 +33,17 @@ file_put_contents("$dir/hidden.php", "<?php\nmodule X\\Y\\Z;\nnamespace N;\nclas
 require "$dir/manifest.php"; require "$dir/k.php"; require "$dir/hidden.php";
 
 echo "-- static access by member name --\n";
-echo X\Y\Z::K::TAG, "\n";        // tag
-echo X\Y\Z::K::run(), "\n";      // run
-echo X\Y\Z::K::$count, "\n";     // 7
+echo X\Y\Z\K::TAG, "\n";        // tag
+echo X\Y\Z\K::run(), "\n";      // run
+echo X\Y\Z\K::$count, "\n";     // 7
 echo "-- static access by canonical --\n";
-echo X\Y\Z::N\K::TAG, "\n";      // tag
+echo X\Y\Z\N\K::TAG, "\n";      // tag
 echo "-- module:: self-reference (reaches a sibling by member name) --\n";
-echo X\Y\Z::K::selfConst(), "\n";    // tag
+echo X\Y\Z\K::selfConst(), "\n";    // tag
 echo "-- module:: reaches an internal sibling from inside the module --\n";
-echo X\Y\Z::K::reachHidden(), "\n";  // shh
+echo X\Y\Z\K::reachHidden(), "\n";  // shh
 echo "-- internal member's static surface is gated from outside --\n";
-try { echo X\Y\Z::Hidden::SECRET, "\n"; echo "LEAK\n"; } catch (\Error $e) { echo "gated\n"; }
+try { echo X\Y\Z\Hidden::SECRET, "\n"; echo "LEAK\n"; } catch (\Error $e) { echo "gated\n"; }
 ?>
 --CLEAN--
 <?php

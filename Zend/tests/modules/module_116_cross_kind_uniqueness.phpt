@@ -13,12 +13,12 @@ function lint(string $code): string {
 // class first, then function with the same member name
 echo str_contains(
     lint("module XK;\nclass Foo {}\nfunction foo() {}\n"),
-    'Cannot declare module function XK::foo') ? "reject ok: function-after-class\n" : "FAIL 1\n";
+    'Cannot declare module function XK\foo') ? "reject ok: function-after-class\n" : "FAIL 1\n";
 
 // function first, then class
 echo str_contains(
     lint("module XK2;\nfunction foo() {}\nclass Foo {}\n"),
-    'Cannot declare module member XK2::Foo') ? "reject ok: class-after-function\n" : "FAIL 2\n";
+    'Cannot declare module member XK2\Foo') ? "reject ok: class-after-function\n" : "FAIL 2\n";
 
 // inline block, both kinds: caught by the kind-agnostic duplicate-handle rule
 echo str_contains(

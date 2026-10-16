@@ -28,26 +28,26 @@ module M {
     internal function g() { return 'g'; }
     public module Inner2 { public class X {} }
     public class T {
-        public static function viaRel() { return get_class(new Inner2::X); }
+        public static function viaRel() { return get_class(new Inner2\X); }
         public static function callG() { return module::g(); }
     }
 }
 PHP);
-file_put_contents("$dir/mem.php", "<?php\nmodule N\\M;\nclass Late { public function leak(): \\N\\M::H { return new \\N\\M::H; } }\n");
+file_put_contents("$dir/mem.php", "<?php\nmodule N\\M;\nclass Late { public function leak(): \\N\\M\\H { return new \\N\\M\\H; } }\n");
 $body = <<<'PHP'
 function t($n, $f) { try { $r = $f(); echo "$n: ", is_object($r) ? get_class($r) : var_export($r, true), "\n"; } catch (Throwable $e) { echo "$n: ", $e->getMessage(), "\n"; } }
 t('ordinary name', fn() => new N\M\C);
 t('internal via ordinary', fn() => new N\M\H);
-t('public of internal nested', fn() => new N\M::In::G);
+t('public of internal nested', fn() => new N\M\In\G);
 t('M::f()', fn() => N\M::f());
 t('M::g() internal', fn() => N\M::g());
-t('module::g() inside', fn() => N\M::T::callG());
-t('relative head', fn() => N\M::T::viaRel());
-t('getModule', fn() => (new ReflectionClass('N\M::C'))->getModule()->getName());
+t('module::g() inside', fn() => N\M\T::callG());
+t('relative head', fn() => N\M\T::viaRel());
+t('getModule', fn() => (new ReflectionClass('N\M\C'))->getModule()->getName());
 t('dyn string call', fn() => ('N\M::f')());
 PHP;
 file_put_contents("$dir/run.php", "<?php\nspl_autoload_register(function (\$c) { if (strtolower(\$c) === 'n\\m') require __DIR__ . '/lib.php'; });\n"
-    . "require __DIR__ . '/mem.php';\n$body\nt('deferred return (cold)', fn() => (new N\\M::Late)->leak());\n");
+    . "require __DIR__ . '/mem.php';\n$body\nt('deferred return (cold)', fn() => (new N\\M\\Late)->leak());\n");
 file_put_contents("$dir/run_pre.php", "<?php\n$body\n");
 file_put_contents("$dir/preload.php", "<?php\nrequire __DIR__ . '/lib.php';\n");
 
@@ -71,15 +71,15 @@ foreach ($it as $f) { $f->isDir() ? @rmdir($f->getPathname()) : @unlink($f->getP
 @rmdir($dir);
 ?>
 --EXPECT--
-ordinary name: N\M::C
+ordinary name: N\M\C
 internal via ordinary: Cannot access internal module member "N\M\H" from outside its module
-public of internal nested: Cannot access "N\M::In::G": module "N\M::In" is internal to its parent module
+public of internal nested: Cannot access "N\M\In\G": module "N\M\In" is internal to its parent module
 M::f(): 'f'
-M::g() internal: Cannot call internal module function N\M::g() from outside its module
+M::g() internal: Cannot call internal module function N\M\g() from outside its module
 module::g() inside: 'g'
-relative head: 'N\\M::Inner2::X'
+relative head: 'N\\M\\Inner2\\X'
 getModule: 'N\\M'
 dyn string call: 'f'
-deferred return (cold): the return type of N\M::Late::leak() references "N\M::H", which is not reachable from outside the module: a module's public surface may not expose internal or unclaimed types (declare a public supertype instead)
+deferred return (cold): the return type of N\M\Late::leak() references "N\M\H", which is not reachable from outside the module: a module's public surface may not expose internal or unclaimed types (declare a public supertype instead)
 file cache hit identical: true
 preload identical: true

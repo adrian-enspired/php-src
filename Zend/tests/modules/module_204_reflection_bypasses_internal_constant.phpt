@@ -16,16 +16,16 @@ module M {
 }
 
 echo "ordinary access to internal const: ";
-try { echo M::Box::SECRET, "\n"; echo "LEAKED\n"; }
+try { echo M\Box::SECRET, "\n"; echo "LEAKED\n"; }
 catch (\Error $e) { echo $e->getMessage(), "\n"; }
 
-echo "ordinary access to public const: ", M::Box::PUBLIC_ONE, "\n";
+echo "ordinary access to public const: ", M\Box::PUBLIC_ONE, "\n";
 
 echo "ReflectionClassConstant::getValue on internal const: ";
-$rcc = (new ReflectionClass('M::Box'))->getReflectionConstant('SECRET');
+$rcc = (new ReflectionClass('M\Box'))->getReflectionConstant('SECRET');
 echo $rcc->getValue(), "\n";
 ?>
 --EXPECT--
-ordinary access to internal const: Cannot access internal module constant M::Box::SECRET from outside its module
+ordinary access to internal const: Cannot access internal module constant M\Box::SECRET from outside its module
 ordinary access to public const: fine
 ReflectionClassConstant::getValue on internal const: s3cr3t

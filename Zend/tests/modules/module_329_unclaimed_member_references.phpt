@@ -20,9 +20,9 @@ class Api {
             'new module::Impl'  => fn() => get_class(new module::Impl),
             'module::Impl::K'   => fn() => module::Impl::K,
             'module::Impl::s()' => fn() => module::Impl::s(),
-            '\F::Impl::K'       => fn() => \F::Impl::K,
-            '\F::Impl::s()'     => fn() => \F::Impl::s(),
-            'new \F::Impl'      => fn() => get_class(new \F::Impl),
+            '\F\Impl::K'       => fn() => \F\Impl::K,
+            '\F\Impl::s()'     => fn() => \F\Impl::s(),
+            'new \F\Impl'      => fn() => get_class(new \F\Impl),
             'Impl::K'           => fn() => Impl::K,
             'module::Typo::K'   => fn() => module::Typo::K,
         ] as $k => $f) {
@@ -36,8 +36,8 @@ spl_autoload_register(function ($c) use ($dir) {
     if (isset($m[strtolower($c)])) { require "$dir/{$m[strtolower($c)]}.php"; }
 });
 require "$dir/def.php";
-F::Api::run();
-foreach (['new F::Impl' => fn() => new F::Impl, 'F::Impl::K' => fn() => F::Impl::K] as $k => $f) {
+F\Api::run();
+foreach (['new F\Impl' => fn() => new F\Impl, 'F\Impl::K' => fn() => F\Impl::K] as $k => $f) {
     try { $f(); echo "$k: LEAK\n"; } catch (Error $e) { echo "outside $k: ", $e->getMessage(), "\n"; }
 }
 ?>
@@ -48,13 +48,13 @@ foreach (['def', 'impl', 'api'] as $f) { @unlink("$dir/$f.php"); }
 @rmdir($dir);
 ?>
 --EXPECT--
-new module::Impl: F::Impl
+new module::Impl: F\Impl
 module::Impl::K: k
 module::Impl::s(): s
-\F::Impl::K: k
-\F::Impl::s(): s
-new \F::Impl: F::Impl
+\F\Impl::K: k
+\F\Impl::s(): s
+new \F\Impl: F\Impl
 Impl::K: k
 module::Typo::K: "Typo" is not a member of module "F"
-outside new F::Impl: Cannot access internal module member "F::Impl" from outside its module
-outside F::Impl::K: Cannot access internal module member "F::Impl" from outside its module
+outside new F\Impl: Cannot access internal module member "F\Impl" from outside its module
+outside F\Impl::K: Cannot access internal module member "F\Impl" from outside its module

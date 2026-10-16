@@ -123,6 +123,14 @@ typedef struct _zend_file_context {
 	 * resolves against it and closures created in it belong to it. Unlike current_module, it
 	 * doesn't make declarations module members (eval'd code doesn't inherit the namespace). */
 	zend_string *eval_module;
+	/* PHP Modules: while compiling a module's members: the length of the module that contains
+	 * FC(current_module) (a prefix of it; 0 for a top-level module), and whether it may be
+	 * nested (true when that isn't known yet: a member file compiled before the definition). */
+	uint32_t current_module_container_len;
+	bool current_module_maybe_nested;
+	/* PHP Modules: names of the constants declared inline in the module block being compiled
+	 * (they become its backing class's constants only at the end of the block), or NULL. */
+	HashTable *module_block_consts;
 	/* PHP Modules: transient — true while compiling an `internal` module member, so
 	 * zend_compile_class_decl can stamp ZEND_ACC2_MODULE_INTERNAL onto the member CE. */
 	bool current_member_internal;
@@ -182,6 +190,7 @@ ZEND_API zend_php_module *zend_lookup_module(zend_string *lc_name);
  * DECLARE_MODULE opline. Runs every request, including opcache cache hits where
  * the compiler never ran, so the per-request registry is always rebuilt. */
 ZEND_API void zend_declare_module_runtime(zend_string *name, HashTable *members);
+ZEND_API void zend_module_ensure_loaded(zend_string *name, zend_string *lc_name);
 ZEND_API void zend_declare_module_member_alias_runtime(zend_string *projection, zend_string *canonical);
 /* True if class scope `scope` may access an internal member declared in `member_ce`:
  * the accessor's module must BE that module or be nested beneath it (ancestor-or-self).
@@ -244,7 +253,6 @@ ZEND_API bool zend_module_member_is_internal(const zend_class_entry *ce);
 /* PHP Modules: if `module_ce` is a module backing class and `member_name` names a
  * declared member, return the canonical "Module::Member" name (owned); else NULL.
  * Lets an autoloaded "Module::Member::..." chain resolve at runtime (see B1 fix). */
-ZEND_API zend_string *zend_module_member_canonical_name(const zend_class_entry *module_ce, zend_string *member_name, bool autoload);
 /* PHP Modules: the owning-module prefix of a module-owned function's name (see the
  * ZEND_ACC2_FN_MODULE_MEMBER flag). Writes [*prefix, *prefix_len); returns false for a
  * function that carries no module prefix (never true for a flagged function). */
@@ -254,7 +262,6 @@ ZEND_API bool zend_module_function_owner_prefix(const zend_function *fn, const c
  * ("M::N" of "M::N::C"), 0 if there is none. An anonymous class's name stops at its NUL (the
  * rest is the declaring file). Computed once when a class or function is declared and
  * stored as module_len. */
-ZEND_API uint32_t zend_module_name_container_len(const zend_string *name);
 void zend_module_begin_eval_context(void);
 /* PHP Modules: true if the currently-executing code may NOT call module function `fn`
  * (an `internal` module function called from outside its module). One flag test for
@@ -641,20 +648,18 @@ typedef struct _zend_oparray_context {
 /* op_array uses strict mode types                        |     |     |     */
 #define ZEND_ACC_STRICT_TYPES            (1U << 31) /*    |  X  |     |     */
 /*                                                        |     |     |     */
-/* Function Flags 2 (fn_flags2) (unused: 5-31)            |     |     |     */
+/* Function Flags 2 (fn_flags2) (unused: 6-31)            |     |     |     */
 /* ============================                           |     |     |     */
 /*                                                        |     |     |     */
 /* Function forbids dynamic calls                         |     |     |     */
 #define ZEND_ACC2_FORBID_DYN_CALLS       (1 << 0)  /*     |  X  |     |     */
 /*                                                        |     |     |     */
-/* PHP Modules: this function is module-owned — a module function (canonical name       */
-/* "M::f" / "M::Sub\f", registered in the function table under its canonical key and,   */
-/* for a member-file function, under its projected namespaced / member-name alias keys) */
-/* or a closure compiled lexically inside a module (name "M::{closure:...}"). Baked at  */
-/* compile, so it rides opcache/preload. The call-resolution gates early-out on this    */
-/* single predicted-not-taken flag test, so non-module functions pay nothing. The       */
-/* owning module is recovered from the name: the prefix before "::{closure" for a       */
-/* module closure, else before the LAST "::" (see zend_module_function_owner_prefix).   */
+/* PHP Modules: this function is module-owned — a module function ("M\f" / "M\Sub\f",   */
+/* and, for a member-file function, its claim's member name as an alias key) or a       */
+/* closure compiled lexically inside a module ("M\{closure:...}"). Baked at compile, so */
+/* it rides opcache/preload. The call-resolution gates early-out on this single         */
+/* predicted-not-taken flag test, so non-module functions pay nothing. The owning       */
+/* module is the first op_array.module_len bytes of the name.                           */
 #define ZEND_ACC2_FN_MODULE_MEMBER       (1 << 1)  /*     |  X  |     |     */
 /*                                                        |     |     |     */
 /* PHP Modules (Decision C cold): this module function compiled while its module's      */
@@ -671,6 +676,9 @@ typedef struct _zend_oparray_context {
 /* PHP Modules (experimental): an `internal` method or module function: public to  */
 /* normal dispatch, gated to same-module code.                                      */
 #define ZEND_ACC2_FN_MODULE_INTERNAL     (1 << 4)  /*     |  X  |     |     */
+/* PHP Modules: the owning module of this module function is (or, compiled before its    */
+/* definition, may be) nested, so a call must also cross the enclosing boundaries.       */
+#define ZEND_ACC2_FN_MODULE_NESTED       (1 << 5)  /*     |  X  |     |     */
 
 #define ZEND_ACC_PPP_MASK  (ZEND_ACC_PUBLIC | ZEND_ACC_PROTECTED | ZEND_ACC_PRIVATE)
 #define ZEND_ACC_PPP_SET_MASK  (ZEND_ACC_PUBLIC_SET | ZEND_ACC_PROTECTED_SET | ZEND_ACC_PRIVATE_SET)

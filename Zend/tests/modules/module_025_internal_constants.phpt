@@ -12,7 +12,7 @@ module Billing {
 }
 
 // Allowed from inside the module
-echo (new Billing::Reader())->read(), "\n";         // 42
+echo (new Billing\Reader())->read(), "\n";         // 42
 echo Billing::OPEN, "\n";                            // 1 (public, from outside)
 
 // Denied from outside — static reference (compile-time fold refused -> runtime VM gate)

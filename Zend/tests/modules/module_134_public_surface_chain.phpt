@@ -13,10 +13,10 @@ publishing a type no caller can name. The diagnostic must name the link that act
 module Ok {
     public module Pub { public class C {} }
     public class Facade {
-        public function fine(): \Ok::Pub::C { return new \Ok::Pub::C(); }
+        public function fine(): \Ok\Pub\C { return new \Ok\Pub\C(); }
     }
 }
-echo "public chain compiles: ", get_class((new Ok::Facade)->fine()), "\n";
+echo "public chain compiles: ", get_class((new Ok\Facade)->fine()), "\n";
 
 // leaf is public, but its container is not
 $src = <<<'PHP'
@@ -24,7 +24,7 @@ $src = <<<'PHP'
 module Bad {
     internal module Hidden { public class C {} }
     public class Facade {
-        public function leak(): \Bad::Hidden::C { return new \Bad::Hidden::C(); }
+        public function leak(): \Bad\Hidden\C { return new \Bad\Hidden\C(); }
     }
 }
 PHP;
@@ -35,7 +35,7 @@ echo shell_exec(escapeshellarg($php) . ' -n -l ' . escapeshellarg($f) . ' 2>&1')
 @unlink($f);
 ?>
 --EXPECTF--
-public chain compiles: Ok::Pub::C
+public chain compiles: Ok\Pub\C
 
-Fatal error: the return type of Bad::Facade::leak() references "Bad::Hidden::C", which is not reachable from outside the module: "Bad::Hidden" is not a public member of module "Bad"; a module's public surface may not expose internal or unclaimed types (declare a public supertype instead) in %s on line %d
+Fatal error: the return type of Bad\Facade::leak() references "Bad\Hidden\C", which is not reachable from outside the module: "Bad\Hidden" is not a public member of module "Bad"; a module's public surface may not expose internal or unclaimed types (declare a public supertype instead) in %s on line %d
 %A

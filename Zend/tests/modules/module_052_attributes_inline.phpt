@@ -17,7 +17,7 @@ module App {
     #[\Tag("trait")]                  public trait Helper {}
     #[\Tag("enum")]                   public enum E: string { case X = "x"; }
     #[\Tag("const")]                  public const K = 1;
-    #[Local("bare")]                  public class UsesLocal {}   // bare -> App::Local
+    #[Local("bare")]                  public class UsesLocal {}   // bare -> App\Local
     #[\Tag("intern")]                 internal class Secret {}    // attribute + internal compose
 }
 
@@ -25,20 +25,20 @@ function tagOf(array $attrs): string {
     return $attrs === [] ? "NONE" : $attrs[0]->getName() . ":" . $attrs[0]->newInstance()->v;
 }
 
-echo tagOf((new ReflectionClass(App::C::class))->getAttributes()), "\n";
-echo tagOf((new ReflectionClass(App::Contract::class))->getAttributes()), "\n";
-echo tagOf((new ReflectionClass(App::Helper::class))->getAttributes()), "\n";
-echo tagOf((new ReflectionClass(App::E::class))->getAttributes()), "\n";
+echo tagOf((new ReflectionClass(App\C::class))->getAttributes()), "\n";
+echo tagOf((new ReflectionClass(App\Contract::class))->getAttributes()), "\n";
+echo tagOf((new ReflectionClass(App\Helper::class))->getAttributes()), "\n";
+echo tagOf((new ReflectionClass(App\E::class))->getAttributes()), "\n";
 echo tagOf((new ReflectionClassConstant("App", "K"))->getAttributes()), "\n";
 
-// Bare attribute name resolves module-relative (App::Local), like any bare class ref.
-echo tagOf((new ReflectionClass(App::UsesLocal::class))->getAttributes()), "\n";
+// Bare attribute name resolves module-relative (App\Local), like any bare class ref.
+echo tagOf((new ReflectionClass(App\UsesLocal::class))->getAttributes()), "\n";
 
 // Attribute composes with `internal` visibility: the reflection sees the attribute,
 // but the class remains gated from outside.
-$sec = new ReflectionClass(App::Secret::class);
-echo tagOf($sec->getAttributes()), " visibility=", (new ReflectionModule("App"))->getSymbolVisibility("App::Secret"), "\n";
-try { new App::Secret(); echo "LEAK\n"; } catch (\Error $e) { echo "internal still denied\n"; }
+$sec = new ReflectionClass(App\Secret::class);
+echo tagOf($sec->getAttributes()), " visibility=", (new ReflectionModule("App"))->getSymbolVisibility("App\Secret"), "\n";
+try { new App\Secret(); echo "LEAK\n"; } catch (\Error $e) { echo "internal still denied\n"; }
 ?>
 --EXPECT--
 Tag:cls
@@ -46,6 +46,6 @@ Tag:iface
 Tag:trait
 Tag:enum
 Tag:const
-App::Local:bare
+App\Local:bare
 Tag:intern visibility=internal
 internal still denied

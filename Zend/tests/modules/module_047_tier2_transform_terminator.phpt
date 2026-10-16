@@ -1,12 +1,8 @@
 --TEST--
-Modules: tier-2 autoload transform ("::"->"\") null-terminates the shortened name
+Modules: autoloading a member file loads its module first (names the autoloader sees)
 --DESCRIPTION--
-The tier-2 transform compacts "Module::Member" to "Module\Member" in place (one byte
-shorter per boundary). zend_string_truncate's fast path updates the length but does not
-write the terminator, so the shortened name must be null-terminated explicitly. If it is
-not, the byte at the new length keeps a stale character and freeing that string trips the
-"String is not null-terminated" assertion on a debug build. Capturing the name the engine
-hands the autoloader keeps it alive until shutdown, where the mis-terminated free occurs.
+A member is autoloaded by its own name; its membership directive then loads the module's
+definition. (This test used to cover the removed "::"->"\" autoload-name transform.)
 --FILE--
 <?php
 $dir = __DIR__ . '/al47_tmp';
@@ -24,7 +20,7 @@ spl_autoload_register(function ($name) use ($dir) {
     if (isset($map[$name]) && is_file($map[$name])) require $map[$name];
 });
 
-echo (new Depot::Crate)->id(), "\n";
+echo (new Depot\Crate)->id(), "\n";
 foreach ($GLOBALS['seen'] as $n) {
     echo $n, " (", strlen($n), ")\n";
 }
@@ -37,5 +33,5 @@ $dir = __DIR__ . '/al47_tmp';
 ?>
 --EXPECT--
 crate
-Depot (5)
 Depot\Crate (11)
+Depot (5)

@@ -30,38 +30,38 @@ module M {
     public function g() { return "g:" . f(); }
 }
 module N {
-    public class Poker { public function poke(\M::C $x): void { $x->n = 99; } }
+    public class Poker { public function poke(\M\C $x): void { $x->n = 99; } }
 }
 
 class Out {
-    static function writeSet(M::C $o) { $o->n = 3; }
-    static function writeInternal(M::C $o) { $o->p = 4; }
-    static function readInternal(M::C $o) { return $o->p; }
-    static function callInternal(M::C $o) { return $o->m(); }
-    static function constInternal() { return M::C::K; }
+    static function writeSet(M\C $o) { $o->n = 3; }
+    static function writeInternal(M\C $o) { $o->p = 4; }
+    static function readInternal(M\C $o) { return $o->p; }
+    static function callInternal(M\C $o) { return $o->m(); }
+    static function constInternal() { return M\C::K; }
     static function fnInternal() { return M::f(); }
     static function fnStatic() { return M::g(); }
-    static function newInternal() { return new M::I; }
+    static function newInternal() { return new M\I; }
 }
 
-$o = new M::C;
+$o = new M\C;
 foreach (['writeSet', 'writeInternal', 'readInternal', 'callInternal', 'constInternal', 'fnInternal', 'newInternal'] as $m) {
     try { Out::$m($o); echo "$m: BYPASSED\n"; } catch (Error $e) { echo "$m: ", $e->getMessage(), "\n"; }
 }
-try { (new N::Poker)->poke($o); echo "poke: BYPASSED\n"; } catch (Error $e) { echo "poke: ", $e->getMessage(), "\n"; }
+try { (new N\Poker)->poke($o); echo "poke: BYPASSED\n"; } catch (Error $e) { echo "poke: ", $e->getMessage(), "\n"; }
 
 // public paths keep working
 echo Out::fnStatic(), "\n";
 echo $o->bump(), "\n";
 ?>
 --EXPECT--
-writeSet: Cannot modify internal(set) property M::C::$n from scope Out
-writeInternal: Cannot access internal module property M::C::$p from outside its module
-readInternal: Cannot access internal module property M::C::$p from outside its module
-callInternal: Cannot call internal method M::C::m() from outside its module
-constInternal: Cannot access internal module constant M::C::K from outside its module
-fnInternal: Cannot call internal module function M::f() from outside its module
-newInternal: Cannot access internal module member "M::I" from outside its module
-poke: Cannot modify internal(set) property M::C::$n from scope N::Poker
+writeSet: Cannot modify internal(set) property M\C::$n from scope Out
+writeInternal: Cannot access internal module property M\C::$p from outside its module
+readInternal: Cannot access internal module property M\C::$p from outside its module
+callInternal: Cannot call internal method M\C::m() from outside its module
+constInternal: Cannot access internal module constant M\C::K from outside its module
+fnInternal: Cannot call internal module function M\f() from outside its module
+newInternal: Cannot access internal module member "M\I" from outside its module
+poke: Cannot modify internal(set) property M\C::$n from scope N\Poker
 g:f
 6

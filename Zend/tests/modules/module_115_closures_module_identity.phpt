@@ -29,11 +29,11 @@ require $dir . '/manifest.php';
 require $dir . '/funcs.php';
 
 // closures born inside the module keep access to its internals, even invoked outside
-$c = Clo::make();
+$c = Clo\make();
 var_dump($c());
-$a = Clo::makeArrow();
+$a = Clo\makeArrow();
 var_dump($a());
-$n = Clo::makeNested();
+$n = Clo\makeNested();
 var_dump($n()());
 
 // a closure born OUTSIDE has no module identity
@@ -51,4 +51,4 @@ $dir = __DIR__ . '/mod115_tmp';
 string(1) "s"
 string(1) "s"
 string(1) "s"
-Cannot call internal module function Clo::secret() from outside its module
+Cannot call internal module function Clo\secret() from outside its module

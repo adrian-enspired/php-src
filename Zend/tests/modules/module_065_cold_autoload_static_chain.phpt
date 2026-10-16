@@ -35,20 +35,20 @@ spl_autoload_register(function ($name) use ($dir) {
 
 // This whole file compiled before the autoloader fired, so every chain below is cold.
 echo Shop::VERSION, "\n";                 // 2-segment control
-echo Shop::Money::CURRENCY, "\n";         // member class constant
-echo Shop::Money::tag(), "\n";            // member static method
-echo Shop::Money::$scale, "\n";           // member static property
-echo Shop::Money::class, "\n";            // ::class on a chain
-echo Shop::Tax::Rate::STANDARD, "\n";     // depth-3 nested member constant
-echo Shop::Tax::Rate::label(), "\n";      // depth-3 nested static method
-echo Shop::Line::KIND, "\n";              // split-file member (two-tier autoload) via chain
-echo Shop::Line::make(), "\n";
-echo Shop::Secret::class, "\n";           // identity of an internal member is ungated
+echo Shop\Money::CURRENCY, "\n";         // member class constant
+echo Shop\Money::tag(), "\n";            // member static method
+echo Shop\Money::$scale, "\n";           // member static property
+echo Shop\Money::class, "\n";            // ::class on a chain
+echo Shop\Tax\Rate::STANDARD, "\n";     // depth-3 nested member constant
+echo Shop\Tax\Rate::label(), "\n";      // depth-3 nested static method
+echo Shop\Line::KIND, "\n";              // split-file member (two-tier autoload) via chain
+echo Shop\Line::make(), "\n";
+echo Shop\Secret::class, "\n";           // identity of an internal member is ungated
 
 // Internal member reached via a chain from outside: denied cleanly.
-try { echo Shop::Secret::KEY; } catch (\Error $e) { echo $e->getMessage(), "\n"; }
+try { echo Shop\Secret::KEY; } catch (\Error $e) { echo $e->getMessage(), "\n"; }
 // A genuine typo (undefined member) is reported as such, not silently resolved.
-try { echo Shop::Nope::X; } catch (\Error $e) { echo $e->getMessage(), "\n"; }
+try { echo Shop\Nope::X; } catch (\Error $e) { echo $e->getMessage(), "\n"; }
 ?>
 --CLEAN--
 <?php
@@ -61,11 +61,11 @@ $dir = __DIR__ . '/csc_tmp';
 USD
 money
 2
-Shop::Money
+Shop\Money
 0.20
 vat
 line
 made
-Shop::Secret
-Cannot access internal module member "Shop::Secret" from outside its module
+Shop\Secret
+Cannot access internal module member "Shop\Secret" from outside its module
 "Nope" is not a member of module "Shop"

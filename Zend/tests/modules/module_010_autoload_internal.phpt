@@ -20,12 +20,12 @@ spl_autoload_register(function (string $name) use ($dir): void {
 });
 
 // Public member, autoloaded: fine.
-echo (new Bank::Account())::class, "\n";
+echo (new Bank\Account())::class, "\n";
 
 // Internal member, module reached purely via autoload (not known when this file
 // was compiled): still blocked by the runtime check.
 try {
-    new Bank::Vault();
+    new Bank\Vault();
     echo "NOT BLOCKED\n";
 } catch (\Error $e) {
     echo get_class($e), ": ", $e->getMessage(), "\n";
@@ -39,5 +39,5 @@ $dir = __DIR__ . '/mod010';
 @rmdir($dir);
 ?>
 --EXPECT--
-Bank::Account
-Error: Cannot access internal module member "Bank::Vault" from outside its module
+Bank\Account
+Error: Cannot access internal module member "Bank\Vault" from outside its module

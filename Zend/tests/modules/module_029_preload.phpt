@@ -15,11 +15,11 @@ if (substr(PHP_OS, 0, 3) == 'WIN') die('skip not for Windows');
  * ZEND_DECLARE_MODULE op never runs and the per-request module registry is empty —
  * enforcement therefore proves it runs entirely off the persisted class entries. */
 try { new ReflectionModule("Vendor\\App"); echo "present\n"; } catch (ReflectionException) { echo "absent\n"; }
-echo (new Vendor\App::Service())->ok(), "\n";
+echo (new Vendor\App\Service())->ok(), "\n";
 echo (new ReflectionModule("Vendor\\App"))->getName(), "\n";
 echo Vendor\App::OPEN, "\n";
 
-$c = "Vendor\\App::Secret";
+$c = "Vendor\\App\\Secret";
 try { new $c(); echo "LEAK class\n"; } catch (\Throwable $e) { echo "blocked class\n"; }
 try { echo Vendor\App::HIDDEN; echo "LEAK const\n"; } catch (\Throwable $e) { echo "blocked const\n"; }
 ?>

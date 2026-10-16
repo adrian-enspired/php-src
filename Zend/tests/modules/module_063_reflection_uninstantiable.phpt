@@ -18,9 +18,9 @@ var_dump($m->isInstantiable());
 var_dump($m->isCloneable());
 
 // Member classes remain ordinary instantiable/cloneable classes.
-$a = new ReflectionClass('M::A');
+$a = new ReflectionClass('M\A');
 var_dump($a->isInstantiable(), $a->isCloneable());
-$b = new ReflectionClass('M::B');
+$b = new ReflectionClass('M\B');
 var_dump($b->isInstantiable(), $b->isCloneable());
 
 // The engine guard is unchanged.

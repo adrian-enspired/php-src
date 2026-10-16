@@ -2083,25 +2083,40 @@ ZEND_API ZEND_COLD zend_never_inline void zend_abstract_method_call(const zend_f
  * first ce->module_len bytes of its name: up to the LAST "::", so a member of a nested
  * module gates against its immediate module). Both member classes and backing-class
  * members route here. */
-/* PHP Modules: ancestor-or-self test over canonical module paths. True iff the module
- * path (aval,alen) is (dval,dlen) itself, or a "::"-boundary ancestor prefix of it. This
- * is THE visibility comparison — every gate reduces to it.
- *
- * The boundary check needs only one byte: a module path is a chain of PHP identifiers
- * joined by "::", and an identifier cannot contain ':', so within a module path a ':'
- * can only be the first byte of a "::". (Reading d[alen] is safe: dlen > alen here, and
- * zend_strings are NUL-terminated regardless.) Without this check, module "M" would be
- * read as an ancestor of the unrelated module "MX". */
+/* PHP Modules: is module (aval,alen) an ancestor of module (dval,dlen)? The name says only
+ * that it is a namespace prefix: "Vendor\\Shop" may be nested in module "Vendor" or be a
+ * separate top-level module in that namespace. Nesting is recorded on the backing classes
+ * (module_len is the container), so walk D's chain of containers. */
+static ZEND_COLD bool zend_module_is_ancestor(
+		const char *aval, size_t alen, const char *dval, size_t dlen)
+{
+	zend_class_entry *ce = zend_hash_str_find_ptr_lc(EG(class_table), dval, dlen);
+	while (ce && (ce->ce_flags2 & ZEND_ACC2_MODULE) && ce->module_len >= alen) {
+		if (ce->module_len == alen) {
+			return true;   /* (D's name starts with A's, checked by the caller) */
+		}
+		ce = zend_hash_str_find_ptr_lc(EG(class_table), dval, ce->module_len);
+	}
+	return false;
+}
+
+/* PHP Modules: ancestor-or-self test over module paths. True iff the module (aval,alen) is
+ * (dval,dlen) itself, or a module D is nested in (to any depth). This is THE visibility
+ * comparison — every gate reduces to it. The common case, the same module, is a string
+ * compare; a module name that is a "\\"-prefix of D's is checked against D's nesting. */
 static zend_always_inline bool zend_module_path_covers(
 		const char *aval, size_t alen, const char *dval, size_t dlen)
 {
 	if (dlen < alen) {
 		return false;
 	}
-	if (dlen != alen && dval[alen] != ':') {
+	if (dlen != alen && dval[alen] != '\\') {
 		return false;
 	}
-	return zend_binary_strncasecmp(dval, alen, aval, alen, alen) == 0;
+	if (zend_binary_strncasecmp(dval, alen, aval, alen, alen) != 0) {
+		return false;
+	}
+	return dlen == alen || zend_module_is_ancestor(aval, alen, dval, dlen);
 }
 
 /* The module that OWNS `ce`'s own internal members (methods, properties, constants).
@@ -2422,19 +2437,18 @@ ZEND_API zend_function *zend_std_get_static_method(const zend_class_entry *ce, z
 module_checked: ;
 	} else {
 		/* PHP Modules: a MODULE FUNCTION spelled through its module — "M::f()",
-		 * "module::f()", a "M::f" string callable, "use function M::f". A module backing
-		 * class has no methods, so a method miss on it consults the function table for
-		 * the canonical "M::f" (a claimed handle's alias key answers the same probe, so
-		 * `Sub\f as g` resolves via "M::g" too). Visibility is gated here, at resolution
+		 * "module::f()", a "M::f" string callable. A module backing class has no methods,
+		 * so a method miss on it consults the function table for "M\\f" (a claimed member
+		 * name's alias key answers the same probe, so `Sub\\f as g` resolves as "M\\g"). Visibility is gated here, at resolution
 		 * — the call site then caches the result exactly like a static method, so the
 		 * gate runs once per call site. Returns directly: a module function has no class
 		 * scope, so the trait/abstract tail below must not run for it. */
 		if (UNEXPECTED(ce->ce_flags2 & ZEND_ACC2_MODULE)) {
 			zend_string *lc_canonical = zend_string_alloc(
-				ZSTR_LEN(ce->name) + 2 + ZSTR_LEN(function_name), 0);
+				ZSTR_LEN(ce->name) + 1 + ZSTR_LEN(function_name), 0);
 			zend_str_tolower_copy(ZSTR_VAL(lc_canonical), ZSTR_VAL(ce->name), ZSTR_LEN(ce->name));
-			memcpy(ZSTR_VAL(lc_canonical) + ZSTR_LEN(ce->name), "::", 2);
-			zend_str_tolower_copy(ZSTR_VAL(lc_canonical) + ZSTR_LEN(ce->name) + 2,
+			ZSTR_VAL(lc_canonical)[ZSTR_LEN(ce->name)] = '\\';
+			zend_str_tolower_copy(ZSTR_VAL(lc_canonical) + ZSTR_LEN(ce->name) + 1,
 				ZSTR_VAL(function_name), ZSTR_LEN(function_name));
 			zend_function *mfn = zend_hash_find_ptr(EG(function_table), lc_canonical);
 			zend_string_release(lc_canonical);

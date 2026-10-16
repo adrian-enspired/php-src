@@ -22,14 +22,14 @@ file_put_contents("$dir/mem.php", <<<'PHP'
 module F;
 class Impl {}
 interface Pub {}
-class Api { public ?Impl $bare = null; public ?\F::Impl $canon = null; }
+class Api { public ?Impl $bare = null; public ?\F\Impl $canon = null; }
 class Ok {
     public ?Pub $p = null; public ?\G\External $ext = null; public int $n = 0;
     public static function hidden(): string { return get_class(new Hidden); }
 }
 class Hidden { public ?Impl $i = null; }
 class Statics { public static ?Impl $s = null; }
-class Ext { public ?\F::In::G $g = null; }
+class Ext { public ?\F\In\G $g = null; }
 PHP);
 file_put_contents("$dir/ext.php", "<?php\nnamespace G;\nclass External {}\n");
 // warm: definition first; a bare name that misses the claims is undecidable until resolved
@@ -46,18 +46,18 @@ require "$dir/wdef.php";
 require "$dir/wmem.php";            // warm
 
 function t($n, $f) { try { $r = $f(); echo "$n: ", is_object($r) ? get_class($r) : var_export($r, true), "\n"; } catch (Throwable $e) { echo "$n: ", $e->getMessage(), "\n"; } }
-t('cold internal type', fn() => new F::Api);
-t('again (still checked)', fn() => new F::Api);
-t('public types + ordinary class', fn() => new F::Ok);
-t('internal class skipped', fn() => F::Ok::hidden());
-t('static property', fn() => F::Statics::$s);
-t('public member of internal nested module', fn() => new F::Ext);
-class SubOk extends F::Ok {}
-class SubApi extends F::Api {}
+t('cold internal type', fn() => new F\Api);
+t('again (still checked)', fn() => new F\Api);
+t('public types + ordinary class', fn() => new F\Ok);
+t('internal class skipped', fn() => F\Ok::hidden());
+t('static property', fn() => F\Statics::$s);
+t('public member of internal nested module', fn() => new F\Ext);
+class SubOk extends F\Ok {}
+class SubApi extends F\Api {}
 t('subclass of passing class', fn() => new SubOk);
 t('subclass of failing class', fn() => new SubApi);
-t('warm unclaimed bare name', fn() => new W::Api);
-t('warm ordinary class in namespace', fn() => new W::Fine);
+t('warm unclaimed bare name', fn() => new W\Api);
+t('warm ordinary class in namespace', fn() => new W\Fine);
 ?>
 --CLEAN--
 <?php
@@ -66,13 +66,13 @@ foreach (['def', 'mem', 'ext', 'wdef', 'wmem', 'wother'] as $f) { @unlink("$dir/
 @rmdir($dir);
 ?>
 --EXPECT--
-cold internal type: the type of property F::Api::$bare references "F::Impl", which is not reachable from outside the module: a module's public surface may not expose internal or unclaimed types (declare a public supertype instead)
-again (still checked): the type of property F::Api::$bare references "F::Impl", which is not reachable from outside the module: a module's public surface may not expose internal or unclaimed types (declare a public supertype instead)
-public types + ordinary class: F::Ok
-internal class skipped: 'F::Hidden'
-static property: the type of property F::Statics::$s references "F::Impl", which is not reachable from outside the module: a module's public surface may not expose internal or unclaimed types (declare a public supertype instead)
-public member of internal nested module: the type of property F::Ext::$g references "F::In::G", which is not reachable from outside the module: a module's public surface may not expose internal or unclaimed types (declare a public supertype instead)
+cold internal type: the type of property F\Api::$bare references "F\Impl", which is not reachable from outside the module: a module's public surface may not expose internal or unclaimed types (declare a public supertype instead)
+again (still checked): the type of property F\Api::$bare references "F\Impl", which is not reachable from outside the module: a module's public surface may not expose internal or unclaimed types (declare a public supertype instead)
+public types + ordinary class: F\Ok
+internal class skipped: 'F\\Hidden'
+static property: the type of property F\Statics::$s references "F\Impl", which is not reachable from outside the module: a module's public surface may not expose internal or unclaimed types (declare a public supertype instead)
+public member of internal nested module: the type of property F\Ext::$g references "F\In\G", which is not reachable from outside the module: a module's public surface may not expose internal or unclaimed types (declare a public supertype instead)
 subclass of passing class: SubOk
-subclass of failing class: the type of property F::Api::$bare references "F::Impl", which is not reachable from outside the module: a module's public surface may not expose internal or unclaimed types (declare a public supertype instead)
-warm unclaimed bare name: the type of property W::Api::$p references "W::Impl", which is not reachable from outside the module: a module's public surface may not expose internal or unclaimed types (declare a public supertype instead)
-warm ordinary class in namespace: W::Fine
+subclass of failing class: the type of property F\Api::$bare references "F\Impl", which is not reachable from outside the module: a module's public surface may not expose internal or unclaimed types (declare a public supertype instead)
+warm unclaimed bare name: the type of property W\Api::$p references "W\Impl", which is not reachable from outside the module: a module's public surface may not expose internal or unclaimed types (declare a public supertype instead)
+warm ordinary class in namespace: W\Fine

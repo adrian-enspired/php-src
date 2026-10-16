@@ -21,7 +21,7 @@ module O {
     public Api; internal Secret; public pf; internal qf;
     public module In { public class G { function t() { return "g"; } } internal class Hid {} }
     internal module Hide { public class H {} }
-    public class Inside { static function reach() { return get_class(new \O::Hide::H); } }
+    public class Inside { static function reach() { return get_class(new \O\Hide\H); } }
 }
 PHP);
 file_put_contents("$dir/mem.php", <<<'PHP'
@@ -35,14 +35,14 @@ PHP);
 file_put_contents("$dir/run.php", <<<'PHP'
 <?php
 foreach ([
-    'nested public'       => fn() => (new O::In::G)->t(),
-    'nested internal'     => fn() => new O::Hide::H,
-    'internal in public nested' => fn() => new O::In::Hid,
-    'from inside'         => fn() => O::Inside::reach(),
-    'cold public class'   => fn() => (new O::Api)->t(),
-    'cold internal class' => fn() => new O::Secret,
-    'cold public fn'      => fn() => O::pf(),
-    'cold internal fn'    => fn() => O::qf(),
+    'nested public'       => fn() => (new O\In\G)->t(),
+    'nested internal'     => fn() => new O\Hide\H,
+    'internal in public nested' => fn() => new O\In\Hid,
+    'from inside'         => fn() => O\Inside::reach(),
+    'cold public class'   => fn() => (new O\Api)->t(),
+    'cold internal class' => fn() => new O\Secret,
+    'cold public fn'      => fn() => O\pf(),
+    'cold internal fn'    => fn() => O\qf(),
 ] as $k => $f) {
     try { $r = $f(); echo "$k: ", is_object($r) ? get_class($r) : $r, "\n"; } catch (Error $e) { echo "$k: ", $e->getMessage(), "\n"; }
 }
@@ -65,37 +65,37 @@ foreach (['def', 'mem', 'run', 'preload'] as $f) { @unlink("$dir/$f.php"); }
 --EXPECT--
 == def first
 nested public: g
-nested internal: Cannot access "O::Hide::H": module "O::Hide" is internal to its parent module
-internal in public nested: Cannot access internal module member "O::In::Hid" from outside its module
-from inside: O::Hide::H
+nested internal: Cannot access "O\Hide\H": module "O\Hide" is internal to its parent module
+internal in public nested: Cannot access internal module member "O\In\Hid" from outside its module
+from inside: O\Hide\H
 cold public class: api
-cold internal class: Cannot access internal module member "O::Secret" from outside its module
+cold internal class: Cannot access internal module member "O\Secret" from outside its module
 cold public fn: pf
-cold internal fn: Cannot call internal module function O::qf() from outside its module
+cold internal fn: Cannot call internal module function O\qf() from outside its module
 == def first (tracing JIT)
 nested public: g
-nested internal: Cannot access "O::Hide::H": module "O::Hide" is internal to its parent module
-internal in public nested: Cannot access internal module member "O::In::Hid" from outside its module
-from inside: O::Hide::H
+nested internal: Cannot access "O\Hide\H": module "O\Hide" is internal to its parent module
+internal in public nested: Cannot access internal module member "O\In\Hid" from outside its module
+from inside: O\Hide\H
 cold public class: api
-cold internal class: Cannot access internal module member "O::Secret" from outside its module
+cold internal class: Cannot access internal module member "O\Secret" from outside its module
 cold public fn: pf
-cold internal fn: Cannot call internal module function O::qf() from outside its module
+cold internal fn: Cannot call internal module function O\qf() from outside its module
 == member file first
 nested public: g
-nested internal: Cannot access "O::Hide::H": module "O::Hide" is internal to its parent module
-internal in public nested: Cannot access internal module member "O::In::Hid" from outside its module
-from inside: O::Hide::H
+nested internal: Cannot access "O\Hide\H": module "O\Hide" is internal to its parent module
+internal in public nested: Cannot access internal module member "O\In\Hid" from outside its module
+from inside: O\Hide\H
 cold public class: api
-cold internal class: Cannot access internal module member "O::Secret" from outside its module
+cold internal class: Cannot access internal module member "O\Secret" from outside its module
 cold public fn: pf
-cold internal fn: Cannot call internal module function O::qf() from outside its module
+cold internal fn: Cannot call internal module function O\qf() from outside its module
 == member file first (tracing JIT)
 nested public: g
-nested internal: Cannot access "O::Hide::H": module "O::Hide" is internal to its parent module
-internal in public nested: Cannot access internal module member "O::In::Hid" from outside its module
-from inside: O::Hide::H
+nested internal: Cannot access "O\Hide\H": module "O\Hide" is internal to its parent module
+internal in public nested: Cannot access internal module member "O\In\Hid" from outside its module
+from inside: O\Hide\H
 cold public class: api
-cold internal class: Cannot access internal module member "O::Secret" from outside its module
+cold internal class: Cannot access internal module member "O\Secret" from outside its module
 cold public fn: pf
-cold internal fn: Cannot call internal module function O::qf() from outside its module
+cold internal fn: Cannot call internal module function O\qf() from outside its module

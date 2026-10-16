@@ -10,9 +10,9 @@ visibility modifier was mandatory on every member.
 <?php
 module A { module B { class C {} } }
 
-$c = new A::B::C();
-var_dump($c instanceof A::B::C);
-echo (new ReflectionModule("A"))->getSymbolVisibility("A::B"), "\n";
+$c = new A\B\C();
+var_dump($c instanceof A\B\C);
+echo (new ReflectionModule("A"))->getSymbolVisibility("A\B"), "\n";
 ?>
 --EXPECT--
 bool(true)

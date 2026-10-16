@@ -6373,20 +6373,11 @@ ZEND_VM_HANDLER(181, ZEND_FETCH_CLASS_CONSTANT, VAR|CONST|UNUSED|CLASS_FETCH, CO
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
-			/* PHP Modules: "Module::Member" written as a class-constant chain
-			 * ("M::C::X", "M::C::m()", "M::C::$p", "M::C::class") whose module was only
-			 * autoloaded at runtime. The prefix "M::C" fetches constant "C" from module
-			 * M's backing class; no such constant exists, but if "C" names a declared
-			 * member of M, yield the canonical name string "M::C" (identity, ungated,
-			 * as ::class does). The enclosing access then resolves that class through the
-			 * normal two-tier autoload and applies the visibility gate. */
-			zend_string *canonical;
 			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
 				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
 				 * in EG(zend_constants) under its canonical key, not on the backing class
 				 * (inline module constants — backing class constants — answered above).
-				 * A real constant wins over the member-name identity fallback below,
-				 * matching the inline precedence. Resolution gates internal visibility. */
+				 * Resolution gates internal visibility. */
 				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
 				if (mc) {
 					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
@@ -6398,40 +6389,6 @@ ZEND_VM_HANDLER(181, ZEND_FETCH_CLASS_CONSTANT, VAR|CONST|UNUSED|CLASS_FETCH, CO
 					FREE_OP2();
 					HANDLE_EXCEPTION();
 				}
-				if ((canonical = zend_module_member_canonical_name(ce, constant_name, true)) != NULL) {
-					/* The member-name identity is only meaningful as the CLASS part of a
-					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
-					 * compiler always lowers to this opline immediately followed by the
-					 * class fetch consuming its result. Used as a VALUE ("echo M::C"), a
-					 * member name is not a constant: say so rather than yield a string. */
-					const zend_op *next = opline + 1;
-					if ((next->opcode == ZEND_FETCH_CLASS
-							&& (next->op2_type & (IS_TMP_VAR|IS_VAR)) && next->op2.var == opline->result.var)
-						|| (next->opcode == ZEND_FETCH_CLASS_NAME
-							&& (next->op1_type & (IS_TMP_VAR|IS_VAR)) && next->op1.var == opline->result.var)) {
-						ZVAL_STR(EX_VAR(opline->result.var), canonical);
-						FREE_OP2();
-						ZEND_VM_NEXT_OPCODE();
-					}
-					zend_throw_error(NULL,
-						"Undefined constant %s::%s: \"%s\" is a member of module \"%s\", not a constant",
-						ZSTR_VAL(ce->name), ZSTR_VAL(constant_name),
-						ZSTR_VAL(canonical), ZSTR_VAL(ce->name));
-					zend_string_release(canonical);
-					ZVAL_UNDEF(EX_VAR(opline->result.var));
-					FREE_OP2();
-					HANDLE_EXCEPTION();
-				}
-				/* ce is a module backing class but constant_name is neither one of its
-				 * (backing-class) constants nor a declared member -- report it as a missing
-				 * member, consistent with the name-based class fetch (report_class_fetch_error)
-				 * and the compile-time "module::" self-reference check, rather than the generic
-				 * "Undefined constant". */
-				zend_throw_error(NULL, "\"%s\" is not a member of module \"%s\"",
-					ZSTR_VAL(constant_name), ZSTR_VAL(ce->name));
-				ZVAL_UNDEF(EX_VAR(opline->result.var));
-				FREE_OP2();
-				HANDLE_EXCEPTION();
 			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
@@ -9278,17 +9235,6 @@ ZEND_VM_HANDLER(157, ZEND_FETCH_CLASS_NAME, CV|TMP|UNUSED|CLASS_FETCH, ANY)
 		if (UNEXPECTED(Z_TYPE_P(op) != IS_OBJECT)) {
 			ZVAL_DEREF(op);
 			if (Z_TYPE_P(op) != IS_OBJECT) {
-				/* PHP Modules: a "Module::Member" canonical name that reached ::class via a
-				 * runtime chain (e.g. cold-autoloaded "M::C::class", whose "M::C" prefix
-				 * resolves to the canonical name string): the string already IS the class
-				 * name, so yield it. Restricted to "::"-bearing strings (module boundary
-				 * names) so "foo"::class / $int::class keep their TypeError. */
-				if (Z_TYPE_P(op) == IS_STRING
-						&& zend_memnstr(Z_STRVAL_P(op), "::", 2, Z_STRVAL_P(op) + Z_STRLEN_P(op))) {
-					ZVAL_STR_COPY(EX_VAR(opline->result.var), Z_STR_P(op));
-					FREE_OP1();
-					ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();
-				}
 				zend_type_error("Cannot use \"::class\" on %s", zend_zval_value_name(op));
 				ZVAL_UNDEF(EX_VAR(opline->result.var));
 				FREE_OP1();

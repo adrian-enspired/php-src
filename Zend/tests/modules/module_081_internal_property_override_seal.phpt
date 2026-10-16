@@ -13,11 +13,11 @@ module M {
     public class Base { internal int $v = 5; public function read(): int { return $this->v; } }
     public class Child extends Base { internal int $v = 9; public function read2(): int { return $this->v; } }
 }
-echo (new M::Child)->read2(), "\n";                 // same-module override: allowed
-echo (new M::Child)->read(), "\n";                  // parent's in-module reader still works
+echo (new M\Child)->read2(), "\n";                 // same-module override: allowed
+echo (new M\Child)->read(), "\n";                  // parent's in-module reader still works
 
 module P { public class B { internal int $w = 3; public function r(): int { return $this->w; } } }
-class Ext extends P::B {}                            // outside subclass, no override
+class Ext extends P\B {}                            // outside subclass, no override
 echo (new Ext)->r(), "\n";                           // inherited internal property, read via in-module method
 try { echo (new Ext)->w; } catch (\Error $e) { echo $e->getMessage(), "\n"; }  // outside direct access denied
 
@@ -30,9 +30,9 @@ function run(string $label, string $code): void {
 }
 
 echo "-- seal --\n";
-run('global-scope override', 'module M { public class Base { internal int $v = 1; } } class Child extends M::Base { public int $v = 2; }');
-run('other-module override',  'module M { public class Base { internal int $v = 1; } } module N { public class Child extends \\M::Base { public int $v = 2; } }');
-run('override keeping internal', 'module M { public class Base { internal int $v = 1; } } module N { public class Child extends \\M::Base { internal int $v = 2; } }');
+run('global-scope override', 'module M { public class Base { internal int $v = 1; } } class Child extends M\Base { public int $v = 2; }');
+run('other-module override',  'module M { public class Base { internal int $v = 1; } } module N { public class Child extends \\M\\Base { public int $v = 2; } }');
+run('override keeping internal', 'module M { public class Base { internal int $v = 1; } } module N { public class Child extends \\M\\Base { internal int $v = 2; } }');
 ?>
 --EXPECT--
 9

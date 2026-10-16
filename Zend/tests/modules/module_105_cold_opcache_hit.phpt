@@ -24,8 +24,8 @@ file_put_contents($dir . '/manifest.php', <<<'PHP'
 <?php
 namespace Ven;
 module Usr {
-    public Auth\Check;      // canonical Ven\Usr::Auth\Check; member name Ven\Usr::Check
-    internal Impl\Tok;      // canonical Ven\Usr::Impl\Tok; internal
+    public Auth\Check;      // canonical Ven\Usr\Auth\Check; member name Ven\Usr\Check
+    internal Impl\Tok;      // canonical Ven\Usr\Impl\Tok; internal
 }
 PHP);
 
@@ -55,7 +55,7 @@ spl_autoload_register(function (string $n) use ($dir): void {
 try { new Ven\Usr\Impl\Tok(); echo "LEAK"; } catch (\Error $e) { echo "gated"; }
 // Public member (module is loaded now): reachable, canonical identity, member name registered.
 $c = new Ven\Usr\Auth\Check();
-echo "|", $c->t(), "|", $c::class, "|", (class_exists('Ven\\Usr::Check') ? 'name' : 'x'), "\n";
+echo "|", $c->t(), "|", $c::class, "|", (class_exists('Ven\\Usr\\Check') ? 'name' : 'x'), "\n";
 PHP);
 
 $opts = '-d opcache.enable_cli=1 -d opcache.file_cache=' . escapeshellarg($cache)
@@ -80,5 +80,5 @@ function rrmdir(string $d): void {
 rrmdir(__DIR__ . '/mod105_tmp');
 ?>
 --EXPECT--
-run1: gated|chk|Ven\Usr::Auth\Check|name
-run2: gated|chk|Ven\Usr::Auth\Check|name
+run1: gated|chk|Ven\Usr\Auth\Check|name
+run2: gated|chk|Ven\Usr\Auth\Check|name

@@ -28,7 +28,7 @@ echo str_contains(
 
 // a claimed-but-undefined function is undefined at the call, not before
 module Claims { public ghost; }
-try { Claims::ghost(); echo "LEAK\n"; }
+try { Claims\ghost(); echo "LEAK\n"; }
 catch (\Error $e) { echo $e->getMessage(), "\n"; }
 
 // module_014 companion: global fallback still wins where no module function exists,
@@ -43,7 +43,7 @@ function t(): int { return strlen("xyz") + count([1]); }   // both resolve globa
 PHP);
 require $dir . '/m.php';
 require $dir . '/f.php';
-var_dump(GfA::t());
+var_dump(GfA\t());
 ?>
 --CLEAN--
 <?php
@@ -56,5 +56,5 @@ $dir = __DIR__ . '/mod123_tmp';
 reject ok: static function
 reject ok: protected function
 reject ok: attributed member-file const
-Call to undefined method Claims::ghost()
+Call to undefined function Claims\ghost()
 int(4)

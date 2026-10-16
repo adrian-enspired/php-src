@@ -2,7 +2,7 @@
 Modules: the public-surface check sees bare (projection-form) type names
 --DESCRIPTION--
 A bare reference inside a membership file resolves to the member's PROJECTION name ("F\Impl"),
-not its canonical one ("F::Impl") -- that is deliberate, so a reference can fall through to an
+not its canonical one ("F\Impl") -- that is deliberate, so a reference can fall through to an
 external symbol. But the roster is keyed by canonical name, so a check that matches only on
 "::" would silently pass on the majority of real code, which writes bare names. All three
 spellings of the same member must be treated alike.
@@ -15,7 +15,7 @@ file_put_contents($dir . '/manifest.php', "<?php\nmodule F { public Api; interna
 $php = getenv('TEST_PHP_EXECUTABLE');
 foreach ([
     'bare'       => 'Impl',
-    'canonical'  => '\F::Impl',
+    'canonical'  => '\F\Impl',
     'projection' => '\F\Impl',
 ] as $label => $type) {
     file_put_contents($dir . '/m.php',

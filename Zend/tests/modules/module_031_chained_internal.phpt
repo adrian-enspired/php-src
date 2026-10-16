@@ -13,15 +13,15 @@ module M {
 }
 
 // Public member class, public static method via chain: allowed
-echo M::Pub::ok(), "\n";
+echo M\Pub::ok(), "\n";
 
 // Internal member class reached via a chain: denied at the class fetch
 echo "internal class: ";
-try { M::Secret::s(); echo "LEAK\n"; } catch (\Error $e) { echo "blocked\n"; }
+try { M\Secret::s(); echo "LEAK\n"; } catch (\Error $e) { echo "blocked\n"; }
 
 // Internal static method of a public member class, via chain: denied at dispatch
 echo "internal method: ";
-try { M::Pub::priv(); echo "LEAK\n"; } catch (\Error $e) { echo "blocked\n"; }
+try { M\Pub::priv(); echo "LEAK\n"; } catch (\Error $e) { echo "blocked\n"; }
 ?>
 --EXPECT--
 ok

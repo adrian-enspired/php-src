@@ -15,18 +15,18 @@ module Core {
 
 // Extend a public abstract module class from outside and implement its abstract method;
 // the module trait and interface come along.
-class Widget extends Core::Base {
+class Widget extends Core\Base {
     public function name(): string { return "widget"; }
 }
 $w = new Widget(7);
 echo $w->name(), " ", $w->id, "\n";
-var_dump($w instanceof Core::Plugin, str_contains($w->tag(), "Widget"));
+var_dump($w instanceof Core\Plugin, str_contains($w->tag(), "Widget"));
 
 // Internal enforcement is runtime and only fires when the access actually executes:
 // a reference to an internal member in an unreached branch raises nothing.
 function maybe(bool $run): string {
     if ($run) {
-        $x = new Core::Secret();   // never reached when $run is false
+        $x = new Core\Secret();   // never reached when $run is false
         return "ran";
     }
     return "skipped";

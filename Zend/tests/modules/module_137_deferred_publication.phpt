@@ -19,7 +19,7 @@ file_put_contents($dir . '/a.php', "<?php\nmodule F { public Api; }\n");
 file_put_contents($dir . '/b.php',
     "<?php\nmodule F;\nclass Impl {}\nclass Api { public function leak(): Impl { return new Impl(); } }\n");
 file_put_contents($dir . '/r.php', "<?php\nrequire __DIR__.'/a.php'; require __DIR__.'/b.php';\n"
-    . "echo \"compiles\\n\";\ntry { (new F::Api)->leak(); echo \"LEAKED\\n\"; }\n"
+    . "echo \"compiles\\n\";\ntry { (new F\Api)->leak(); echo \"LEAKED\\n\"; }\n"
     . "catch (\\Error \$e) { echo \"caught at return\\n\"; }\n");
 echo shell_exec($php . ' -n ' . escapeshellarg($dir . '/r.php') . ' 2>&1');
 
@@ -29,7 +29,7 @@ file_put_contents($dir . '/d.php', "<?php\nmodule G { public Api; }\n");
 file_put_contents($dir . '/e.php',
     "<?php\nmodule G;\nclass Api { public function fine(): External { return new External(); } }\n");
 file_put_contents($dir . '/r2.php', "<?php\nrequire __DIR__.'/c.php'; require __DIR__.'/d.php'; require __DIR__.'/e.php';\n"
-    . "echo \"external ok: \", get_class((new G::Api)->fine()), \"\\n\";\n");
+    . "echo \"external ok: \", get_class((new G\Api)->fine()), \"\\n\";\n");
 echo shell_exec($php . ' -n ' . escapeshellarg($dir . '/r2.php') . ' 2>&1');
 
 // (3) the value's type is a separate concern: an internal instance may escape
@@ -38,7 +38,7 @@ file_put_contents($dir . '/g.php',
     "<?php\nmodule K;\ninterface Iface {}\nclass Impl implements Iface {}\n"
     . "class Api { public function open(): Iface { return new Impl(); } }\n");
 file_put_contents($dir . '/r3.php', "<?php\nrequire __DIR__.'/f.php'; require __DIR__.'/g.php';\n"
-    . "echo \"escaped internal: \", get_class((new K::Api)->open()), \"\\n\";\n");
+    . "echo \"escaped internal: \", get_class((new K\Api)->open()), \"\\n\";\n");
 echo shell_exec($php . ' -n ' . escapeshellarg($dir . '/r3.php') . ' 2>&1');
 ?>
 --CLEAN--
@@ -51,4 +51,4 @@ foreach (glob($dir . '/*.php') as $f) { @unlink($f); }
 compiles
 caught at return
 external ok: G\External
-escaped internal: K::Impl
+escaped internal: K\Impl

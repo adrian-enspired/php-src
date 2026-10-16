@@ -164,13 +164,13 @@ param-ctor-plain-default|class NAME {} class C { function __construct(NAME $x = 
 param-ctor-variadic|class NAME {} class C { function __construct(NAME ...$x) {} } new C(new NAME);
 param-ctor-byref|class NAME {} class C { function __construct(NAME &$x) {} }
 closure-param|class NAME {} $f = function (NAME $x) {}; $g = fn(NAME $x) => $x;
-module-member-type|function f(\M::NAME $x): \M::NAME { return $x; }
-module-member-new|module M { public class NAME {} } $x = new \M::NAME (); $y = new \M::NAME;
-module-member-instanceof|module M { public class NAME {} } var_dump(new \M::NAME instanceof \M::NAME);
-module-member-const|module M { public class NAME { const K = 1; } } echo \M::NAME::K;
-module-member-static|module M { public class NAME { static function f() {} } } \M::NAME::f();
-module-member-catch|module M { public class NAME extends \Exception {} } try {} catch (\M::NAME $e) {}
-module-member-promoted|module M { public class NAME {} } class C { function __construct(public \M::NAME $x) {} }
+module-member-type|function f(\M\NAME $x): \M\NAME { return $x; }
+module-member-new|module M { public class NAME {} } $x = new \M\NAME (); $y = new \M\NAME;
+module-member-instanceof|module M { public class NAME {} } var_dump(new \M\NAME instanceof \M\NAME);
+module-member-const|module M { public class NAME { const K = 1; } } echo \M\NAME::K;
+module-member-static|module M { public class NAME { static function f() {} } } \M\NAME::f();
+module-member-catch|module M { public class NAME extends \Exception {} } try {} catch (\M\NAME $e) {}
+module-member-promoted|module M { public class NAME {} } class C { function __construct(public \M\NAME $x) {} }
 param-promoted-final-only|class NAME {} class C { function __construct(final NAME $x) {} }
 param-promoted-internal|class NAME {} class C { function __construct(internal NAME $x) {} }
 CORPUS;

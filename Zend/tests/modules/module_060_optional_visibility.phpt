@@ -19,26 +19,26 @@ module M {
 }
 
 // class / interface / trait / enum are public and usable from outside
-$a = new M::A();
-var_dump($a instanceof M::A);
-class Impl implements M::I {}
-var_dump(new Impl() instanceof M::I);
-class UsesT { use M::T; }
+$a = new M\A();
+var_dump($a instanceof M\A);
+class Impl implements M\I {}
+var_dump(new Impl() instanceof M\I);
+class UsesT { use M\T; }
 echo (new UsesT())->hi(), "\n";
-echo M::E::One->value, "\n";
+echo M\E::One->value, "\n";
 
 // module-level const is public
 echo M::K, "\n";
 
 // nested module + its member are public
-var_dump(new M::Inner::G() instanceof M::Inner::G);
+var_dump(new M\Inner\G() instanceof M\Inner\G);
 
 // reflection: an unmarked member reports public; an explicit internal one reports internal
 $r = new ReflectionModule("M");
-echo $r->getSymbolVisibility("M::A"), " ", $r->getSymbolVisibility("M::X"), "\n";
+echo $r->getSymbolVisibility("M\A"), " ", $r->getSymbolVisibility("M\X"), "\n";
 
 // explicit internal is still enforced from outside
-try { new M::X(); echo "X LEAK\n"; }
+try { new M\X(); echo "X LEAK\n"; }
 catch (\Error $e) { echo $e->getMessage(), "\n"; }
 ?>
 --EXPECT--
@@ -49,4 +49,4 @@ hi
 41
 bool(true)
 public internal
-Cannot access internal module member "M::X" from outside its module
+Cannot access internal module member "M\X" from outside its module

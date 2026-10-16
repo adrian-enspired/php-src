@@ -18,18 +18,18 @@ module M {
     }
     public function fromModuleFunction(): array { return get_class_methods(P::class); }
 }
-echo implode(",", get_class_methods('M::P')), "\n";
-echo implode(",", array_keys(get_class_vars('M::P'))), "\n";
-[$m, $v] = M::P::inside();
+echo implode(",", get_class_methods('M\P')), "\n";
+echo implode(",", array_keys(get_class_vars('M\P'))), "\n";
+[$m, $v] = M\P::inside();
 echo implode(",", $m), " | ", implode(",", $v), "\n";
 echo implode(",", M::fromModuleFunction()), "\n";
-class Sub extends M::P {
+class Sub extends M\P {
     public function mine() { return get_class_methods($this); }
 }
 echo implode(",", (new Sub)->mine()), "\n";
 
 // the backing class of a module is not a class
-var_dump(class_exists('M'), class_exists('M::P'), in_array('M', get_declared_classes()), in_array('M::P', get_declared_classes()));
+var_dump(class_exists('M'), class_exists('M\P'), in_array('M', get_declared_classes()), in_array('M\P', get_declared_classes()));
 ?>
 --EXPECT--
 a,inside

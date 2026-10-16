@@ -29,13 +29,13 @@ echo "enums:      ", implode(",", $r->getEnumNames()), "\n";
 echo "modules:    ", implode(",", $r->getModuleNames()), "\n";
 echo "functions:  ", implode(",", $r->getFunctionNames()), "\n";
 echo "constants:  ", json_encode($r->getConstants()), "\n";
-echo "vis Cart:   ", $r->getSymbolVisibility("Shop::Cart"), "\n";
-echo "vis Ledger: ", $r->getSymbolVisibility("Shop::Ledger"), "\n";
+echo "vis Cart:   ", $r->getSymbolVisibility("Shop\Cart"), "\n";
+echo "vis Ledger: ", $r->getSymbolVisibility("Shop\Ledger"), "\n";
 
 // isModuleInternal reflects the `internal` MODIFIER on members (method/property/constant),
 // parallel to isPrivate(). A class's visibility AS a module member is the module's claim,
 // queried above via ReflectionModule::getSymbolVisibility() — not self-reported by the class.
-$w = new ReflectionClass("Shop::Widget");
+$w = new ReflectionClass("Shop\Widget");
 printf("method s/o: %d/%d\n", $w->getMethod("secret")->isModuleInternal(), $w->getMethod("open")->isModuleInternal());
 printf("prop t/n:   %d/%d\n", $w->getProperty("token")->isModuleInternal(), $w->getProperty("name")->isModuleInternal());
 printf("const H/S:  %d/%d\n", $w->getReflectionConstant("HIDDEN")->isModuleInternal(), $w->getReflectionConstant("SHOWN")->isModuleInternal());
@@ -46,10 +46,10 @@ printf("plain m:    %d\n", (new ReflectionClass("Plain"))->getMethod("m")->isMod
 ?>
 --EXPECT--
 name:       Shop
-classes:    Shop::Cart,Shop::Ledger,Shop::Widget
-interfaces: Shop::Payable
-enums:      Shop::Status
-modules:    Shop::Sub
+classes:    Shop\Cart,Shop\Ledger,Shop\Widget
+interfaces: Shop\Payable
+enums:      Shop\Status
+modules:    Shop\Sub
 functions:  
 constants:  {"VERSION":"1.2.3","SECRET":42}
 vis Cart:   public

@@ -22,17 +22,17 @@ module Core {
 /* From OUTSIDE App\Core: */
 
 // Open is PUBLIC in Core and Gadget is PUBLIC in Open -> reachable (both boundaries crossable).
-echo (new \App\Core::Open::Gadget())->g(), "\n";               // g
+echo (new \App\Core\Open\Gadget())->g(), "\n";               // g
 
 // Open is PUBLIC, but Guts is INTERNAL in Open -> denied at the INNER boundary.
-try { new \App\Core::Open::Guts(); echo "LEAK\n"; } catch (\Error $e) { echo "gated-inner\n"; }
+try { new \App\Core\Open\Guts(); echo "LEAK\n"; } catch (\Error $e) { echo "gated-inner\n"; }
 
 // Secret is INTERNAL in Core and Widget is PUBLIC in Secret -> denied at the OUTER boundary,
 // short-circuiting before the public leaf is ever consulted. This is the outermost-first rule.
-try { new \App\Core::Secret::Widget(); echo "LEAK\n"; } catch (\Error $e) { echo "gated-outer\n"; }
+try { new \App\Core\Secret\Widget(); echo "LEAK\n"; } catch (\Error $e) { echo "gated-outer\n"; }
 
 // Identity is still observable (only USE is gated).
-var_dump(class_exists('App\Core::Secret::Widget'));
+var_dump(class_exists('App\Core\Secret\Widget'));
 ?>
 --EXPECT--
 g

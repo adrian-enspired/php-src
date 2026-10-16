@@ -32,16 +32,16 @@ module Billing {
     }
 }
 
-$inv = new Billing::Invoice();
+$inv = new Billing\Invoice();
 $l = $inv->make();
 echo get_class($l), " ", $l->tag(), "\n";
 var_dump($inv->isLedger($l));
 var_dump($inv->isLedger(new stdClass()));
-var_dump(new Billing::BigLedger() instanceof Billing::Ledger);
-echo (new Billing::Gateway())->reach(), "\n";
+var_dump(new Billing\BigLedger() instanceof Billing\Ledger);
+echo (new Billing\Gateway())->reach(), "\n";
 ?>
 --EXPECT--
-Billing::Ledger L
+Billing\Ledger L
 bool(true)
 bool(false)
 bool(true)

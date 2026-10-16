@@ -17,8 +17,8 @@ if (substr(PHP_OS, 0, 3) == 'WIN') die('skip not for Windows');
  * all run off the persisted class entries and aliases. */
 try { new ReflectionModule("Ven2\\Usr"); echo "present\n"; } catch (ReflectionException) { echo "absent\n"; }
 echo (new Ven2\Usr\Api\Check())->t(), "\n";   // namespaced name (persisted alias)
-echo (new Ven2\Usr::Check())->t(), "\n";       // member name / handle (persisted alias)
-echo (new Ven2\Usr::Api\Check())::class, "\n"; // canonical (the persisted class itself)
+echo (new Ven2\Usr\Check())->t(), "\n";       // member name / handle (persisted alias)
+echo (new Ven2\Usr\Api\Check())::class, "\n"; // canonical (the persisted class itself)
 
 $n = "Ven2\\Usr\\Api\\Tok";                    // dynamic -> runtime gate applies
 try { new $n(); echo "LEAK\n"; } catch (\Throwable $e) { echo "gated\n"; }
@@ -27,5 +27,5 @@ try { new $n(); echo "LEAK\n"; } catch (\Throwable $e) { echo "gated\n"; }
 present
 chk
 chk
-Ven2\Usr::Api\Check
+Ven2\Usr\Api\Check
 gated

@@ -2,7 +2,7 @@
 Modules: a backslash-qualified name inside a module block is relative to the module
 --DESCRIPTION--
 Inside module N\M the namespace is the module, for qualified names as for bare ones:
-"Sub\X" is "N\M::Sub\X" (a member declared in a member file under `namespace Sub;`).
+"Sub\X" is "N\M\Sub\X" (a member declared in a member file under `namespace Sub;`).
 --FILE--
 <?php
 $dir = __DIR__ . '/m317_tmp';
@@ -18,7 +18,7 @@ module M {
             return [
                 (new Sub\X)::class,
                 (new module::Sub\X)::class,
-                (new \N\M::Sub\X)::class,
+                (new \N\M\Sub\X)::class,
                 (new \N\M\Sub\X)::class,
                 Sub\X::class,
             ];
@@ -26,7 +26,7 @@ module M {
     }
 }
 require __DIR__ . '/x.php';
-var_dump(M::T::run());
+var_dump(M\T::run());
 PHP);
 require "$dir/main.php";
 ?>
@@ -40,13 +40,13 @@ $dir = __DIR__ . '/m317_tmp';
 --EXPECT--
 array(5) {
   [0]=>
-  string(10) "N\M::Sub\X"
+  string(9) "N\M\Sub\X"
   [1]=>
-  string(10) "N\M::Sub\X"
+  string(9) "N\M\Sub\X"
   [2]=>
-  string(10) "N\M::Sub\X"
+  string(9) "N\M\Sub\X"
   [3]=>
-  string(10) "N\M::Sub\X"
+  string(9) "N\M\Sub\X"
   [4]=>
-  string(10) "N\M::Sub\X"
+  string(9) "N\M\Sub\X"
 }

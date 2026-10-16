@@ -1,5 +1,5 @@
 --TEST--
-Modules: nested modules (flat boundary model) — "Outer::Inner" naming, members, reflection
+Modules: nested modules (flat boundary model) — "Outer\Inner" naming, members, reflection
 --FILE--
 <?php
 module Outer {
@@ -17,21 +17,21 @@ module Outer {
 
 // Outer members unchanged
 echo Outer::OV, "\n";
-var_dump(new Outer::Widget instanceof Outer::Widget);
+var_dump(new Outer\Widget instanceof Outer\Widget);
 
-// The nested module is canonically "Outer::Inner" (module boundary is "::").
-var_dump((new ReflectionModule("Outer::Inner"))->getName() === "Outer::Inner");
+// The nested module is canonically "Outer\Inner" (module boundary is "::").
+var_dump((new ReflectionModule("Outer\Inner"))->getName() === "Outer\Inner");
 
 // Nested module-level members via chained "::"
-echo Outer::Inner::IV, "\n";
+echo Outer\Inner::IV, "\n";
 
 // Nested member class: static access via chain, and direct instantiation through
-// the multi-"::" class reference "new Outer::Inner::Gadget".
-echo Outer::Inner::Gadget::tag(), "\n";
-echo (new Outer::Inner::Gadget)->who(), "\n";
+// the multi-"::" class reference "new Outer\Inner\Gadget".
+echo Outer\Inner\Gadget::tag(), "\n";
+echo (new Outer\Inner\Gadget)->who(), "\n";
 
 // Reflection sees the nested module and its members
-$r = new ReflectionModule("Outer::Inner");
+$r = new ReflectionModule("Outer\Inner");
 echo $r->getName(), " :: ", implode(",", $r->getClassNames()), "\n";
 ?>
 --EXPECT--
@@ -41,4 +41,4 @@ bool(true)
 inner
 g
 gadget
-Outer::Inner :: Outer::Inner::Gadget
+Outer\Inner :: Outer\Inner\Gadget

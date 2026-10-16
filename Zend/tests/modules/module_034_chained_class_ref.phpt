@@ -28,25 +28,25 @@ module Outer {
 }
 
 // new / instanceof at depth 2 and depth 3
-$g = new Outer::Inner::Gadget();
-var_dump($g instanceof Outer::Inner::Gadget);
+$g = new Outer\Inner\Gadget();
+var_dump($g instanceof Outer\Inner\Gadget);
 echo $g->who(), "\n";
-echo (new Outer::Inner::Deep::Cog())->spin(), "\n";
+echo (new Outer\Inner\Deep\Cog())->spin(), "\n";
 
 // extends across a chained module path
-class Ext extends Outer::Inner::Base {}
+class Ext extends Outer\Inner\Base {}
 echo (new Ext)->tag(), "\n";
 
 // parameter + return type hints, chained
-function useit(Outer::Inner::Base $b): Outer::Inner::Base { return $b; }
-echo useit(new Outer::Inner::Base)->tag(), "\n";
+function useit(Outer\Inner\Base $b): Outer\Inner\Base { return $b; }
+echo useit(new Outer\Inner\Base)->tag(), "\n";
 
 // module:: self-references (single and multi-segment)
-echo Outer::Inner::Api::build(), "\n";
+echo Outer\Inner\Api::build(), "\n";
 
 // internal member is still gated when named through the chain from outside
 try {
-    new Outer::Inner::Secret();
+    new Outer\Inner\Secret();
     echo "LEAKED\n";
 } catch (\Error $e) {
     echo $e->getMessage(), "\n";
@@ -59,4 +59,4 @@ spin
 base
 base
 gadget/made/secret
-Cannot access internal module member "Outer::Inner::Secret" from outside its module
+Cannot access internal module member "Outer\Inner\Secret" from outside its module

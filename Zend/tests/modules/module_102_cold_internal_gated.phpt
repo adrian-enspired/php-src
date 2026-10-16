@@ -15,7 +15,7 @@ file_put_contents("$dir/manifest.php", <<<'PHP'
 <?php
 namespace Acme;
 module Secret {
-    internal Impl\Token;   // canonical Acme\Secret::Impl\Token; internal
+    internal Impl\Token;   // canonical Acme\Secret\Impl\Token; internal
 }
 PHP);
 
@@ -42,7 +42,7 @@ try {
     echo "gated\n";
 }
 // Identity is observable even for an internal member (only USE is gated).
-var_dump(class_exists('Acme\Secret::Impl\Token'));
+var_dump(class_exists('Acme\Secret\Impl\Token'));
 ?>
 --CLEAN--
 <?php

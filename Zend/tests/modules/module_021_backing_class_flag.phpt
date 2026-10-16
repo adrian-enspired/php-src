@@ -15,7 +15,7 @@ try {
 }
 
 // The module's own members are unaffected
-echo Payments::MODE, " ", (new Payments::Gateway() instanceof Payments::Gateway ? "ok" : "no"), "\n";
+echo Payments::MODE, " ", (new Payments\Gateway() instanceof Payments\Gateway ? "ok" : "no"), "\n";
 ?>
 --EXPECT--
 Cannot instantiate module Payments

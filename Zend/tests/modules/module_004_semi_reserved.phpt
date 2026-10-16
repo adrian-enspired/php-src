@@ -25,8 +25,8 @@ module M {
     internal class Hidden {}
     public class Shown {}
 }
-echo (new M::Shown()) instanceof M::Shown ? "Shown ok\n" : "FAIL\n";
-try { new M::Hidden(); echo "LEAK\n"; }
+echo (new M\Shown()) instanceof M\Shown ? "Shown ok\n" : "FAIL\n";
+try { new M\Hidden(); echo "LEAK\n"; }
 catch (\Error $e) { echo "Hidden gated\n"; }
 ?>
 --EXPECT--

@@ -27,7 +27,7 @@ spl_autoload_register(function ($n) use ($dir) {
  * (manifest absent -> VIS_UNKNOWN, resolved from the registry at the gate). */
 require $dir . '/funcs.php';
 
-var_dump(ColdFn::pf());          // triggers manifest autoload; claim says public
+var_dump(ColdFn\pf());          // triggers manifest autoload; claim says public
 try { ColdFn::sf(); echo "LEAK\n"; } catch (\Error $e) { echo $e->getMessage(), "\n"; }
 var_dump(\ColdFn\pf());          // projection registered at member-file runtime
 var_dump(ColdFn::KPUB);          // cold const, claimed public
@@ -42,7 +42,7 @@ $dir = __DIR__ . '/mod117_tmp';
 ?>
 --EXPECT--
 string(9) "cold:s-ks"
-Cannot call internal module function ColdFn::sf() from outside its module
+Cannot call internal module function ColdFn\sf() from outside its module
 string(9) "cold:s-ks"
 string(2) "kp"
 Cannot access internal module constant ColdFn::KSEC from outside its module

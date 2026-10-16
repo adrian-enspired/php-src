@@ -10,9 +10,9 @@ module M {
         public function throwIt(): void { throw new module::E("boom"); }
 
         // Reach into nested inline modules declared after A, at increasing depth.
-        public function d1(): string { return module::Inner::Widget::TAG; }
-        public function d2(): string { return module::Inner::Deep::Gizmo::TAG; }
-        public function d3(): string { return module::Inner::Deep::Deeper::Q::TAG; }
+        public function d1(): string { return module::Inner\Widget::TAG; }
+        public function d2(): string { return module::Inner\Deep\Gizmo::TAG; }
+        public function d3(): string { return module::Inner\Deep\Deeper\Q::TAG; }
     }
 
     public class B { public string $v = 'B'; }
@@ -36,12 +36,12 @@ module M {
     }
 }
 
-$a = new M::A;
+$a = new M\A;
 echo $a->makeB()->v, "\n";
-echo $a->typeHint(new M::C), "\n";
-try { $a->throwIt(); } catch (M::E $e) { echo "caught: ", $e->getMessage(), "\n"; }
+echo $a->typeHint(new M\C), "\n";
+try { $a->throwIt(); } catch (M\E $e) { echo "caught: ", $e->getMessage(), "\n"; }
 echo $a->d1(), $a->d2(), $a->d3(), "\n";
-echo (new M::Inner::First)->make()->v, "\n";
+echo (new M\Inner\First)->make()->v, "\n";
 ?>
 --EXPECT--
 B

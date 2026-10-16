@@ -1,14 +1,13 @@
 --TEST--
-Modules: a "::"-canonical nested definition may not sit under a namespace (compile-time fatal)
+Modules: a module definition block takes an unqualified name
 --DESCRIPTION--
-Under Decision B a member file MAY be namespace-first (`namespace A\B; module X\Y\Z;`, see
-module_091), and a simple definition block takes its namespace as a prefix (module_086). But a
-"::"-canonical nested *definition* block names the exact module by its canonical path and must
-stay in the root namespace.
+A definition block's namespace comes from a preceding `namespace` statement; a nested module is
+defined inside its parent (or in a member file of it). A qualified name in a definition block is
+a syntax error.
 --FILE--
 <?php
 namespace X\Y;
-module Outer::Inner { public class C {} }
+module Outer\Inner { public class C {} }
 ?>
 --EXPECTF--
-Fatal error: Module definition "Outer::Inner" must be in the root namespace in %s on line %d
+Parse error: syntax error, unexpected token "{", expecting ";" in %s on line %d

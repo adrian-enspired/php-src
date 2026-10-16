@@ -38,16 +38,16 @@ PHP);
 require $dir . '/manifest.php';
 require $dir . '/funcs.php';
 
-var_dump(GateM::make() instanceof GateM\Hidden);
-var_dump(GateM::readConst());
-var_dump(GateM::callMethod());
-var_dump(GateM::touchProp());
-$c = GateM::viaClosure();
+var_dump(GateM\make() instanceof GateM\Hidden);
+var_dump(GateM\readConst());
+var_dump(GateM\callMethod());
+var_dump(GateM\touchProp());
+$c = GateM\viaClosure();
 var_dump($c());
 
 // the same members stay gated for genuine outside code
 try { new GateM\Hidden(); echo "LEAK\n"; } catch (\Error $e) { echo "gated: new\n"; }
-$h = GateM::make();                       // escaped instance
+$h = GateM\make();                       // escaped instance
 try { $h->im(); echo "LEAK\n"; } catch (\Error $e) { echo "gated: internal method\n"; }
 try { $x = $h->q; echo "LEAK\n"; } catch (\Error $e) { echo "gated: internal prop\n"; }
 try { $x = GateM\Hidden::S; echo "LEAK\n"; } catch (\Error $e) { echo "gated: internal const\n"; }

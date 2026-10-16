@@ -1,9 +1,10 @@
 --TEST--
-Modules: outside a module, "module::X" is an ordinary name (module is a contextual keyword)
+Modules: outside a module, "Module" is an ordinary name (module is a contextual keyword)
 --DESCRIPTION--
 `module::` means "the enclosing module" only inside a module. Elsewhere `Module` is an
 ordinary class-like name, so pre-existing code referring to a class named Module keeps
-working, and `use module::X` imports member X of a module named "Module".
+working, and a module named Module is used like any other ("Lib\Module\Foo").
+("module::Foo" in a class-name position outside a module is a compile error: module_017.)
 --FILE--
 <?php
 namespace App {
@@ -17,15 +18,13 @@ namespace Lib {
     module Module { public class Foo {} }
 }
 namespace {
-    use Lib\Module::Foo;
+    use Lib\Module\Foo;
     var_dump(new Foo);
-    try { new module::Foo; } catch (Error $e) { echo $e->getMessage(), "\n"; }
 }
 ?>
 --EXPECTF--
 string(10) "App\Module"
 string(1) "k"
 bool(true)
-object(Lib\Module::Foo)#%d (0) {
+object(Lib\Module\Foo)#%d (0) {
 }
-Class "module::Foo" not found

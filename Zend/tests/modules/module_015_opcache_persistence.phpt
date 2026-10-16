@@ -31,8 +31,8 @@ file_put_contents($dir . '/consumer.php', <<<'PHP'
 <?php
 require __DIR__ . '/mod.inc';
 $r = new ReflectionModule("Vendor\\App");
-echo "module=", $r->getName(), " secret=", $r->getSymbolVisibility("Vendor\\App::Secret"), "\n";
-$c = "Vendor\\App::Secret";              // dynamic name -> only runtime enforcement applies
+echo "module=", $r->getName(), " secret=", $r->getSymbolVisibility("Vendor\\App\\Secret"), "\n";
+$c = "Vendor\\App\\Secret";              // dynamic name -> only runtime enforcement applies
 try { (new $c())->ping(); echo "LEAKED\n"; }
 catch (\Throwable $e) { echo "blocked\n"; }
 PHP);

@@ -12,7 +12,7 @@ module M {
         }
     }
 }
-$c = new M::C();
+$c = new M\C();
 
 echo "-- from OUTSIDE the module: internal hidden like private --\n";
 echo "get_object_vars: ", json_encode(get_object_vars($c)), "\n";   // already hidden
@@ -27,7 +27,7 @@ echo "(array) cast:    ", json_encode($in['cast']), "\n";
 echo "json_encode:     ", $in['json'], "\n";
 
 echo "-- a dynamic property does not un-hide the internal one (slow path) --\n";
-$c2 = new M::C();
+$c2 = new M\C();
 @($c2->dyn = 9);
 echo "(array) cast:    ", json_encode((array)$c2), "\n";
 echo "json_encode:     ", json_encode($c2), "\n";

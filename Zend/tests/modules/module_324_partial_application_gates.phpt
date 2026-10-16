@@ -17,14 +17,14 @@ module M {
     internal function f(int $a) { return $a + 100; }
 }
 function t($n, $f) { try { $r = json_encode($f()); echo "$n: $r\n"; } catch (Error $e) { echo "$n: ", $e->getMessage(), "\n"; } }
-$c = new M::C;
+$c = new M\C;
 t('method', fn() => ($c->secret(?, 2))(1));
-t('static', fn() => (M::C::ssecret(?))(1));
+t('static', fn() => (M\C::ssecret(?))(1));
 t('module fn', fn() => (M::f(?))(1));
 t('inside', fn() => $c->fromInside());
 ?>
 --EXPECT--
-method: Cannot call internal method M::C::secret() from outside its module
-static: Cannot call internal method M::C::ssecret() from outside its module
-module fn: Cannot call internal module function M::f() from outside its module
+method: Cannot call internal method M\C::secret() from outside its module
+static: Cannot call internal method M\C::ssecret() from outside its module
+module fn: Cannot call internal module function M\f() from outside its module
 inside: [3,20,103,104,105]

@@ -17,11 +17,11 @@ var_dump(Billing::tax(5));                    // second call: cached static-call
 
 // internal inline function: gated outside, usable inside
 try { Billing::rate(); echo "LEAK\n"; } catch (\Error $e) { echo $e->getMessage(), "\n"; }
-$s = new Billing::Svc();
+$s = new Billing\Svc();
 var_dump($s->viaModule());
 var_dump($s->viaBare());
 
-// inline members are module-only: NO namespaced projection (parity with inline classes)
+// a module function's name is namespaced, inline or not
 var_dump(function_exists('Billing\tax'));
 
 // global fallback still works from inline bodies (module tier misses, falls back)
@@ -33,8 +33,8 @@ var_dump(Fallback::len());
 --EXPECT--
 int(15)
 int(15)
-Cannot call internal module function Billing::rate() from outside its module
+Cannot call internal module function Billing\rate() from outside its module
 int(10)
 int(10)
-bool(false)
+bool(true)
 int(4)

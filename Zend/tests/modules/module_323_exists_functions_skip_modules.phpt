@@ -12,9 +12,9 @@ var_dump(
     class_exists('W', false),            // frameless, no autoload
     $f('W'),                             // regular function
     class_exists('W'),                   // again, name now cached
-    class_exists('W::In'),               // nested module
+    class_exists('W\In'),               // nested module
     interface_exists('W'), trait_exists('W'), enum_exists('W'),
-    class_exists('W::C'),                // a member class is a class
+    class_exists('W\C'),                // a member class is a class
     in_array('W', get_declared_classes()),
 );
 new ReflectionModule('W');             // the module itself exists

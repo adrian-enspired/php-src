@@ -15,7 +15,7 @@ file_put_contents("$dir/manifest.php", <<<'PHP'
 namespace X\Y;
 module Z {
     C;            // bare -> public; handle X\Y\Z::C
-    N\K;          // bare -> public; handle X\Y\Z::K
+    N\K;          // bare -> public; handle X\Y\Z\K
     O\K as OK;    // bare -> public; handle X\Y\Z::OK
 }
 PHP);
@@ -25,9 +25,9 @@ file_put_contents("$dir/ok.php", "<?php\nmodule X\\Y\\Z;\nnamespace O;\nclass K 
 require "$dir/manifest.php"; require "$dir/c.php"; require "$dir/nk.php"; require "$dir/ok.php";
 
 echo "-- bare claims default to public --\n";
-echo (new X\Y\Z::C)->w(), "\n";     // c
-echo (new X\Y\Z::K)->w(), "\n";     // nk  (handle for N\K)
-echo (new X\Y\Z::OK)->w(), "\n";    // ok  (as handle for O\K)
+echo (new X\Y\Z\C)->w(), "\n";     // c
+echo (new X\Y\Z\K)->w(), "\n";     // nk  (handle for N\K)
+echo (new X\Y\Z\OK)->w(), "\n";    // ok  (as member name for O\K)
 
 echo "-- duplicate handle is a clear compile error --\n";
 $f = tempnam(sys_get_temp_dir(), 'dup') . '.php';

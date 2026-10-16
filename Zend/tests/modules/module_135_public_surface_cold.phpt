@@ -33,8 +33,8 @@ echo "cold lint : ", trim(shell_exec(escapeshellarg($php) . ' -n -l ' . escapesh
 require $dir . '/manifest.php';
 require $dir . '/member.php';
 // observation only -- Impl is internal, so calling it from here would (correctly) be denied
-echo "loaded    : ", (new ReflectionClass('Cold::Impl'))->getName(), "\n";
-echo "internal  : ", (new ReflectionModule('Cold'))->getSymbolVisibility('Cold::Impl'), "\n";
+echo "loaded    : ", (new ReflectionClass('Cold\Impl'))->getName(), "\n";
+echo "internal  : ", (new ReflectionModule('Cold'))->getSymbolVisibility('Cold\Impl'), "\n";
 ?>
 --CLEAN--
 <?php
@@ -44,5 +44,5 @@ foreach (glob($dir . '/*.php') as $f) { @unlink($f); }
 ?>
 --EXPECTF--
 cold lint : No syntax errors detected in %s
-loaded    : Cold::Impl
+loaded    : Cold\Impl
 internal  : internal

@@ -20,15 +20,15 @@ module Billing {
 }
 
 // From inside the module (via the factory)
-echo Billing::Api::report([10, 20, 30])->total(), "\n";       // 60
+echo Billing\Api::report([10, 20, 30])->total(), "\n";       // 60
 
 // A fully public class is freely constructible
-echo (new Billing::Config("dev"))->env, "\n";                 // dev
+echo (new Billing\Config("dev"))->env, "\n";                 // dev
 
 // The internal constructor denies direct construction from outside
 echo "outside: ";
 try {
-    new Billing::TaxReport([1, 2]);
+    new Billing\TaxReport([1, 2]);
     echo "LEAKED\n";
 } catch (\Error $e) {
     echo $e->getMessage(), "\n";
@@ -37,4 +37,4 @@ try {
 --EXPECT--
 60
 dev
-outside: Cannot instantiate class Billing::TaxReport via internal constructor from outside its module
+outside: Cannot instantiate class Billing\TaxReport via internal constructor from outside its module

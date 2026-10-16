@@ -8262,7 +8262,7 @@ static bool reflection_module_owns_function(const zend_class_entry *bce, const z
 		return false;
 	}
 	const zend_string *fname = fn->common.function_name;
-	if (zend_memnstr(ZSTR_VAL(fname), "::{closure", sizeof("::{closure") - 1, ZSTR_VAL(fname) + ZSTR_LEN(fname))) {
+	if (fn->common.fn_flags & ZEND_ACC_CLOSURE) {
 		return false;
 	}
 	return ZSTR_LEN(key) == ZSTR_LEN(fname) && zend_string_equals_ci(key, fname);
@@ -8370,7 +8370,11 @@ static bool reflection_module_file_constant_is_internal(const zend_constant *c)
 		zend_string *lcm = zend_string_init(lv, (size_t) (lsep - lv), 0);
 		zend_php_module *m = zend_lookup_module(lcm);
 		zend_string_release(lcm);
-		void *vis = m ? zend_hash_find_ptr(&m->members, lc_full) : NULL;
+		/* claims are keyed by the member's namespaced name ("m\\k") */
+		zend_string *lc_claim = zend_string_concat3(lv, (size_t) (lsep - lv), "\\", 1,
+			lsep + 2, (size_t) (lend - lsep - 2));
+		void *vis = m ? zend_hash_find_ptr(&m->members, lc_claim) : NULL;
+		zend_string_release(lc_claim);
 		internal = (!vis || (uintptr_t) vis == ZEND_MODULE_MEMBER_INTERNAL);
 	}
 	zend_string_release(lc_full);
@@ -8380,9 +8384,9 @@ static bool reflection_module_file_constant_is_internal(const zend_constant *c)
 typedef enum { RMV_NONE, RMV_PUBLIC, RMV_INTERNAL } reflection_module_visibility;
 
 /* Resolve a member of module `bce` named either relative to the module ("Widget",
- * "Crypto\Checker", an `as` handle, "Inner" for a nested module, a constant "K", a
- * function "f") or by its canonical name ("M::Widget"), and report its declared
- * visibility. Member names are unique across kinds within a module. */
+ * "Crypto\\Checker", an `as` member name, "Inner" for a nested module, a constant "K", a
+ * function "f") or by its full name ("M\\Widget"), and report its declared visibility.
+ * Member names are unique across kinds within a module. */
 static reflection_module_visibility reflection_module_member_visibility(zend_class_entry *bce, zend_string *symbol)
 {
 	const char *sv = ZSTR_VAL(symbol);
@@ -8393,20 +8397,23 @@ static reflection_module_visibility reflection_module_member_visibility(zend_cla
 	}
 	size_t ml = ZSTR_LEN(bce->name);
 	zend_string *tail;
-	if (sl > ml + 2 && sv[ml] == ':' && sv[ml + 1] == ':'
+	if (sl > ml + 1 && sv[ml] == '\\'
 	 && zend_binary_strncasecmp(sv, ml, ZSTR_VAL(bce->name), ml, ml) == 0) {
+		tail = zend_string_init(sv + ml + 1, sl - ml - 1, 0);
+	} else if (sl > ml + 2 && sv[ml] == ':' && sv[ml + 1] == ':'
+	 && zend_binary_strncasecmp(sv, ml, ZSTR_VAL(bce->name), ml, ml) == 0) {
+		/* "M::K" -- the form a module constant (or "M::f()") is written in */
 		tail = zend_string_init(sv + ml + 2, sl - ml - 2, 0);
 	} else {
 		tail = zend_string_init(sv, sl, 0);
 	}
 	if (ZSTR_LEN(tail) == 0 || zend_memnstr(ZSTR_VAL(tail), "::", 2, ZSTR_VAL(tail) + ZSTR_LEN(tail))) {
-		/* direct members only */
 		zend_string_release(tail);
 		return RMV_NONE;
 	}
 	reflection_module_visibility result = RMV_NONE;
 	zend_string *canonical = zend_string_concat3(
-		ZSTR_VAL(bce->name), ZSTR_LEN(bce->name), "::", 2, ZSTR_VAL(tail), ZSTR_LEN(tail));
+		ZSTR_VAL(bce->name), ZSTR_LEN(bce->name), "\\", 1, ZSTR_VAL(tail), ZSTR_LEN(tail));
 	zend_string *lc = zend_string_tolower(canonical);
 
 	/* class-like member or nested module (canonical key, or an `as`-handle alias key) */
@@ -8545,35 +8552,34 @@ ZEND_METHOD(ReflectionModule, getName)
 	RETURN_STR_COPY(bce->name);
 }
 
-/* The module's own name segment: after the last "::" for a nested module, else after the
- * last "\" ("Vendor\Auth\Session" -> "Session"; "A::B" -> "B"). */
+/* The module's own name segment: after the last "\\" ("Vendor\\Auth\\Session" -> "Session";
+ * nested "A\\B" -> "B"). */
 ZEND_METHOD(ReflectionModule, getShortName)
 {
 	zend_class_entry *bce;
 	ZEND_PARSE_PARAMETERS_NONE();
 	GET_REFLECTION_MODULE(bce);
-	const char *v = ZSTR_VAL(bce->name), *end = v + ZSTR_LEN(bce->name), *start = v;
-	for (const char *p = zend_memnstr(v, "::", 2, end); p; p = zend_memnstr(p + 2, "::", 2, end)) {
-		start = p + 2;
-	}
-	if (start == v) {
-		const char *bs = zend_memrchr(v, '\\', ZSTR_LEN(bce->name));
-		if (bs) {
-			start = bs + 1;
-		}
-	}
+	const char *v = ZSTR_VAL(bce->name), *end = v + ZSTR_LEN(bce->name);
+	const char *bs = zend_memrchr(v, '\\', ZSTR_LEN(bce->name));
+	const char *start = bs ? bs + 1 : v;
 	RETURN_STRINGL(start, end - start);
 }
 
-/* The namespace the (outermost) module is declared in: "Vendor\Auth" for
- * "Vendor\Auth\Session" and for "Vendor\Auth\Session::Inner"; "" at the root. */
+/* The namespace the (outermost) module is declared in: "Vendor\\Auth" for
+ * "Vendor\\Auth\\Session" and for its nested "Vendor\\Auth\\Session\\Inner"; "" at the root. */
 static size_t reflection_module_ns_len(const zend_class_entry *bce)
 {
-	const char *v = ZSTR_VAL(bce->name);
-	const char *first = zend_memnstr(v, "::", 2, v + ZSTR_LEN(bce->name));
-	size_t root_len = first ? (size_t) (first - v) : ZSTR_LEN(bce->name);
-	const char *bs = zend_memrchr(v, '\\', root_len);
-	return bs ? (size_t) (bs - v) : 0;
+	const zend_class_entry *root = bce;
+	while (root->module_len) {
+		const zend_class_entry *up = zend_hash_str_find_ptr_lc(EG(class_table), ZSTR_VAL(bce->name), root->module_len);
+		if (!up) {
+			break;
+		}
+		root = up;
+	}
+	size_t root_len = root == bce ? ZSTR_LEN(bce->name) : ZSTR_LEN(root->name);
+	const char *bs = zend_memrchr(ZSTR_VAL(bce->name), '\\', root_len);
+	return bs ? (size_t) (bs - ZSTR_VAL(bce->name)) : 0;
 }
 
 ZEND_METHOD(ReflectionModule, getNamespaceName)
@@ -8801,8 +8807,7 @@ ZEND_METHOD(ReflectionFunction, isModuleInternal)
 	GET_REFLECTION_OBJECT_PTR(fptr);
 	RETURN_BOOL(fptr->type == ZEND_USER_FUNCTION
 		&& (fptr->common.fn_flags2 & ZEND_ACC2_FN_MODULE_MEMBER)
-		&& !zend_memnstr(ZSTR_VAL(fptr->common.function_name), "::{closure", sizeof("::{closure") - 1,
-			ZSTR_VAL(fptr->common.function_name) + ZSTR_LEN(fptr->common.function_name))
+		&& !(fptr->common.fn_flags & ZEND_ACC_CLOSURE)
 		&& zend_module_function_is_internal(fptr));
 }
 

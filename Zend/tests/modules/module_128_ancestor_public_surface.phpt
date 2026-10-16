@@ -15,13 +15,13 @@ module M {
     public module N {
         public class Api {
             // Legal: ancestor PUBLIC type in a public signature.
-            public function ok(): \M::Fine { return new \M::Fine(); }
+            public function ok(): \M\Fine { return new \M\Fine(); }
             // Legal: ancestor INTERNAL type, but not on the public surface.
-            internal function hidden(): \M::Secret { return new \M::Secret(); }
+            internal function hidden(): \M\Secret { return new \M\Secret(); }
         }
     }
 }
-echo "compiled: ", get_class((new M::N::Api)->ok()), "\n";
+echo "compiled: ", get_class((new M\N\Api)->ok()), "\n";
 ?>
 --EXPECT--
-compiled: M::Fine
+compiled: M\Fine

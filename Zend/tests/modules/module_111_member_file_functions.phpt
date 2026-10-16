@@ -39,7 +39,7 @@ require $dir . '/functions.php';
 require $dir . '/widget.php';
 
 // public function, all four spellings from outside
-var_dump(Vendor\Package\Feature::x());
+var_dump(Vendor\Package\Feature\x());
 var_dump(\Vendor\Package\Feature\x());
 $w = new Vendor\Package\Feature\Widget();
 
@@ -72,7 +72,7 @@ string(1) "x"
 string(3) "f:x"
 string(3) "f:x"
 string(3) "f:x"
-Cannot call internal module function Vendor\Package\Feature::f() from outside its module
-Cannot call internal module function Vendor\Package\Feature::f() from outside its module
+Cannot call internal module function Vendor\Package\Feature\f() from outside its module
+Cannot call internal module function Vendor\Package\Feature\f() from outside its module
 bool(true)
 bool(true)

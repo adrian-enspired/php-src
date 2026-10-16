@@ -1234,24 +1234,58 @@ ZEND_API bool zend_is_valid_class_name(const zend_string *name) {
 	return 1;
 }
 
-/* PHP Modules: a private, mutable copy of the first `len` bytes of `src` with every
- * "::" module boundary replaced by a single "\\" -- the name a PSR-4 autoloader sees
- * for a module or a member sub-file. The result is never longer than the source. */
-static zend_string *zend_module_autoload_name(const char *src, size_t len)
+
+/* PHP Modules: a class name that missed autoload may still be a module member that has no
+ * file of its own: a member defined inline in its module's definition, or a member name (an
+ * `as` alias, or the tail of a sub-namespaced member) that the module's claims map to the
+ * member. Both need the module's definition, which the autoloader finds under the module's
+ * own name -- a prefix of the member's. Walk the prefixes, longest first: an existing class
+ * ends the walk (a module is consulted; anything else means no module here), a missing one is
+ * autoloaded. Only on a miss, so loaded classes and successful autoloads pay nothing. */
+static zend_class_entry *zend_module_autoload_miss(zend_string *name, zend_string *lc_name)
 {
-	zend_string *s = zend_string_alloc(len, 0);
-	char *d = ZSTR_VAL(s);
-	const char *e = src + len;
-	while (src < e) {
-		if (src + 1 < e && src[0] == ':' && src[1] == ':') {
-			*d++ = '\\';
-			src += 2;
-		} else {
-			*d++ = *src++;
+	const char *v = ZSTR_VAL(lc_name);
+	/* `name` keeps its case for the autoloader; it may carry a leading "\\" lc_name dropped */
+	const char *nv = ZSTR_VAL(name) + (ZSTR_VAL(name)[0] == '\\');
+	for (const char *bs = zend_memrchr(v, '\\', ZSTR_LEN(lc_name)); bs;
+			bs = zend_memrchr(v, '\\', (size_t) (bs - v))) {
+		zend_string *lc_prefix = zend_string_init(v, (size_t) (bs - v), 0);
+		zend_class_entry *pce = zend_hash_find_ptr(EG(class_table), lc_prefix);
+		if (!pce && !zend_hash_exists(&EG(autoload_current_classnames), lc_prefix)) {
+			zend_string *prefix = zend_string_init(nv, (size_t) (bs - v), 0);
+			pce = zend_lookup_class(prefix);
+			zend_string_release_ex(prefix, 0);
+			if (EG(exception)) {
+				zend_string_release_ex(lc_prefix, 0);
+				return NULL;
+			}
+			zend_class_entry *ce = zend_hash_find_ptr(EG(class_table), lc_name);
+			if (ce) {
+				zend_string_release_ex(lc_prefix, 0);
+				return ce;   /* defined by the definition just loaded (inline member) */
+			}
 		}
+		if (!pce) {
+			zend_string_release_ex(lc_prefix, 0);
+			continue;
+		}
+		zend_php_module *mod = (pce->ce_flags2 & ZEND_ACC2_MODULE) ? zend_lookup_module(lc_prefix) : NULL;
+		zend_string_release_ex(lc_prefix, 0);
+		if (!mod) {
+			return NULL;
+		}
+		zend_string *canonical = zend_hash_find_ptr(&mod->member_projections, lc_name);
+		if (!canonical) {
+			return NULL;
+		}
+		zend_class_entry *ce = zend_lookup_class(canonical);
+		if (ce) {
+			zend_class_entry *alias = zend_hash_find_ptr(EG(class_table), lc_name);
+			return alias ? alias : ce;
+		}
+		return NULL;
 	}
-	*d = '\0';
-	return zend_string_truncate(s, d - ZSTR_VAL(s), 0);
+	return NULL;
 }
 
 ZEND_API zend_class_entry *zend_lookup_class_ex(zend_string *name, zend_string *key, uint32_t flags) /* {{{ */
@@ -1332,18 +1366,8 @@ ZEND_API zend_class_entry *zend_lookup_class_ex(zend_string *name, zend_string *
 
 	/* Verify class name before passing it to the autoloader. */
 	if (!key && !ZSTR_HAS_CE_CACHE(name) && !zend_is_valid_class_name(name)) {
-		/* PHP Modules: a "Module::Member" canonical name contains "::", which is not a
-		 * valid plain class-name character, but IS a valid module member reference that
-		 * the two-tier block below resolves (and autoloads). This is reached when such a
-		 * name arrives through a dynamic class fetch with no precomputed key - e.g. the
-		 * runtime "Module::Member" string produced when a cold-autoloaded static-access
-		 * chain (Module::Member::CONST / ::method() / ::$prop) is resolved. Let "::" names
-		 * through; a non-module "::" name simply finds no module in tier 1 and falls
-		 * through to a normal (failing) autoload, reported cleanly. */
-		if (!zend_memnstr(ZSTR_VAL(name), "::", 2, ZSTR_VAL(name) + ZSTR_LEN(name))) {
-			zend_string_release_ex(lc_name, 0);
-			return NULL;
-		}
+		zend_string_release_ex(lc_name, 0);
+		return NULL;
 	}
 
 	if (zend_hash_add_empty_element(&EG(autoload_current_classnames), lc_name) == NULL) {
@@ -1351,108 +1375,6 @@ ZEND_API zend_class_entry *zend_lookup_class_ex(zend_string *name, zend_string *
 			zend_string_release_ex(lc_name, 0);
 		}
 		return NULL;
-	}
-
-	/* PHP Modules: n-tier autoload for a module-qualified name "A::B::...::Member".
-	 * Every "::" boundary is a module level; to reach the member, each enclosing
-	 * module's definition must be loaded, outermost first (a nested module's visibility
-	 * reconciles against its parent's claim, so the parent must load first). The earlier
-	 * two-tier form loaded only the outermost level -- correct only when nested modules
-	 * are defined inline in the parent's file. A nested module SPLIT into its own file
-	 * (claimed by the parent, defined in "A\\B.php") was never loaded, so its claims/
-	 * members were absent when the member compiled. Load each level, then the member. */
-	{
-		const char *val = ZSTR_VAL(lc_name);
-		const char *lend = val + ZSTR_LEN(lc_name);
-		const char *first_sep = zend_memnstr(val, "::", 2, lend);
-		if (first_sep) {
-			/* `name` (original case) may carry a leading "\\" that lc_name dropped;
-			 * offsets computed on lc_name index into name + this offset. */
-			size_t name_off = (ZSTR_VAL(name)[0] == '\\') ? 1 : 0;
-			const char *nval = ZSTR_VAL(name) + name_off;
-			bool is_module_path = true;
-
-			/* Load each enclosing module level: the prefix before every "::". */
-			for (const char *sep = first_sep; sep != NULL;
-					sep = zend_memnstr(sep + 2, "::", 2, lend)) {
-				size_t plen = (size_t) (sep - val);
-				zend_string *prefix_lc = zend_string_init(val, plen, 0);
-				zend_class_entry *pce = zend_hash_find_ptr(EG(class_table), prefix_lc);
-				if (!pce) {
-					/* Autoload this level: the outermost level is a bare module name;
-					 * a deeper level "A::B" is autoloaded as "A\\B". */
-					zend_string *load_name = zend_module_autoload_name(nval, plen);
-					zend_string *load_lc = zend_string_tolower(load_name);
-					zend_autoload(load_name, load_lc);
-					zend_string_release_ex(load_name, 0);
-					zend_string_release_ex(load_lc, 0);
-					pce = zend_hash_find_ptr(EG(class_table), prefix_lc);
-					/* The member may become defined inline as a level loads. */
-					if (!ce) {
-						ce = zend_hash_find_ptr(EG(class_table), lc_name);
-					}
-				}
-				zend_string_release_ex(prefix_lc, 0);
-				if (!pce || !(pce->ce_flags2 & ZEND_ACC2_MODULE)) {
-					/* Not a module at this level -> "A::B::C" is an ordinary (missing)
-					 * class name; fall through to normal autoload, reported unchanged. */
-					is_module_path = false;
-					break;
-				}
-			}
-
-			if (is_module_path) {
-				/* Member: if still uncompiled after the enclosing levels loaded (one of
-				 * them may have defined it inline), autoload its sub-file under the
-				 * transformed "\\" name; it registers under the canonical "::" key. */
-				if (!ce) {
-					/* Naive "::"->"\\" transform: correct for a canonical name and for a root member
-					 * (flat name == canonical), and it also serves layouts that map the flat member-name
-					 * transform directly onto the member file. Tried FIRST so existing setups are
-					 * unchanged. */
-					zend_string *bs_name = zend_module_autoload_name(nval, ZSTR_LEN(lc_name));
-					zend_string *bs_lc = zend_string_tolower(bs_name);
-					zend_autoload(bs_name, bs_lc);
-					zend_string_release_ex(bs_name, 0);
-					zend_string_release_ex(bs_lc, 0);
-					ce = zend_hash_find_ptr(EG(class_table), lc_name);
-					if (!ce) {
-						/* Fallback (Decision C): a sub-namespaced member reached by its flat MEMBER NAME
-						 * ("M::K") — the naive transform ("M\\K") misses its "M\\N\\K" file. After the
-						 * module loaded above, consult its member-name -> namespaced-name map and load it. */
-						const char *last_sep = first_sep;
-						for (const char *p = first_sep; p != NULL;
-								p = zend_memnstr(p + 2, "::", 2, lend)) {
-							last_sep = p;
-						}
-						zend_string *cmod_lc = zend_string_init(val, (size_t) (last_sep - val), 0);
-						zend_php_module *cmod = zend_lookup_module(cmod_lc);
-						zend_string_release_ex(cmod_lc, 0);
-						zend_string *nsname = cmod
-							? zend_hash_find_ptr(&cmod->member_projections, lc_name) : NULL;
-						if (nsname) {
-							zend_string *ns = zend_string_copy(nsname);
-							zend_string *ns_lc = zend_string_tolower(ns);
-							zend_autoload(ns, ns_lc);
-							zend_string_release_ex(ns, 0);
-							zend_string_release_ex(ns_lc, 0);
-							ce = zend_hash_find_ptr(EG(class_table), lc_name);
-						}
-					}
-				}
-				zend_hash_del(&EG(autoload_current_classnames), lc_name);
-				if (!key) {
-					zend_string_release_ex(lc_name, 0);
-				}
-				if (ce) {
-					if (ce_cache) {
-						SET_CE_CACHE(ce_cache, ce);
-					}
-					return ce;
-				}
-				return NULL;
-			}
-		}
 	}
 
 	if (ZSTR_VAL(name)[0] == '\\') {
@@ -1470,6 +1392,10 @@ ZEND_API zend_class_entry *zend_lookup_class_ex(zend_string *name, zend_string *
 	EG(lineno_override) = previous_lineno;
 
 	zend_string_release_ex(autoload_name, 0);
+	/* PHP Modules: a module member without a file of its own (see above). */
+	if (!ce && !EG(exception) && memchr(ZSTR_VAL(lc_name), '\\', ZSTR_LEN(lc_name))) {
+		ce = zend_module_autoload_miss(name, lc_name);
+	}
 	zend_hash_del(&EG(autoload_current_classnames), lc_name);
 
 	if (!key) {
@@ -1897,35 +1823,35 @@ static ZEND_COLD void report_class_fetch_error(const zend_string *class_name, ui
 	} else if ((fetch_type & ZEND_FETCH_CLASS_MASK) == ZEND_FETCH_CLASS_TRAIT) {
 		zend_throw_or_error(fetch_type, NULL, "Trait \"%s\" not found", ZSTR_VAL(class_name));
 	} else {
-		/* PHP Modules: if the missing "Module::Member" names a real module whose Member is
-		 * not a declared member (a typo, or an unclaimed split-file symbol not reachable via
-		 * "::"), say exactly that instead of the generic "Class not found" -- matching the
-		 * cold-path (FETCH_CLASS_CONSTANT) and the compile-time "module::" self-reference
-		 * wording. A *claimed* member whose body merely failed to load IS in the roster, so it
-		 * is left as "Class not found" (a genuine load failure, not a membership problem). */
-		const char *cv = ZSTR_VAL(class_name), *cend = cv + ZSTR_LEN(class_name), *last = NULL;
-		for (const char *p = cv; (p = zend_memnstr(p, "::", 2, cend)) != NULL; p += 2) {
-			last = p;
+		/* PHP Modules: if the missing name is under a loaded module and isn't one of its
+		 * claimed members (a typo), say exactly that instead of the generic "Class not
+		 * found". A *claimed* member whose body merely failed to load is left as "Class not
+		 * found" (a genuine load failure, not a membership problem). */
+		const char *cv = ZSTR_VAL(class_name);
+		size_t clen = ZSTR_LEN(class_name);
+		if (clen && cv[0] == '\\') {
+			cv++;
+			clen--;
 		}
-		if (last) {
-			zend_string *mod_lc = zend_string_alloc(last - cv, 0);
-			zend_str_tolower_copy(ZSTR_VAL(mod_lc), cv, last - cv);
+		for (const char *bs = zend_memrchr(cv, '\\', clen); bs; bs = zend_memrchr(cv, '\\', (size_t) (bs - cv))) {
+			zend_string *mod_lc = zend_string_alloc((size_t) (bs - cv), 0);
+			zend_str_tolower_copy(ZSTR_VAL(mod_lc), cv, (size_t) (bs - cv));
 			zend_class_entry *mce = zend_hash_find_ptr(EG(class_table), mod_lc);
+			zend_php_module *mod = (mce && (mce->ce_flags2 & ZEND_ACC2_MODULE)) ? zend_lookup_module(mod_lc) : NULL;
 			zend_string_release(mod_lc);
-			if (mce && (mce->ce_flags2 & ZEND_ACC2_MODULE)) {
-				zend_string *member = zend_string_init(last + 2, cend - (last + 2), 0);
-				zend_string *canon = zend_module_member_canonical_name(mce, member, false);
-				zend_string_release(member);
-				if (canon) {
-					/* it is a declared member -> real load failure; keep "not found" */
-					zend_string_release(canon);
-				} else {
-					zend_throw_or_error(fetch_type, NULL,
-						"\"%s\" is not a member of module \"%s\"",
-						ZSTR_VAL(member), ZSTR_VAL(mce->name));
-					return;
-				}
+			if (!mod) {
+				continue;
 			}
+			zend_string *lc = zend_string_alloc(clen, 0);
+			zend_str_tolower_copy(ZSTR_VAL(lc), cv, clen);
+			bool claimed = zend_hash_exists(&mod->members, lc);
+			zend_string_release(lc);
+			if (!claimed) {
+				zend_throw_or_error(fetch_type, NULL,
+					"\"%s\" is not a member of module \"%s\"", bs + 1, ZSTR_VAL(mce->name));
+				return;
+			}
+			break;
 		}
 		zend_throw_or_error(fetch_type, NULL, "Class \"%s\" not found", ZSTR_VAL(class_name));
 	}
@@ -2087,25 +2013,37 @@ ZEND_API bool zend_module_member_is_internal(const zend_class_entry *ce)
  * internal. Name the boundary that actually denied, so the message does not claim a
  * public member is internal. `display` is the name as written (it may be an ordinary
  * or member alias); the walk runs over the canonical ce->name. */
+/* PHP Modules: the outermost NESTED module, among module (mod,mlen) and the modules it is
+ * nested in, that the running code may not cross into -- or NULL. A top-level module has no
+ * container and is always crossable. */
+static ZEND_COLD const zend_class_entry *zend_module_outermost_denied_nested(const char *mod, size_t mlen)
+{
+	const zend_class_entry *chain[64];
+	int n = 0;
+	const zend_class_entry *mce = zend_hash_str_find_ptr_lc(EG(class_table), mod, mlen);
+	while (mce && (mce->ce_flags2 & ZEND_ACC2_MODULE) && mce->module_len && n < 64) {
+		chain[n++] = mce;
+		mce = zend_hash_str_find_ptr_lc(EG(class_table), mod, mce->module_len);
+	}
+	while (n-- > 0) {
+		if (zend_module_runtime_access_denied(chain[n])) {
+			return chain[n];
+		}
+	}
+	return NULL;
+}
+
 ZEND_API ZEND_COLD void zend_throw_module_access_error_ex(const zend_class_entry *ce, const zend_string *display)
 {
-	const char *val = ZSTR_VAL(ce->name);
-	const char *end = val + ZSTR_LEN(ce->name);
-	const char *first = zend_memnstr(val, "::", 2, end);
-	/* Nested modules are the "::"-prefixes after the first one ("A::B" of "A::B::C");
-	 * a top-level module ("A") is always public. */
-	for (const char *p = first ? zend_memnstr(first + 2, "::", 2, end) : NULL; p;
-			p = zend_memnstr(p + 2, "::", 2, end)) {
-		zend_string *lc = zend_string_alloc((size_t) (p - val), 0);
-		zend_str_tolower_copy(ZSTR_VAL(lc), val, (size_t) (p - val));
-		const zend_class_entry *mce = zend_hash_find_ptr(EG(class_table), lc);
-		zend_string_release(lc);
-		if (mce && (mce->ce_flags2 & ZEND_ACC2_MODULE) && zend_module_runtime_access_denied(mce)) {
-			zend_throw_error(NULL,
-				"Cannot access \"%s\": module \"%s\" is internal to its parent module",
-				ZSTR_VAL(display), ZSTR_VAL(mce->name));
-			return;
-		}
+	/* The walk denies at the OUTERMOST boundary the accessor may not cross: a public member
+	 * of an internal nested module is denied because that module is internal. */
+	const zend_class_entry *mce = ce->module_len
+		? zend_module_outermost_denied_nested(ZSTR_VAL(ce->name), ce->module_len) : NULL;
+	if (mce) {
+		zend_throw_error(NULL,
+			"Cannot access \"%s\": module \"%s\" is internal to its parent module",
+			ZSTR_VAL(display), ZSTR_VAL(mce->name));
+		return;
 	}
 	zend_throw_error(NULL,
 		"Cannot access internal module member \"%s\" from outside its module", ZSTR_VAL(display));
@@ -2118,26 +2056,12 @@ ZEND_API ZEND_COLD void zend_throw_module_function_access_error(const zend_funct
 	const char *mod;
 	size_t mlen;
 	if (!zend_module_function_is_internal(fn) && zend_module_function_owner_prefix(fn, &mod, &mlen)) {
-		const char *end = mod + mlen;
-		const char *first = zend_memnstr(mod, "::", 2, end);
-		/* candidate boundaries: every nested-module prefix of the owner, and the owner */
-		for (const char *p = first ? zend_memnstr(first + 2, "::", 2, end) : NULL; ; p = zend_memnstr(p + 2, "::", 2, end)) {
-			size_t plen = p ? (size_t) (p - mod) : mlen;
-			if (first && plen > (size_t) (first - mod)) {
-				zend_string *lc = zend_string_alloc(plen, 0);
-				zend_str_tolower_copy(ZSTR_VAL(lc), mod, plen);
-				const zend_class_entry *mce = zend_hash_find_ptr(EG(class_table), lc);
-				zend_string_release(lc);
-				if (mce && (mce->ce_flags2 & ZEND_ACC2_MODULE) && zend_module_runtime_access_denied(mce)) {
-					zend_throw_error(NULL,
-						"Cannot call %s(): module \"%s\" is internal to its parent module",
-						ZSTR_VAL(fn->common.function_name), ZSTR_VAL(mce->name));
-					return;
-				}
-			}
-			if (!p) {
-				break;
-			}
+		const zend_class_entry *mce = zend_module_outermost_denied_nested(mod, mlen);
+		if (mce) {
+			zend_throw_error(NULL,
+				"Cannot call %s(): module \"%s\" is internal to its parent module",
+				ZSTR_VAL(fn->common.function_name), ZSTR_VAL(mce->name));
+			return;
 		}
 	}
 	zend_throw_error(NULL,
@@ -2359,18 +2283,8 @@ ZEND_API bool zend_module_access_denied_from(const zend_class_entry *ce,
 				return true;
 			}
 		}
-		size_t container_len;
-		if (child_ce) {
-			container_len = child_ce->module_len;
-		} else {
-			/* an intermediate module that isn't loaded: its container from its name */
-			const char *last = NULL;
-			for (const char *p = zend_memnstr(val, "::", 2, val + child_len); p;
-					p = zend_memnstr(p + 2, "::", 2, val + child_len)) {
-				last = p;
-			}
-			container_len = last ? (size_t) (last - val) : 0;
-		}
+		/* (child_ce is set: an unloaded container ends the walk below.) */
+		size_t container_len = child_ce->module_len;
 		if (!container_len) {
 			return false;
 		}
@@ -2384,16 +2298,16 @@ ZEND_API bool zend_module_access_denied_from(const zend_class_entry *ce,
 			child_ce = zend_hash_find_ptr(EG(class_table), lc);
 		}
 		zend_string_release(lc);
-		if (child_ce) {
-			if (!child_ce->module_len) {
-				return false;   /* top-level module: no container */
-			}
-		} else if (!zend_memnstr(val, "::", 2, val + child_len)) {
-			return false;       /* a top-level module, not loaded: nothing to cross */
-		} else if (unknown_denies) {
-			return true;
+		if (!child_ce) {
+			/* A container that isn't loaded: whether it has a container of its own isn't
+			 * known here. At runtime that can't happen for the code being run (loading a
+			 * member loads its module's definition, and with it the enclosing ones); a
+			 * compile-time caller must not assume, so it denies. */
+			return unknown_denies;
 		}
-		/* else: an intermediate module not loaded -- cannot check it here; go on up */
+		if (!child_ce->module_len) {
+			return false;   /* top-level module: no container */
+		}
 	}
 }
 
@@ -2516,9 +2430,8 @@ ZEND_API bool zend_module_function_access_denied(const zend_function *fn)
 
 	/* Fast path: a baked-public function of a TOP-LEVEL module (no nested boundary above
 	 * it) is callable by everyone -- skip the caller lookup. */
-	if (EXPECTED(!(f2 & ZEND_ACC2_FN_MODULE_VIS_UNKNOWN))
-	 && EXPECTED(!(fn->common.fn_flags2 & ZEND_ACC2_FN_MODULE_INTERNAL))
-	 && !zend_memnstr(mod, "::", 2, mod + mlen)) {
+	if (EXPECTED(!(f2 & (ZEND_ACC2_FN_MODULE_VIS_UNKNOWN | ZEND_ACC2_FN_MODULE_INTERNAL
+			| ZEND_ACC2_FN_MODULE_NESTED)))) {
 		return false;
 	}
 
@@ -2537,81 +2450,23 @@ ZEND_API bool zend_module_function_access_denied(const zend_function *fn)
 		}
 	}
 
-	/* Ancestor boundaries, outermost-first (only a nested owner — "::" in the module
-	 * prefix — can have them): a public function of an internal nested module is denied
-	 * at the outer boundary, exactly like a public class of an internal nested module. */
-	const char *mend = mod + mlen;
-	if (UNEXPECTED(zend_memnstr(mod, "::", 2, mend) != NULL)) {
-		for (const char *sep = zend_memnstr(mod, "::", 2, mend); ;
-				sep = zend_memnstr(sep + 2, "::", 2, mend)) {
-			/* Each prefix — including the full owner module — is a crossable boundary.
-			 * The top-level (first) prefix has no container, so its backing CE always
-			 * resolves public and the check is a no-op for it. */
-			size_t child_len = sep ? (size_t) (sep - mod) : mlen;
-			zend_string *lc = zend_string_alloc(child_len, 0);
-			zend_str_tolower_copy(ZSTR_VAL(lc), mod, child_len);
-			zend_class_entry *child_ce = zend_hash_find_ptr(EG(class_table), lc);
-			zend_string_release(lc);
-			if (child_ce && (child_ce->ce_flags2 & ZEND_ACC2_MODULE)
-			 && UNEXPECTED(zend_module_member_is_internal(child_ce))) {
-				if (!have_caller
-				 || !zend_module_container_allows_prefix(child_ce, cval, clen)) {
-					return true; /* outermost denial wins */
-				}
+	/* Ancestor boundaries (only a nested owner has them): a public function of an internal
+	 * nested module is denied at the outer boundary, exactly like a public class of an
+	 * internal nested module. Each module of the chain -- the owner and the modules it is
+	 * nested in -- is a crossable boundary; a top-level one has no container. */
+	if (UNEXPECTED(f2 & ZEND_ACC2_FN_MODULE_NESTED)) {
+		zend_class_entry *child_ce = zend_hash_str_find_ptr_lc(EG(class_table), mod, mlen);
+		while (child_ce && (child_ce->ce_flags2 & ZEND_ACC2_MODULE) && child_ce->module_len) {
+			if (UNEXPECTED(zend_module_member_is_internal(child_ce))
+			 && (!have_caller || !zend_module_container_allows_prefix(child_ce, cval, clen))) {
+				return true;
 			}
-			if (!sep) {
-				break;
-			}
+			child_ce = zend_hash_str_find_ptr_lc(EG(class_table), mod, child_ce->module_len);
 		}
 	}
 	return false;
 }
 
-/* PHP Modules: resolve "Module::Member" (a member reference written as a class-constant
- * chain, e.g. the "M::C" prefix of "M::C::X" / "M::C::m()" / "M::C::$p" / "M::C::class")
- * when the module is only autoloaded at runtime. The prefix compiles to a class-constant
- * fetch on the module's backing class; that constant does not exist, so before erroring
- * the constant-fetch path calls this to see whether member_name names a declared member
- * of the module. If so it returns the canonical name string ("M::C", owned) - identity,
- * ungated, exactly as ::class / compile-time reinterpretation would yield - which the
- * outer access then resolves through the normal two-tier autoload + visibility gate.
- * Returns NULL if module_ce is not a module backing class or member_name is not a
- * member (so a genuine "Undefined constant" still surfaces).
- *
- * Claims decide visibility, not existence: a name that isn't claimed may still be an
- * UNCLAIMED member (declared in one of the module's member files). That is settled by the
- * class itself -- loaded (autoloading it when `autoload`), and marked as a member of this
- * module. */
-ZEND_API zend_string *zend_module_member_canonical_name(
-		const zend_class_entry *module_ce, zend_string *member_name, bool autoload)
-{
-	if (!(module_ce->ce_flags2 & ZEND_ACC2_MODULE)) {
-		return NULL;
-	}
-	zend_string *canonical = zend_string_concat3(
-		ZSTR_VAL(module_ce->name), ZSTR_LEN(module_ce->name), "::", 2,
-		ZSTR_VAL(member_name), ZSTR_LEN(member_name));
-	zend_string *lc_canonical = zend_string_tolower(canonical);
-	zend_string *lc_mod = zend_string_tolower(module_ce->name);
-	zend_php_module *mod = zend_lookup_module(lc_mod);
-	zend_string_release(lc_mod);
-	bool is_member = mod && zend_hash_exists(&mod->members, lc_canonical);
-	if (!is_member) {
-		zend_class_entry *ce = zend_lookup_class_ex(canonical, lc_canonical,
-			autoload ? 0 : ZEND_FETCH_CLASS_NO_AUTOLOAD);
-		if (ce && (ce->ce_flags2 & ZEND_ACC2_MODULE_MEMBER)) {
-			is_member = true;
-			zend_string_release(canonical);
-			canonical = zend_string_copy(ce->name);
-		}
-	}
-	zend_string_release(lc_canonical);
-	if (!is_member) {
-		zend_string_release(canonical);
-		return NULL;
-	}
-	return canonical;
-}
 
 zend_class_entry *zend_fetch_class_by_name(zend_string *class_name, zend_string *key, uint32_t fetch_type) /* {{{ */
 {

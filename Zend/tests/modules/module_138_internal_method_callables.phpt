@@ -20,7 +20,7 @@ module M {
         public static function insideRoutes(C $c): string {
             return implode(",", [
                 call_user_func([$c, "inst"]),
-                call_user_func("M::C::stat"),
+                call_user_func("M\C::stat"),
                 array_map([$c, "inst"], [1])[0],
                 (\Closure::fromCallable([$c, "inst"]))(),
                 is_callable([$c, "inst"]) ? "callable" : "NOT-callable",
@@ -29,7 +29,7 @@ module M {
     }
 }
 
-$c = new M::C();
+$c = new M\C();
 
 /* Report only denied-vs-leaked. The exception CLASS differs per route (Error from a
  * call opcode, TypeError from a ZPP callable parameter) and is a property of the
@@ -48,45 +48,45 @@ var_dump($c->ok());
 // --- Already gated: VM call opcodes reach the object handlers. ---
 deny('$c->inst()',                    fn() => $c->inst());
 deny('[$c,"inst"]()',                 fn() => [$c,"inst"]());
-deny('["M::C","stat"]()',             fn() => ["M::C","stat"]());
-deny('$f="M::C::stat"; $f()',         function () { $f = "M::C::stat"; return $f(); });
+deny('["M\C","stat"]()',             fn() => ["M\C","stat"]());
+deny('$f="M\C::stat"; $f()',         function () { $f = "M\C::stat"; return $f(); });
 
 // --- The second resolver: everything below routes through zend_is_callable_ex(). ---
 deny('call_user_func([$c,"inst"])',   fn() => call_user_func([$c,"inst"]));
-deny('call_user_func("M::C::stat")',  fn() => call_user_func("M::C::stat"));
+deny('call_user_func("M\C::stat")',  fn() => call_user_func("M\C::stat"));
 deny('call_user_func_array(...)',     fn() => call_user_func_array([$c,"inst"], []));
 deny('array_map([$c,"inst"],[1])',    fn() => array_map([$c,"inst"], [1]));
-deny('array_map("M::C::stat",[1])',   fn() => array_map("M::C::stat", [1]));
+deny('array_map("M\C::stat",[1])',   fn() => array_map("M\C::stat", [1]));
 deny('Closure::fromCallable([...])',  fn() => (Closure::fromCallable([$c,"inst"]))());
-deny('Closure::fromCallable("...")',  fn() => (Closure::fromCallable("M::C::stat"))());
+deny('Closure::fromCallable("...")',  fn() => (Closure::fromCallable("M\C::stat"))());
 
 // A first-class callable taken from outside must not launder the method either.
 deny('$c->inst(...)',                 fn() => ($c->inst(...))());
 
 // is_callable() must not advertise a method the caller cannot reach.
 var_dump(is_callable([$c, "inst"]));
-var_dump(is_callable("M::C::stat"));
-var_dump(is_callable(["M::C", "stat"]));
+var_dump(is_callable("M\C::stat"));
+var_dump(is_callable(["M\C", "stat"]));
 
 // ...but syntax-only mode is a SYNTAX check, not an access check: it returns before
 // any resolution happens, so it stays true. This is intended, not a leak.
-var_dump(is_callable("M::C::stat", true));
+var_dump(is_callable("M\C::stat", true));
 
 // --- In-module callers keep every route. ---
-$cls = "M::C";
+$cls = "M\C";
 echo $cls::insideRoutes($c), "\n";
 ?>
 --EXPECT--
 string(2) "ok"
 $c->inst()                         DENIED
 [$c,"inst"]()                      DENIED
-["M::C","stat"]()                  DENIED
-$f="M::C::stat"; $f()              DENIED
+["M\C","stat"]()                   DENIED
+$f="M\C::stat"; $f()               DENIED
 call_user_func([$c,"inst"])        DENIED
-call_user_func("M::C::stat")       DENIED
+call_user_func("M\C::stat")        DENIED
 call_user_func_array(...)          DENIED
 array_map([$c,"inst"],[1])         DENIED
-array_map("M::C::stat",[1])        DENIED
+array_map("M\C::stat",[1])         DENIED
 Closure::fromCallable([...])       DENIED
 Closure::fromCallable("...")       DENIED
 $c->inst(...)                      DENIED

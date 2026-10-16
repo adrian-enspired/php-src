@@ -36,7 +36,7 @@ module M {
         public function __construct() { $this->own = new Internal; $this->pub = new Internal; $this->ro = new Internal; }
     }
 }
-$r = new ReflectionClass('M::C');
+$r = new ReflectionClass('M\C');
 foreach ($r->getProperties() as $p) {
     printf("%s: %s%s%s %s\n", $p->getName(), $p->isModuleInternal() ? 'internal' : 'public',
         $p->isStatic() ? ' static' : '', $p->isFinal() ? ' final' : '', $p->getType());
@@ -46,15 +46,15 @@ echo $run('class Internal {} class D { static Internal $x; final ?Internal $y = 
 ?>
 --EXPECT--
 An internal property must have a type: before a variable, "internal" is the type Internal (write "internal mixed $x" for an untyped internal property, or "public Internal $x")
-Internal property M::C::$x must have type
+Internal property M\C::$x must have type
 An internal property must have a type: before a variable, "internal" is the type Internal (write "internal mixed $x" for an untyped internal property, or "public Internal $x")
-Property with asymmetric visibility M::C::$x must have type
+Property with asymmetric visibility M\C::$x must have type
 any: internal mixed
 n: internal ?int
 s: internal static mixed
-own: internal M::Internal
-pub: public M::Internal
-st: public static ?M::Internal
-fin: public final ?M::Internal
-ro: public M::Internal
+own: internal M\Internal
+pub: public M\Internal
+st: public static ?M\Internal
+fin: public final ?M\Internal
+ro: public M\Internal
 Internal

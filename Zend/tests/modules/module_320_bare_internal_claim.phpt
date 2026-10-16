@@ -11,7 +11,7 @@ $f = __DIR__ . '/module_320_case.inc';
 foreach (['module M { internal; }', 'module M { Internal; }', 'module M { public; }',
           'module M { internal Widget; } echo "claim ok\n";',
           'module M { public Internal; internal Internal as Hidden; } echo "Internal claimed\n";',
-          'module M { public class Internal {} } echo get_class(new M::Internal), "\n";'] as $code) {
+          'module M { public class Internal {} } echo get_class(new M\Internal), "\n";'] as $code) {
     file_put_contents($f, "<?php\n$code\n");
     $r = shell_exec(escapeshellarg($php) . ' -n ' . escapeshellarg($f) . ' 2>&1') ?? '';
     echo preg_match('/(?:Fatal|Parse) error: (.*?) in \//', $r, $m) ? $m[1] : trim($r), "\n";
@@ -24,4 +24,4 @@ Missing member name after "internal" in module M (to claim a member named Intern
 syntax error, unexpected token ";"
 claim ok
 Internal claimed
-M::Internal
+M\Internal

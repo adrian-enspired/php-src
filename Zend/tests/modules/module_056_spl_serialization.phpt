@@ -20,22 +20,22 @@ module Coll {
     }
 }
 
-$bag = new Coll::Bag(1, 2, 3);      // variadic module constructor
+$bag = new Coll\Bag(1, 2, 3);      // variadic module constructor
 echo count($bag), "\n";              // Countable
 $sum = 0; foreach ($bag as $v) $sum += $v; echo $sum, "\n";   // IteratorAggregate
 $bag[] = 4; echo $bag[3], "\n";      // ArrayAccess
 echo json_encode($bag), "\n";        // JsonSerializable
 
 // serialization round-trip of a public module object
-$p = new Coll::Point(3, 4);
+$p = new Coll\Point(3, 4);
 $p2 = unserialize(serialize($p));
-var_dump($p2 instanceof Coll::Point, $p2->label());
+var_dump($p2 instanceof Coll\Point, $p2->label());
 
 // named arguments to a module constructor
-echo (new Coll::Point(y: 9, x: 8))->label(), "\n";
+echo (new Coll\Point(y: 9, x: 8))->label(), "\n";
 
 // generator yielding module objects
-$gen = (function() { yield new Coll::Point(1,1); yield new Coll::Point(2,2); })();
+$gen = (function() { yield new Coll\Point(1,1); yield new Coll\Point(2,2); })();
 echo iterator_to_array($gen)[1]->label(), "\n";
 
 // WeakMap keyed by a module object

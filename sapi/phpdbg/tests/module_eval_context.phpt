@@ -4,9 +4,9 @@ ev while stopped in module code runs as that module
 b module_eval_context.php:7
 r
 ev get_class(new module::Secret)
-ev get_class(new \M::Secret)
+ev get_class(new \M\Secret)
 c
-ev get_class(new \M::Secret)
+ev get_class(new \M\Secret)
 q
 --EXPECTF--
 [Successful compilation of %s]
@@ -15,10 +15,10 @@ prompt> [Breakpoint #0 at %s:7, hits: 1]
 >00007:         return $x;
  00008:     }
  00009: }
-prompt> M::Secret
-prompt> M::Secret
+prompt> M\Secret
+prompt> M\Secret
 prompt> [Script ended normally]
-prompt> %AUncaught Error: Cannot access internal module member "M::Secret" from outside its module in eval()'d code:1
+prompt> %AUncaught Error: Cannot access internal module member "M\Secret" from outside its module in eval()'d code:1
 %A
 --FILE--
 <?php

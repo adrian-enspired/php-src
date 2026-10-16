@@ -40,7 +40,7 @@ var_dump(constant('Cfg\RATE'));
 var_dump(Cfg::INLINE_RATE);
 
 // in-module use
-var_dump(Cfg::calc(100.0));
+var_dump(Cfg\calc(100.0));
 $b = new Cfg\Box();
 var_dump($b->viaModule());
 var_dump($b->viaBare());

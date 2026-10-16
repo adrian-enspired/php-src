@@ -18,42 +18,42 @@ module X {
     }
 
     public class Direct {
-        public static function cls(): string { return \X::Cls::tag(); }
+        public static function cls(): string { return \X\Cls::tag(); }
         public static function kon(): string { return \X::KON; }
-        public static function mod(): string { return \X::N::Pub::tag(); }
+        public static function mod(): string { return \X\N\Pub::tag(); }
         public static function deep(): string {
-            try { return \X::N::Priv::tag(); } catch (\Error $e) { return "denied"; }
+            try { return \X\N\Priv::tag(); } catch (\Error $e) { return "denied"; }
         }
     }
     public module Y { public module Z {
         public class Deep {
-            public static function cls(): string { return \X::Cls::tag(); }
+            public static function cls(): string { return \X\Cls::tag(); }
             public static function kon(): string { return \X::KON; }
-            public static function mod(): string { return \X::N::Pub::tag(); }
+            public static function mod(): string { return \X\N\Pub::tag(); }
             public static function deep(): string {
-                try { return \X::N::Priv::tag(); } catch (\Error $e) { return "denied"; }
+                try { return \X\N\Priv::tag(); } catch (\Error $e) { return "denied"; }
             }
         }
     } }
 }
 
 printf("%-26s class=%-6s const=%-6s module=%-14s module-internal=%s\n",
-    "X::Direct (direct)", X::Direct::cls(), X::Direct::kon(), X::Direct::mod(), X::Direct::deep());
+    "X\Direct (direct)", X\Direct::cls(), X\Direct::kon(), X\Direct::mod(), X\Direct::deep());
 printf("%-26s class=%-6s const=%-6s module=%-14s module-internal=%s\n",
-    "X::Y::Z::Deep (nested)", X::Y::Z::Deep::cls(), X::Y::Z::Deep::kon(), X::Y::Z::Deep::mod(), X::Y::Z::Deep::deep());
+    "X\Y\Z\Deep (nested)", X\Y\Z\Deep::cls(), X\Y\Z\Deep::kon(), X\Y\Z\Deep::mod(), X\Y\Z\Deep::deep());
 
 echo "-- from outside X: every kind denied --\n";
 foreach ([
-    'class'  => fn() => X::Cls::tag(),
+    'class'  => fn() => X\Cls::tag(),
     'const'  => fn() => X::KON,
-    'module' => fn() => X::N::Pub::tag(),
+    'module' => fn() => X\N\Pub::tag(),
 ] as $label => $probe) {
     try { $probe(); echo "$label: LEAKED\n"; } catch (\Error $e) { echo "$label: denied\n"; }
 }
 ?>
 --EXPECT--
-X::Direct (direct)         class=CLASS  const=CONST  module=MODULE-PUBLIC  module-internal=denied
-X::Y::Z::Deep (nested)     class=CLASS  const=CONST  module=MODULE-PUBLIC  module-internal=denied
+X\Direct (direct)          class=CLASS  const=CONST  module=MODULE-PUBLIC  module-internal=denied
+X\Y\Z\Deep (nested)        class=CLASS  const=CONST  module=MODULE-PUBLIC  module-internal=denied
 -- from outside X: every kind denied --
 class: denied
 const: denied

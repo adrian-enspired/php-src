@@ -16,7 +16,7 @@ var_dump(class_exists("Widgets"), (new ReflectionModule("Widgets"))->getName());
 try { new Widgets(); } catch (\Error $e) { echo $e->getMessage(), "\n"; }
 
 // Members still resolve as before
-var_dump(new Widgets::Button instanceof Widgets::Button);
+var_dump(new Widgets\Button instanceof Widgets\Button);
 ?>
 --EXPECT--
 bool(false)

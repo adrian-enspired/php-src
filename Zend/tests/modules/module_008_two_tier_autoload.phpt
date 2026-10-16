@@ -1,5 +1,5 @@
 --TEST--
-Modules: two-tier autoload (module manifest, then "::"->"\" sub-file) with a PSR-4-style loader
+Modules: autoload with a PSR-4-style loader (inline member via its module; member file by name)
 --FILE--
 <?php
 $dir = __DIR__ . '/mod008';
@@ -13,15 +13,13 @@ module User {
     public class Profile {
         public function __construct(public string $name = "anon") {}
     }
-    public Auth\PasswordChecker;   // claim keys on the tail -> Vendor\User::PasswordChecker
+    public Auth\PasswordChecker;   // claim keys on the tail -> Vendor\User\PasswordChecker
 }
 PHP);
 
-// Membership sub-file (Decision C: module-first, relative sub-namespace). The member's flat
-// HANDLE is Vendor\User::PasswordChecker (the claim's tail), so tier-2 autoloads
-// "Vendor\User\PasswordChecker" -> src/User/PasswordChecker.php; the member registers that
-// handle as an alias to its canonical Vendor\User::Auth\PasswordChecker (and projects
-// Vendor\User\Auth\PasswordChecker).
+// Membership sub-file (module-first, relative sub-namespace). The member's member name is
+// Vendor\User\PasswordChecker (the claim's tail), which the loader maps to this file; the
+// member registers it as an alias of its own name, Vendor\User\Auth\PasswordChecker.
 file_put_contents($dir . '/src/User/PasswordChecker.php', <<<'PHP'
 <?php
 module Vendor\User;
@@ -41,12 +39,12 @@ spl_autoload_register(function (string $name) use ($dir): void {
     if (is_file($file)) require $file;
 });
 
-// Tier 1: resolved from the inline manifest definition.
-$p = new Vendor\User::Profile("adrian");
+// An inline member has no file: the miss on its name loads its module's definition.
+$p = new Vendor\User\Profile("adrian");
 echo $p->name, " ", $p::class, "\n";
 
-// Tier 2: resolved from the separate membership sub-file (canonical, module-rooted name).
-$c = new Vendor\User::PasswordChecker();
+// A member file, found under the member's member name.
+$c = new Vendor\User\PasswordChecker();
 echo $c->tag(), " ", $c::class, "\n";
 ?>
 --CLEAN--
@@ -59,7 +57,8 @@ $dir = __DIR__ . '/mod008';
 @rmdir($dir);
 ?>
 --EXPECT--
+[autoload] Vendor\User\Profile
 [autoload] Vendor\User
-adrian Vendor\User::Profile
+adrian Vendor\User\Profile
 [autoload] Vendor\User\PasswordChecker
-checker Vendor\User::Auth\PasswordChecker
+checker Vendor\User\Auth\PasswordChecker

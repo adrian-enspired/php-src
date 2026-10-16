@@ -26,4 +26,4 @@ Fatal error: Cannot declare M3: the name is already in use by module M3
 Fatal error: Cannot declare module "M4": an interface with that name already exists
 Fatal error: Cannot declare module "M5": a trait with that name already exists
 Fatal error: Cannot declare M6: the name is already in use by module M6
-Fatal error: Cannot declare M7::N: the name is already in use by module M7::N
+Fatal error: Cannot declare M7\N: the name is already in use by module M7\N

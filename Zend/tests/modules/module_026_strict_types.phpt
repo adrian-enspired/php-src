@@ -12,7 +12,7 @@ module M {
     }
 }
 
-$s = new M::S();
+$s = new M\S();
 echo $s->pub(), "\n";                 // must NOT be blocked in a strict_types file
 echo $s->reach(), "\n";               // internal reached from inside the module
 try {
@@ -25,4 +25,4 @@ try {
 --EXPECT--
 pub
 sec
-Cannot call internal method M::S::sec() from outside its module
+Cannot call internal method M\S::sec() from outside its module

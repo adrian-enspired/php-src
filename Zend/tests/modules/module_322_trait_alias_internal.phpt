@@ -17,10 +17,10 @@ module M {
         public function inside(): string { return $this->f() . $this->hidden(); }
     }
 }
-$c = new M::C;
+$c = new M\C;
 foreach (['f', 'hidden', 'g', 'internal'] as $m) {
     try { $r = $c->$m(); echo "$m: $r\n"; } catch (Error $e) { echo "$m: ", $e->getMessage(), "\n"; }
-    echo "  isModuleInternal: ", var_export((new ReflectionMethod('M::C', $m))->isModuleInternal(), true), "\n";
+    echo "  isModuleInternal: ", var_export((new ReflectionMethod('M\C', $m))->isModuleInternal(), true), "\n";
 }
 echo "inside: ", $c->inside(), "\n";
 $php = getenv('TEST_PHP_EXECUTABLE') ?: PHP_BINARY;
@@ -31,9 +31,9 @@ echo preg_match('/Fatal error: (.*?) in \//', $r, $m) ? $m[1] : $r, "\n";
 @unlink($f);
 ?>
 --EXPECT--
-f: Cannot call internal method M::C::f() from outside its module
+f: Cannot call internal method M\C::f() from outside its module
   isModuleInternal: true
-hidden: Cannot call internal method M::C::hidden() from outside its module
+hidden: Cannot call internal method M\C::hidden() from outside its module
   isModuleInternal: true
 g: g
   isModuleInternal: false

@@ -719,7 +719,11 @@ ZEND_API zend_constant *zend_module_constant_resolve(zend_constant *c, bool sile
 		zend_php_module *m = zend_lookup_module(lc_mod);
 		zend_string_release(lc_mod);
 		if (m) {
-			zend_string *lc_name = zend_string_tolower(c->name);
+			/* Claims are kind-less and keyed by the member's namespaced name ("m\\k"). */
+			zend_string *lc_name = zend_string_alloc(ZSTR_LEN(c->name) - 1, 0);
+			zend_str_tolower_copy(ZSTR_VAL(lc_name), val, mlen);
+			ZSTR_VAL(lc_name)[mlen] = '\\';
+			zend_str_tolower_copy(ZSTR_VAL(lc_name) + mlen + 1, last + 2, (size_t) (end - last - 2));
 			void *vis = zend_hash_find_ptr(&m->members, lc_name);
 			zend_string_release(lc_name);
 			internal = (!vis || (uintptr_t) vis == ZEND_MODULE_MEMBER_INTERNAL);

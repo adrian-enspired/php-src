@@ -1007,8 +1007,7 @@ static bool zend_optimizer_module_function_usable(
 	if (!zend_module_function_owner_prefix(func, &mv, &mlen)) {
 		return false;
 	}
-	if (!(func->common.fn_flags2 & ZEND_ACC2_FN_MODULE_INTERNAL)
-	 && zend_memnstr(mv, "::", 2, mv + mlen) == NULL) {
+	if (!(func->common.fn_flags2 & (ZEND_ACC2_FN_MODULE_INTERNAL | ZEND_ACC2_FN_MODULE_NESTED))) {
 		return true; /* public function of a top-level module: callable from anywhere */
 	}
 	/* internal (or nested-owned): usable when op_array is in that module or beneath it */

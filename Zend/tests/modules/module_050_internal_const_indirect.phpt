@@ -10,8 +10,8 @@ boundary is enforced. Same-module access is unaffected.
 module M {
     public class Pub { public const K = "pubK"; }
     internal class Sec { public const H = "secH"; }
-    public const PUBPATH = "M::Pub";
-    public const SECPATH = "M::Sec";   // a PUBLIC const holding an internal type's name
+    public const PUBPATH = "M\Pub";
+    public const SECPATH = "M\Sec";   // a PUBLIC const holding an internal type's name
     public class Api {
         public static function insideDirect(): string { return Sec::H; }
         public static function insideWalk(): string { return module::SECPATH::H; }
@@ -26,19 +26,19 @@ function deny(string $label, callable $fn): void {
 }
 
 // Public resolves — direct, const-walk, and plain (non-module) chains.
-echo M::Pub::K, "\n";
+echo M\Pub::K, "\n";
 echo M::PUBPATH::K, "\n";
 echo X::Y::W, "\n";
 
 // Same-module internal access works.
-echo M::Api::insideDirect(), "\n";
-echo M::Api::insideWalk(), "\n";
+echo M\Api::insideDirect(), "\n";
+echo M\Api::insideWalk(), "\n";
 
 // Internal denied from outside through every route.
-deny('direct M::Sec::H',      fn() => M::Sec::H);
+deny('direct M\Sec::H',      fn() => M\Sec::H);
 deny('const-walk M::SECPATH::H', fn() => M::SECPATH::H);
-deny('constant("M::Sec::H")', fn() => constant("M::Sec::H"));
-deny('dynamic $c::H',         function () { $c = "M::Sec"; return $c::H; });
+deny('constant("M\Sec::H")', fn() => constant("M\Sec::H"));
+deny('dynamic $c::H',         function () { $c = "M\Sec"; return $c::H; });
 ?>
 --EXPECT--
 pubK
@@ -46,7 +46,7 @@ pubK
 zw
 secH
 secH
-denied: direct M::Sec::H
+denied: direct M\Sec::H
 denied: const-walk M::SECPATH::H
-denied: constant("M::Sec::H")
+denied: constant("M\Sec::H")
 denied: dynamic $c::H

@@ -28,7 +28,7 @@ module Bank {
         public static function fail(): void { throw new module::Overdraft('insufficient'); }
         public static function leak(): \Closure {
             return static function () {
-                try { return \Bank::Overdraft::class . '/' . (new \Bank::Overdraft('x'))->getMessage(); }
+                try { return \Bank\Overdraft::class . '/' . (new \Bank\Overdraft('x'))->getMessage(); }
                 catch (\Error $e) { return 'denied'; }
             };
         }
@@ -37,16 +37,16 @@ module Bank {
 class Elsewhere {}
 
 // Observation by the internal name is legal and must keep working.
-try { Bank::Api::fail(); } catch (Bank::Overdraft $e) { echo "catch: ", $e->getMessage(), "\n"; }
-try { Bank::Api::fail(); } catch (\RuntimeException $e) { var_dump($e instanceof Bank::Overdraft); }
+try { Bank\Api::fail(); } catch (Bank\Overdraft $e) { echo "catch: ", $e->getMessage(), "\n"; }
+try { Bank\Api::fail(); } catch (\RuntimeException $e) { var_dump($e instanceof Bank\Overdraft); }
 
 // ...and must not have warmed a slot that a gated use can reuse.
-try { new Bank::Overdraft('y'); echo "new after catch: LEAKED\n"; }
+try { new Bank\Overdraft('y'); echo "new after catch: LEAKED\n"; }
 catch (\Error $e) { echo "new after catch: denied\n"; }
 
 // A closure built inside the module may use the internal class; rebound out, it may not.
-$c = Bank::Api::leak();
-echo "closure in module : ", (strpos($c(), 'Bank::Overdraft') === 0 ? 'reached' : $c()), "\n";
+$c = Bank\Api::leak();
+echo "closure in module : ", (strpos($c(), 'Bank\Overdraft') === 0 ? 'reached' : $c()), "\n";
 $rebound = \Closure::bind($c, null, Elsewhere::class);
 echo "closure rebound   : ", $rebound(), "\n";
 ?>

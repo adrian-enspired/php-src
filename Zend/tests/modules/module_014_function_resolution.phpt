@@ -18,7 +18,7 @@ module App {
     }
 }
 
-$s = new App::Service();
+$s = new App\Service();
 echo $s->bare(), "\n";
 echo $s->rooted(), "\n";
 echo $s->globalConst(), "\n";
@@ -26,9 +26,9 @@ echo $s->globalConst(), "\n";
 // A bare class-like reference, by contrast, DOES resolve module-relative.
 module Widgets {
     public interface Drawable {}
-    public class Button implements Drawable {}   // bare "Drawable" -> Widgets::Drawable
+    public class Button implements Drawable {}   // bare "Drawable" -> Widgets\Drawable
 }
-var_dump((new Widgets::Button) instanceof Widgets::Drawable);
+var_dump((new Widgets\Button) instanceof Widgets\Drawable);
 ?>
 --EXPECT--
 OK4

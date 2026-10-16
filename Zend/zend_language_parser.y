@@ -45,12 +45,9 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
 %define api.pure full
 %define api.value.type {zend_parser_stack_elem}
 %define parse.error verbose
-/* PHP Modules (experimental): module-qualified class references use "::" with
- * ZERO added grammar conflicts. The key is that the module case shares the
- * "class_name ::" prefix with the existing static-property rule (see
- * new_variable), so the parser defers the decision until the token after "::"
- * (a bareword name vs a $variable), which is within LALR(1) lookahead. This
- * preserves "new/instanceof Foo::$staticProp". See MODULES-DESIGN.md. */
+/* PHP Modules (experimental): module members have ordinary namespaced names
+ * ("Vendor\Shop\Cart"); the only module-specific name form is "module::Name",
+ * relative to the enclosing module. */
 %expect 0
 
 %destructor { zend_ast_destroy($$); } <ast>
@@ -267,7 +264,7 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
 %type <ast> unprefixed_use_declarations const_decl inner_statement
 %type <ast> expr optional_expr while_statement for_statement foreach_variable
 %type <ast> foreach_statement declare_statement finally_statement unset_variable variable
-%type <ast> module_qualified_name module_member_list module_member module_member_inner ns_member_ref
+%type <ast> module_relative_name module_member_list module_member module_member_inner module_ns_member_ref
 %type <ast> module_self internal_as_name keyword_as_type_name union_type_tail_element
 %type <ast> parameter_head property_head union_type_without_static_tail_element
 %type <num> member_visibility
@@ -431,13 +428,6 @@ top_statement:
 	|	T_MODULE namespace_declaration_name ';'
 			{ $$ = zend_ast_create(ZEND_AST_MODULE, $2, NULL, NULL);
 			  RESET_DOC_COMMENT(); }
-	|	T_MODULE module_qualified_name ';'
-			{ $$ = zend_ast_create(ZEND_AST_MODULE, $2, NULL, NULL);
-			  RESET_DOC_COMMENT(); }
-			/* PHP Modules: standalone (file-level) membership in a nested module,
-			 * "module Outer::Inner;". The "::" canonical name is permitted only in these
-			 * standalone top-level positions, where there is no enclosing definition to
-			 * imply the parent — it names the exact module this file joins/defines. */
 	|	T_MODULE identifier { RESET_DOC_COMMENT(); }
 		'{' module_member_list '}'
 			{ $$ = zend_ast_create(ZEND_AST_MODULE, $2, $5, NULL); }
@@ -445,9 +435,6 @@ top_statement:
 			 * comes from a preceding `namespace X\Y;` statement, like any other declaration
 			 * (`class`/`interface`/…). A qualified `module X\Y\Z { … }` is therefore a
 			 * syntax error — the namespace and the module name are separate statements. */
-	|	T_MODULE module_qualified_name { RESET_DOC_COMMENT(); }
-		'{' module_member_list '}'
-			{ $$ = zend_ast_create(ZEND_AST_MODULE, $2, $5, NULL); }
 	|	attributes T_MODULE identifier { RESET_DOC_COMMENT(); }
 		'{' module_member_list '}'
 			{ $$ = zend_ast_create(ZEND_AST_MODULE, $3, $6, $1); }
@@ -456,13 +443,6 @@ top_statement:
 			 * (its runtime identity) with target ZEND_ATTRIBUTE_TARGET_MODULE. Only the
 			 * block (definition) form takes attributes; membership/claim directives
 			 * ("module Foo;") do not, since they do not define the module here. */
-	|	attributes T_MODULE module_qualified_name { RESET_DOC_COMMENT(); }
-		'{' module_member_list '}'
-			{ $$ = zend_ast_create(ZEND_AST_MODULE, $3, $6, $1); }
-			/* PHP Modules: standalone definition of a nested module by its "::" canonical
-			 * name, "module Outer::Inner { … }". Inside a definition block the parent is
-			 * lexical, so nested modules use plain names and neither "::" form is reachable
-			 * there — keeping "::" out of definitions that have an implied parent. */
 	|	T_USE mixed_group_use_declaration ';'		{ $$ = $2; }
 	|	T_USE use_type group_use_declaration ';'	{ $$ = $3; $$->attr = $2; }
 	|	T_USE use_declarations ';'					{ $$ = $2; $$->attr = ZEND_SYMBOL_CLASS; }
@@ -527,11 +507,11 @@ use_declaration:
 			{ $$ = zend_ast_create(ZEND_AST_USE_ELEM, $1, NULL); }
 	|	legacy_namespace_name T_AS T_STRING
 			{ $$ = zend_ast_create(ZEND_AST_USE_ELEM, $1, $3); }
-	|	module_qualified_name
+	|	module_relative_name
 			{ $$ = zend_ast_create(ZEND_AST_USE_ELEM, $1, NULL); }
-			/* PHP Modules: import a module member, "use Billing::Ledger;" (and, chained,
-			 * "use Outer::Inner::Gadget;"). The alias defaults to the last segment. */
-	|	module_qualified_name T_AS T_STRING
+			/* PHP Modules: "use module::Helper;" imports a member of the enclosing module.
+			 * The alias defaults to the last segment. */
+	|	module_relative_name T_AS T_STRING
 			{ $$ = zend_ast_create(ZEND_AST_USE_ELEM, $1, $3); }
 ;
 
@@ -605,9 +585,9 @@ catch_list:
 
 catch_name_list:
 		class_name { $$ = zend_ast_create_list(1, ZEND_AST_NAME_LIST, $1); }
-	|	module_qualified_name { $$ = zend_ast_create_list(1, ZEND_AST_NAME_LIST, $1); }
+	|	module_relative_name { $$ = zend_ast_create_list(1, ZEND_AST_NAME_LIST, $1); }
 	|	catch_name_list '|' class_name { $$ = zend_ast_list_add($1, $3); }
-	|	catch_name_list '|' module_qualified_name { $$ = zend_ast_list_add($1, $3); }
+	|	catch_name_list '|' module_relative_name { $$ = zend_ast_list_add($1, $3); }
 	|	internal_as_name { $$ = zend_ast_create_list(1, ZEND_AST_NAME_LIST, $1); }
 	|	catch_name_list '|' internal_as_name { $$ = zend_ast_list_add($1, $3); }
 ;
@@ -733,7 +713,7 @@ enum_case_expr:
 extends_from:
 		%empty				{ $$ = NULL; }
 	|	T_EXTENDS class_name	{ $$ = $2; }
-	|	T_EXTENDS module_qualified_name	{ $$ = $2; }
+	|	T_EXTENDS module_relative_name	{ $$ = $2; }
 ;
 
 interface_extends_list:
@@ -954,7 +934,7 @@ type_without_static:
 		T_ARRAY		{ $$ = zend_ast_create_ex(ZEND_AST_TYPE, IS_ARRAY); }
 	|	T_CALLABLE	{ $$ = zend_ast_create_ex(ZEND_AST_TYPE, IS_CALLABLE); }
 	|	name		{ $$ = $1; }
-	|	module_qualified_name	{ $$ = $1; }
+	|	module_relative_name	{ $$ = $1; }
 ;
 
 union_type_without_static_element:
@@ -1105,9 +1085,9 @@ class_statement:
 
 class_name_list:
 		class_name { $$ = zend_ast_create_list(1, ZEND_AST_NAME_LIST, $1); }
-	|	module_qualified_name { $$ = zend_ast_create_list(1, ZEND_AST_NAME_LIST, $1); }
+	|	module_relative_name { $$ = zend_ast_create_list(1, ZEND_AST_NAME_LIST, $1); }
 	|	class_name_list ',' class_name { $$ = zend_ast_list_add($1, $3); }
-	|	class_name_list ',' module_qualified_name { $$ = zend_ast_list_add($1, $3); }
+	|	class_name_list ',' module_relative_name { $$ = zend_ast_list_add($1, $3); }
 ;
 
 trait_adaptations:
@@ -1574,7 +1554,7 @@ function_call:
 			/* PHP Modules: "module::f(...)" self-call to a backing-class static method. */
 	|	variable_class_name T_PAAMAYIM_NEKUDOTAYIM member_name argument_list
 			{ $$ = zend_ast_create(ZEND_AST_STATIC_CALL, $1, $3, $4); }
-	|	ns_member_ref T_PAAMAYIM_NEKUDOTAYIM member_name argument_list
+	|	module_ns_member_ref T_PAAMAYIM_NEKUDOTAYIM member_name argument_list
 			{ $$ = zend_ast_create(ZEND_AST_STATIC_CALL, $1, $3, $4); }
 	|	internal_as_name argument_list
 			/* PHP Modules: `internal ($x)` -- a function named internal, called with a
@@ -1751,32 +1731,23 @@ module_member_inner:
 			 * rejected here rather than accepted as a claim that can never bind. */
 ;
 
-/* PHP Modules (experimental): a module-qualified class reference,
- * "Module::Member" and, recursively, "Module::Inner::Member" to arbitrary depth.
- * The left-recursive hop composes because the AST helper appends one "::name"
- * segment onto an already-built module-qualified name (FQ or "module::"-relative). */
-module_qualified_name:
-		name T_PAAMAYIM_NEKUDOTAYIM name
-			{ $$ = zend_ast_create_module_qualified_name($1, $3); }
-	|	module_self T_PAAMAYIM_NEKUDOTAYIM name
-			{ $$ = zend_ast_create_module_qualified_name($1, $3); }
-	|	module_qualified_name T_PAAMAYIM_NEKUDOTAYIM name
-			{ $$ = zend_ast_create_module_qualified_name($1, $3); }
-;
-
-/* PHP Modules: a module member whose member segment is NAMESPACED (a T_NAME_QUALIFIED,
- * e.g. "Auth\Checker"), used as the class part of a static-access chain
- * ("Vendor\User::Auth\Checker::CONST" / "::method()" / "::$prop" / "::class"). Built
- * only from the distinct T_NAME_QUALIFIED token -- which is NOT an `identifier` -- so it
- * cannot collide with the `:: identifier` member access (module_qualified_name in these
- * positions instead reintroduces 39 conflicts). It yields an FQ canonical name node,
- * resolved exactly like the same reference in `new`/`instanceof`. */
-ns_member_ref:
-		class_name T_PAAMAYIM_NEKUDOTAYIM T_NAME_QUALIFIED
+/* PHP Modules: "module::Name" / "module::Sub\Name" -- a class-like member of the enclosing
+ * module, named relative to it, where a class name is expected (types, extends, implements,
+ * catch, use). Resolves to "<module>\Name". Outside a module, `module` is an ordinary class
+ * name, so "Module::X" there keeps its meaning (a constant or member of class Module). */
+module_relative_name:
+		module_self T_PAAMAYIM_NEKUDOTAYIM T_STRING
 			{ $$ = zend_ast_create_module_qualified_name($1, $3); }
 	|	module_self T_PAAMAYIM_NEKUDOTAYIM T_NAME_QUALIFIED
 			{ $$ = zend_ast_create_module_qualified_name($1, $3); }
-	|	ns_member_ref T_PAAMAYIM_NEKUDOTAYIM T_NAME_QUALIFIED
+;
+
+/* PHP Modules: "module::Sub\Name" as the class part of a static access
+ * ("module::Sub\Name::CONST" / "::method()" / "::$prop"). Built only from the distinct
+ * T_NAME_QUALIFIED token, so it can't collide with "module::CONST" (an identifier). A simple
+ * "module::Name::CONST" parses as a constant chain and is rewritten at compile time. */
+module_ns_member_ref:
+		module_self T_PAAMAYIM_NEKUDOTAYIM T_NAME_QUALIFIED
 			{ $$ = zend_ast_create_module_qualified_name($1, $3); }
 ;
 
@@ -1843,9 +1814,7 @@ class_constant:
 			/* PHP Modules: "module::CONST" self-reference to a backing-class constant. */
 	|	variable_class_name T_PAAMAYIM_NEKUDOTAYIM identifier
 			{ $$ = zend_ast_create_class_const_or_name($1, $3); }
-	|	ns_member_ref T_PAAMAYIM_NEKUDOTAYIM identifier
-			{ $$ = zend_ast_create_class_const_or_name($1, $3); }
-	|	variable_class_name T_PAAMAYIM_NEKUDOTAYIM T_NAME_QUALIFIED
+	|	module_ns_member_ref T_PAAMAYIM_NEKUDOTAYIM identifier
 			{ $$ = zend_ast_create_class_const_or_name($1, $3); }
 	|	class_name T_PAAMAYIM_NEKUDOTAYIM '{' expr '}'
 			{ $$ = zend_ast_create(ZEND_AST_CLASS_CONST, $1, $4); }
@@ -1922,7 +1891,7 @@ static_member:
 			/* PHP Modules: "module::$x" self-reference to a backing-class static property. */
 	|	variable_class_name T_PAAMAYIM_NEKUDOTAYIM simple_variable
 			{ $$ = zend_ast_create(ZEND_AST_STATIC_PROP, $1, $3); }
-	|	ns_member_ref T_PAAMAYIM_NEKUDOTAYIM simple_variable
+	|	module_ns_member_ref T_PAAMAYIM_NEKUDOTAYIM simple_variable
 			{ $$ = zend_ast_create(ZEND_AST_STATIC_PROP, $1, $3); }
 ;
 
@@ -1939,20 +1908,6 @@ new_variable:
 			{ $$ = zend_ast_create(ZEND_AST_STATIC_PROP, $1, $3); }
 	|	new_variable T_PAAMAYIM_NEKUDOTAYIM simple_variable
 			{ $$ = zend_ast_create(ZEND_AST_STATIC_PROP, $1, $3); }
-	|	class_name T_PAAMAYIM_NEKUDOTAYIM name
-			{ $$ = zend_ast_create_module_qualified_name($1, $3); }
-			/* PHP Modules: a module-qualified class reference "Module::Member"
-			 * shares the "class_name ::" prefix with the static-property rule
-			 * above, so the parser branches on the token after "::" (a bareword
-			 * name vs a $variable) within LALR(1) — no grammar conflict, and
-			 * "new/instanceof Foo::$staticProp" is preserved. */
-	|	new_variable T_PAAMAYIM_NEKUDOTAYIM name
-			{ $$ = zend_ast_create_module_qualified_name($1, $3); }
-			/* PHP Modules: subsequent "::name" hops for a deeper reference
-			 * "new/instanceof Outer::Inner::Gadget". The left operand is the
-			 * module-qualified name built by the rule above; the "name vs $var"
-			 * branch keeps it distinct from the static-property hop above. A
-			 * non-name left operand ("new $x::Foo") is rejected in the helper. */
 	|	module_self T_PAAMAYIM_NEKUDOTAYIM name
 			{ $$ = zend_ast_create_module_qualified_name($1, $3); }
 			/* PHP Modules: "module::Member" self-reference in new/instanceof. */

@@ -21,7 +21,7 @@ module M {
         public function greet(): string { return module::Pub::hi() . "/" . module::VERSION; }
     }
 }
-class Outside { use M::T; }
+class Outside { use M\T; }
 echo (new Outside)->greet(), "\n";   // reaches M's public members from outside — fine
 
 function bad(string $label, string $code): void {
@@ -47,7 +47,7 @@ bad('N::CONST internal',  'module M { internal class N { public const K = 1; } p
 bad('bare non-member',    'module M { public trait T { public function f() { return new Whatever(); } } }');
 
 echo "--\n";
-ok('public member access', 'module M { public class P { public static function hi(){ return "h"; } } public trait T { public function f(): string { return module::P::hi(); } } } class X { use M::T; }');
+ok('public member access', 'module M { public class P { public static function hi(){ return "h"; } } public trait T { public function f(): string { return module::P::hi(); } } } class X { use M\T; }');
 ok('public claimed access','module M { public Widget; public trait T { public function f() { return new Widget(); } } }');
 ok('internal trait exempt','module M { internal class N {} internal trait T { public function f() { return new N(); } } public class U { use T; } }');
 ok('ordinary class ok',    'module M { internal class N {} public class C { public function f() { return new N(); } } }');

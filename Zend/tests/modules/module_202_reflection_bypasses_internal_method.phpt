@@ -16,7 +16,7 @@ module Bank {
     }
 }
 
-$rc = new ReflectionClass('Bank::Ledger');
+$rc = new ReflectionClass('Bank\Ledger');
 $ledger = $rc->newInstanceArgs([10]);
 
 echo "ordinary method call: ";
@@ -31,6 +31,6 @@ echo "ReflectionMethod::invokeArgs: ";
 var_dump($rm->invokeArgs($ledger, [5]));
 ?>
 --EXPECT--
-ordinary method call: Cannot call internal method Bank::Ledger::credit() from outside its module
+ordinary method call: Cannot call internal method Bank\Ledger::credit() from outside its module
 ReflectionMethod::invoke: int(15)
 ReflectionMethod::invokeArgs: int(20)

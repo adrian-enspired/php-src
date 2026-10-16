@@ -24,7 +24,7 @@ spl_autoload_register(function (string $c) {
         unlink($f);
     }
 });
-echo (new M::Widget)->g(), "\n";
+echo (new M\Widget)->g(), "\n";
 
 ?>
 --EXPECT--

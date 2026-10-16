@@ -6,10 +6,10 @@ module M {
     internal class Secret {}
     public module N {
         public class Api {
-            public function leak(): \M::Secret { return new \M::Secret(); }
+            public function leak(): \M\Secret { return new \M\Secret(); }
         }
     }
 }
 ?>
 --EXPECTF--
-Fatal error: the return type of M::N::Api::leak() references "M::Secret", which is not reachable from outside the module: "M::Secret" is not a public member of module "M"; a module's public surface may not expose internal or unclaimed types (declare a public supertype instead) in %s on line %d
+Fatal error: the return type of M\N\Api::leak() references "M\Secret", which is not reachable from outside the module: "M\Secret" is not a public member of module "M"; a module's public surface may not expose internal or unclaimed types (declare a public supertype instead) in %s on line %d

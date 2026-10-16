@@ -13,20 +13,20 @@ module Outer {
     }
 }
 foreach ([
-    'new Outer::Priv::Pub;',
-    'Outer::Priv::Pub::K;',
-    'Outer::Priv::Pub::s();',
-    'new Outer::Priv::Hid;',
-    'new Outer::Open::Hid;',
-    '$n = "Outer::Priv::Pub"; new $n;',
+    'new Outer\Priv\Pub;',
+    'Outer\Priv\Pub::K;',
+    'Outer\Priv\Pub::s();',
+    'new Outer\Priv\Hid;',
+    'new Outer\Open\Hid;',
+    '$n = "Outer\Priv\Pub"; new $n;',
 ] as $code) {
     try { eval($code); echo "allowed\n"; } catch (Error $e) { echo $e->getMessage(), "\n"; }
 }
 ?>
 --EXPECT--
-Cannot access "Outer::Priv::Pub": module "Outer::Priv" is internal to its parent module
-Cannot access "Outer::Priv::Pub": module "Outer::Priv" is internal to its parent module
-Cannot access "Outer::Priv::Pub": module "Outer::Priv" is internal to its parent module
-Cannot access "Outer::Priv::Hid": module "Outer::Priv" is internal to its parent module
-Cannot access internal module member "Outer::Open::Hid" from outside its module
-Cannot access "Outer::Priv::Pub": module "Outer::Priv" is internal to its parent module
+Cannot access "Outer\Priv\Pub": module "Outer\Priv" is internal to its parent module
+Cannot access "Outer\Priv\Pub": module "Outer\Priv" is internal to its parent module
+Cannot access "Outer\Priv\Pub": module "Outer\Priv" is internal to its parent module
+Cannot access "Outer\Priv\Hid": module "Outer\Priv" is internal to its parent module
+Cannot access internal module member "Outer\Open\Hid" from outside its module
+Cannot access "Outer\Priv\Pub": module "Outer\Priv" is internal to its parent module

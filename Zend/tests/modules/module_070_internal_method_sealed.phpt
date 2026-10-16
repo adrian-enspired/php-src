@@ -11,9 +11,9 @@ module M {
 // An outside subclass may not override the internal method: that would let external code
 // replace, and so hijack, the module's own $this->f() dispatch. Sealed like `final`, but
 // scoped to the module boundary (an in-module subclass may still override it).
-class Sub extends M::Base {
+class Sub extends M\Base {
     public function f(): string { return "HIJACK"; }
 }
 ?>
 --EXPECTF--
-Fatal error: Cannot override internal method M::Base::f() from outside its module in %s on line %d
+Fatal error: Cannot override internal method M\Base::f() from outside its module in %s on line %d

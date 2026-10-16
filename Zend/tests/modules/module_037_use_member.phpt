@@ -16,10 +16,10 @@ module Outer {
     }
 }
 
-use Billing::Ledger;              // default alias "Ledger"
-use Billing::Invoice as Inv;      // explicit alias
-use Account::Profile;     // another module member via "::"
-use Outer::Inner::Gadget;         // chained, default alias "Gadget"
+use Billing\Ledger;              // default alias "Ledger"
+use Billing\Invoice as Inv;      // explicit alias
+use Account\Profile;     // another module member via "::"
+use Outer\Inner\Gadget;         // chained, default alias "Gadget"
 
 echo (new Ledger)->tag(), "\n";
 echo (new Inv)->tag(), "\n";
@@ -32,7 +32,7 @@ echo useLedger(new Ledger), "\n";
 
 // Importing an internal member is allowed (use is pure aliasing); the ACCESS is what
 // is gated — so instantiating it from outside the module still fails at runtime.
-use Billing::Secret;
+use Billing\Secret;
 try { new Secret(); echo "LEAKED\n"; }
 catch (\Error $e) { echo $e->getMessage(), "\n"; }
 ?>
@@ -42,4 +42,4 @@ invoice
 profile
 gadget
 yes
-Cannot access internal module member "Billing::Secret" from outside its module
+Cannot access internal module member "Billing\Secret" from outside its module

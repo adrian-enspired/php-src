@@ -17,9 +17,9 @@ module M {
 class Outside { static function call(string $f) { return $f(); } }
 
 var_dump(M::pub(1), (function () { $f = '\M::pub'; return $f(1); })());
-var_dump(M::C::viaDirect(), M::C::viaString(), M::N::open());
-foreach ([fn() => M::priv(1), fn() => ('M::priv')(1), fn() => M::N::deep(), fn() => ('M::N::deep')(),
-          fn() => M::H::hidden(), fn() => ('M::H::hidden')()] as $i => $f) {
+var_dump(M\C::viaDirect(), M\C::viaString(), M\N::open());
+foreach ([fn() => M::priv(1), fn() => ('M::priv')(1), fn() => M\N::deep(), fn() => ('M\N::deep')(),
+          fn() => M\H::hidden(), fn() => ('M\H::hidden')()] as $i => $f) {
     try { $f(); echo "$i: BYPASSED\n"; } catch (Error $e) { echo "$i: ", $e->getMessage(), "\n"; }
 }
 // an ordinary "Class::method" string callable is unaffected
@@ -32,10 +32,10 @@ int(2)
 int(6)
 int(3)
 string(4) "deep"
-0: Cannot call internal module function M::priv() from outside its module
-1: Cannot call internal module function M::priv() from outside its module
-2: Cannot call internal module function M::N::deep() from outside its module
-3: Cannot call internal module function M::N::deep() from outside its module
-4: Cannot call M::H::hidden(): module "M::H" is internal to its parent module
-5: Cannot call M::H::hidden(): module "M::H" is internal to its parent module
+0: Cannot call internal module function M\priv() from outside its module
+1: Cannot call internal module function M\priv() from outside its module
+2: Cannot call internal module function M\N\deep() from outside its module
+3: Cannot call internal module function M\N\deep() from outside its module
+4: Cannot call M\H\hidden(): module "M\H" is internal to its parent module
+5: Cannot access internal module member "M\H" from outside its module
 string(4) "K::m"

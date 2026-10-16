@@ -18,10 +18,10 @@ namespace App {
 }
 
 namespace {
-    var_dump((new App\M::Widget) instanceof Ext\Plug);
-    echo (new App\M::Widget)::class, "\n";
+    var_dump((new App\M\Widget) instanceof Ext\Plug);
+    echo (new App\M\Widget)::class, "\n";
 }
 ?>
 --EXPECT--
 bool(true)
-App\M::Widget
+App\M\Widget
