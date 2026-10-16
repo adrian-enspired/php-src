@@ -1347,25 +1347,13 @@ static zend_string *zend_resolve_const_name(zend_string *name, uint32_t type, bo
 }
 
 
-/* PHP Modules: has the definition (`module M { … }`) of module `lc_name` been seen -- are
- * we compiling inside it, or does its backing class exist? */
-static bool in_module_definition_or_seen(const zend_string *lc_name)
-{
-	if (FC(in_module_block)) {
-		return true;
-	}
-	const zend_class_entry *ce = zend_hash_find_ptr(CG(class_table), lc_name);
-	return ce && (ce->ce_flags2 & ZEND_ACC2_MODULE);
-}
-
 static zend_string *zend_resolve_class_name(zend_string *name, uint32_t type) /* {{{ */
 {
 	const char *compound;
 
 	/* PHP Modules: "module::Member" self-reference. The module segment is the
-	 * lexically enclosing module; resolve it here and require Member to be a
-	 * declared member of that module (the explicit self-reference form asserts
-	 * membership by construction). */
+	 * lexically enclosing module; resolve it here. Whether Member exists is settled at
+	 * runtime (it may be an unclaimed member, not yet loaded). */
 	if (type == ZEND_NAME_MODULE_SELF) {
 		/* The name is the keyword as spelled, optionally followed by a member chain:
 		 * "module" (the module itself) or "module::Helper[::…]". */
@@ -1385,35 +1373,10 @@ static zend_string *zend_resolve_class_name(zend_string *name, uint32_t type) /*
 		zend_string *mod = FC(current_module);
 		zend_string *canonical = zend_string_concat3(
 			ZSTR_VAL(mod), ZSTR_LEN(mod), "::", 2, ZSTR_VAL(name), ZSTR_LEN(name));
-		/* The member may itself be a chain ("module::Inner::Gadget" -> canonical
-		 * "Outer::Inner::Gadget"). Its owning module is everything before the last
-		 * "::" (here "Outer::Inner"), which for the single-segment case degrades to
-		 * the enclosing module itself. Verify membership against that owner. */
-		const char *cval = ZSTR_VAL(canonical);
-		const char *last_sep = NULL;
-		for (const char *p = cval; (p = strstr(p, "::")) != NULL; p += 2) {
-			last_sep = p;
-		}
-		ZEND_ASSERT(last_sep && "canonical always contains at least one \"::\"");
-		size_t owner_len = (size_t)(last_sep - cval);
-		zend_string *lc_canonical = zend_string_tolower(canonical);
-		zend_string *lc_owner = zend_string_alloc(owner_len, 0);
-		zend_str_tolower_copy(ZSTR_VAL(lc_owner), cval, owner_len);
-		zend_php_module *m = zend_lookup_module(lc_owner);
-		bool is_member = m && zend_hash_exists(&m->members, lc_canonical);
-		/* COLD: a member file compiled before its module's definition (e.g. PSR-4 loaded
-		 * "M\Widget" first). The `module M;` directive registers the module with an empty
-		 * roster, so absence proves nothing yet: defer to the runtime fetch, which reports
-		 * a non-member as "not a member of module". The definition has been seen iff its
-		 * backing class exists. */
-		bool definition_seen = in_module_definition_or_seen(lc_owner);
-		zend_string_release(lc_owner);
-		zend_string_release(lc_canonical);
-		if (!is_member && definition_seen) {
-			zend_error_noreturn(E_COMPILE_ERROR,
-				"\"%s\" is not a member of module \"%s\"",
-				ZSTR_VAL(name), ZSTR_VAL(mod));
-		}
+		/* No compile-time existence check: an unclaimed member (declared in a member file but
+		 * not listed in the definition) is a member too, and may not be loaded yet. The claims
+		 * decide visibility, not existence; the runtime fetch (which autoloads) reports a
+		 * missing one as "not a member of module". */
 		zend_string_release(name);
 		return canonical;
 	}

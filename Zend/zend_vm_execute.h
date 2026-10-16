@@ -8026,7 +8026,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 
 					HANDLE_EXCEPTION();
 				}
-				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name, true)) != NULL) {
 					/* The member-name identity is only meaningful as the CLASS part of a
 					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
 					 * compiler always lowers to this opline immediately followed by the
@@ -9504,7 +9504,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 					FREE_OP(opline->op2_type, opline->op2.var);
 					HANDLE_EXCEPTION();
 				}
-				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name, true)) != NULL) {
 					/* The member-name identity is only meaningful as the CLASS part of a
 					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
 					 * compiler always lowers to this opline immediately followed by the
@@ -26613,7 +26613,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 
 					HANDLE_EXCEPTION();
 				}
-				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name, true)) != NULL) {
 					/* The member-name identity is only meaningful as the CLASS part of a
 					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
 					 * compiler always lowers to this opline immediately followed by the
@@ -27228,7 +27228,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 					FREE_OP(opline->op2_type, opline->op2.var);
 					HANDLE_EXCEPTION();
 				}
-				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name, true)) != NULL) {
 					/* The member-name identity is only meaningful as the CLASS part of a
 					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
 					 * compiler always lowers to this opline immediately followed by the
@@ -35471,7 +35471,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 
 					HANDLE_EXCEPTION();
 				}
-				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name, true)) != NULL) {
 					/* The member-name identity is only meaningful as the CLASS part of a
 					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
 					 * compiler always lowers to this opline immediately followed by the
@@ -35927,7 +35927,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 					FREE_OP(opline->op2_type, opline->op2.var);
 					HANDLE_EXCEPTION();
 				}
-				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name, true)) != NULL) {
 					/* The member-name identity is only meaningful as the CLASS part of a
 					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
 					 * compiler always lowers to this opline immediately followed by the
@@ -61822,7 +61822,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 
 					HANDLE_EXCEPTION();
 				}
-				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name, true)) != NULL) {
 					/* The member-name identity is only meaningful as the CLASS part of a
 					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
 					 * compiler always lowers to this opline immediately followed by the
@@ -63300,7 +63300,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 					FREE_OP(opline->op2_type, opline->op2.var);
 					HANDLE_EXCEPTION();
 				}
-				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name, true)) != NULL) {
 					/* The member-name identity is only meaningful as the CLASS part of a
 					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
 					 * compiler always lowers to this opline immediately followed by the
@@ -80207,7 +80207,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 
 					HANDLE_EXCEPTION();
 				}
-				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name, true)) != NULL) {
 					/* The member-name identity is only meaningful as the CLASS part of a
 					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
 					 * compiler always lowers to this opline immediately followed by the
@@ -80822,7 +80822,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 					FREE_OP(opline->op2_type, opline->op2.var);
 					HANDLE_EXCEPTION();
 				}
-				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name, true)) != NULL) {
 					/* The member-name identity is only meaningful as the CLASS part of a
 					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
 					 * compiler always lowers to this opline immediately followed by the
@@ -89065,7 +89065,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 
 					HANDLE_EXCEPTION();
 				}
-				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name, true)) != NULL) {
 					/* The member-name identity is only meaningful as the CLASS part of a
 					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
 					 * compiler always lowers to this opline immediately followed by the
@@ -89521,7 +89521,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 					FREE_OP(opline->op2_type, opline->op2.var);
 					HANDLE_EXCEPTION();
 				}
-				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name, true)) != NULL) {
 					/* The member-name identity is only meaningful as the CLASS part of a
 					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
 					 * compiler always lowers to this opline immediately followed by the

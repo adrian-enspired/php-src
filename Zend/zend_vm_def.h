@@ -6398,7 +6398,7 @@ ZEND_VM_HANDLER(181, ZEND_FETCH_CLASS_CONSTANT, VAR|CONST|UNUSED|CLASS_FETCH, CO
 					FREE_OP2();
 					HANDLE_EXCEPTION();
 				}
-				if ((canonical = zend_module_member_canonical_name(ce, constant_name)) != NULL) {
+				if ((canonical = zend_module_member_canonical_name(ce, constant_name, true)) != NULL) {
 					/* The member-name identity is only meaningful as the CLASS part of a
 					 * chain ("M::C::X", "M::C::m()", "M::C::class", "new (M::C)"), which the
 					 * compiler always lowers to this opline immediately followed by the

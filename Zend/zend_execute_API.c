@@ -1914,7 +1914,7 @@ static ZEND_COLD void report_class_fetch_error(const zend_string *class_name, ui
 			zend_string_release(mod_lc);
 			if (mce && (mce->ce_flags2 & ZEND_ACC2_MODULE)) {
 				zend_string *member = zend_string_init(last + 2, cend - (last + 2), 0);
-				zend_string *canon = zend_module_member_canonical_name(mce, member);
+				zend_string *canon = zend_module_member_canonical_name(mce, member, false);
 				zend_string_release(member);
 				if (canon) {
 					/* it is a declared member -> real load failure; keep "not found" */
@@ -2522,24 +2522,35 @@ ZEND_API bool zend_module_function_access_denied(const zend_function *fn)
  * ungated, exactly as ::class / compile-time reinterpretation would yield - which the
  * outer access then resolves through the normal two-tier autoload + visibility gate.
  * Returns NULL if module_ce is not a module backing class or member_name is not a
- * declared member (so a genuine "Undefined constant" still surfaces). */
+ * member (so a genuine "Undefined constant" still surfaces).
+ *
+ * Claims decide visibility, not existence: a name that isn't claimed may still be an
+ * UNCLAIMED member (declared in one of the module's member files). That is settled by the
+ * class itself -- loaded (autoloading it when `autoload`), and marked as a member of this
+ * module. */
 ZEND_API zend_string *zend_module_member_canonical_name(
-		const zend_class_entry *module_ce, zend_string *member_name)
+		const zend_class_entry *module_ce, zend_string *member_name, bool autoload)
 {
 	if (!(module_ce->ce_flags2 & ZEND_ACC2_MODULE)) {
-		return NULL;
-	}
-	zend_string *lc_mod = zend_string_tolower(module_ce->name);
-	zend_php_module *mod = zend_lookup_module(lc_mod);
-	zend_string_release(lc_mod);
-	if (!mod) {
 		return NULL;
 	}
 	zend_string *canonical = zend_string_concat3(
 		ZSTR_VAL(module_ce->name), ZSTR_LEN(module_ce->name), "::", 2,
 		ZSTR_VAL(member_name), ZSTR_LEN(member_name));
 	zend_string *lc_canonical = zend_string_tolower(canonical);
-	bool is_member = zend_hash_exists(&mod->members, lc_canonical);
+	zend_string *lc_mod = zend_string_tolower(module_ce->name);
+	zend_php_module *mod = zend_lookup_module(lc_mod);
+	zend_string_release(lc_mod);
+	bool is_member = mod && zend_hash_exists(&mod->members, lc_canonical);
+	if (!is_member) {
+		zend_class_entry *ce = zend_lookup_class_ex(canonical, lc_canonical,
+			autoload ? 0 : ZEND_FETCH_CLASS_NO_AUTOLOAD);
+		if (ce && (ce->ce_flags2 & ZEND_ACC2_MODULE_MEMBER)) {
+			is_member = true;
+			zend_string_release(canonical);
+			canonical = zend_string_copy(ce->name);
+		}
+	}
 	zend_string_release(lc_canonical);
 	if (!is_member) {
 		zend_string_release(canonical);

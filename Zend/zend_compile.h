@@ -238,7 +238,7 @@ ZEND_API bool zend_module_member_is_internal(const zend_class_entry *ce);
 /* PHP Modules: if `module_ce` is a module backing class and `member_name` names a
  * declared member, return the canonical "Module::Member" name (owned); else NULL.
  * Lets an autoloaded "Module::Member::..." chain resolve at runtime (see B1 fix). */
-ZEND_API zend_string *zend_module_member_canonical_name(const zend_class_entry *module_ce, zend_string *member_name);
+ZEND_API zend_string *zend_module_member_canonical_name(const zend_class_entry *module_ce, zend_string *member_name, bool autoload);
 /* PHP Modules: the owning-module prefix of a module-owned function's name (see the
  * ZEND_ACC2_FN_MODULE_MEMBER flag). Writes [*prefix, *prefix_len); returns false for a
  * function that carries no module prefix (never true for a flagged function). */
