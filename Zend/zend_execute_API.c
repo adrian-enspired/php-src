@@ -145,6 +145,7 @@ void init_executor(void) /* {{{ */
 	EG(function_table) = CG(function_table);
 	EG(class_table) = CG(class_table);
 	EG(module_registry) = NULL; /* PHP Modules (experimental): lazily allocated */
+	EG(module_probe_misses) = NULL;
 
 	EG(error_handling) = EH_NORMAL;
 	EG(flags) = EG_FLAGS_INITIAL;
@@ -469,6 +470,7 @@ void shutdown_executor(void) /* {{{ */
 		pefree(EG(module_registry), 0);
 		EG(module_registry) = NULL;
 	}
+	zend_module_autoload_probe_reset();
 
 	zend_shutdown_executor_values(fast_shutdown);
 
@@ -1242,50 +1244,67 @@ ZEND_API bool zend_is_valid_class_name(const zend_string *name) {
  * own name -- a prefix of the member's. Walk the prefixes, longest first: an existing class
  * ends the walk (a module is consulted; anything else means no module here), a missing one is
  * autoloaded. Only on a miss, so loaded classes and successful autoloads pay nothing. */
+ZEND_API void zend_module_autoload_probe_reset(void)
+{
+	if (EG(module_probe_misses)) {
+		zend_hash_destroy(EG(module_probe_misses));
+		efree(EG(module_probe_misses));
+		EG(module_probe_misses) = NULL;
+	}
+}
+
 static zend_class_entry *zend_module_autoload_miss(zend_string *name, zend_string *lc_name)
 {
 	const char *v = ZSTR_VAL(lc_name);
 	/* `name` keeps its case for the autoloader; it may carry a leading "\" lc_name dropped */
 	const char *nv = ZSTR_VAL(name) + (ZSTR_VAL(name)[0] == '\\');
+	zend_class_entry *result = NULL;
 	for (const char *bs = zend_memrchr(v, '\\', ZSTR_LEN(lc_name)); bs;
 			bs = zend_memrchr(v, '\\', (size_t) (bs - v))) {
-		zend_string *lc_prefix = zend_string_init(v, (size_t) (bs - v), 0);
-		zend_class_entry *pce = zend_hash_find_ptr(EG(class_table), lc_prefix);
-		if (!pce && !zend_hash_exists(&EG(autoload_current_classnames), lc_prefix)) {
-			zend_string *prefix = zend_string_init(nv, (size_t) (bs - v), 0);
-			pce = zend_lookup_class(prefix);
+		size_t plen = (size_t) (bs - v);
+		zend_class_entry *pce = zend_hash_str_find_ptr(EG(class_table), v, plen);
+		if (!pce) {
+			if ((EG(module_probe_misses) && zend_hash_str_exists(EG(module_probe_misses), v, plen))
+			 || zend_hash_str_exists(&EG(autoload_current_classnames), v, plen)) {
+				continue;
+			}
+			/* (each prefix is tried here, so its own lookup doesn't probe) */
+			zend_string *prefix = zend_string_init(nv, plen, 0);
+			pce = zend_lookup_class_ex(prefix, NULL, ZEND_FETCH_CLASS_NO_MODULE_PROBE);
 			zend_string_release_ex(prefix, 0);
 			if (EG(exception)) {
-				zend_string_release_ex(lc_prefix, 0);
-				return NULL;
+				break;
+			}
+			if (!pce) {
+				if (!EG(module_probe_misses)) {
+					EG(module_probe_misses) = emalloc(sizeof(HashTable));
+					zend_hash_init(EG(module_probe_misses), 8, NULL, NULL, 0);
+				}
+				zend_hash_str_add_empty_element(EG(module_probe_misses), v, plen);
+				continue;
 			}
 			zend_class_entry *ce = zend_hash_find_ptr(EG(class_table), lc_name);
 			if (ce) {
-				zend_string_release_ex(lc_prefix, 0);
-				return ce;   /* defined by the definition just loaded (inline member) */
+				result = ce;   /* defined by the definition just loaded (inline member) */
+				break;
 			}
 		}
-		if (!pce) {
-			zend_string_release_ex(lc_prefix, 0);
-			continue;
-		}
+		zend_string *lc_prefix = zend_string_init(v, plen, 0);
 		zend_php_module *mod = (pce->ce_flags2 & ZEND_ACC2_MODULE) ? zend_lookup_module(lc_prefix) : NULL;
 		zend_string_release_ex(lc_prefix, 0);
-		if (!mod) {
-			return NULL;
+		if (mod) {
+			zend_string *canonical = zend_hash_find_ptr(&mod->member_names, lc_name);
+			if (canonical) {
+				zend_class_entry *ce = zend_lookup_class(canonical);
+				if (ce) {
+					zend_class_entry *alias = zend_hash_find_ptr(EG(class_table), lc_name);
+					result = alias ? alias : ce;
+				}
+			}
 		}
-		zend_string *canonical = zend_hash_find_ptr(&mod->member_names, lc_name);
-		if (!canonical) {
-			return NULL;
-		}
-		zend_class_entry *ce = zend_lookup_class(canonical);
-		if (ce) {
-			zend_class_entry *alias = zend_hash_find_ptr(EG(class_table), lc_name);
-			return alias ? alias : ce;
-		}
-		return NULL;
+		break;   /* the nearest existing class decides: a module, or no module here */
 	}
-	return NULL;
+	return result;
 }
 
 ZEND_API zend_class_entry *zend_lookup_class_ex(zend_string *name, zend_string *key, uint32_t flags) /* {{{ */
@@ -1393,7 +1412,8 @@ ZEND_API zend_class_entry *zend_lookup_class_ex(zend_string *name, zend_string *
 
 	zend_string_release_ex(autoload_name, 0);
 	/* PHP Modules: a module member without a file of its own (see above). */
-	if (!ce && !EG(exception) && memchr(ZSTR_VAL(lc_name), '\\', ZSTR_LEN(lc_name))) {
+	if (!ce && !EG(exception) && !(flags & ZEND_FETCH_CLASS_NO_MODULE_PROBE)
+	 && memchr(ZSTR_VAL(lc_name), '\\', ZSTR_LEN(lc_name))) {
 		ce = zend_module_autoload_miss(name, lc_name);
 	}
 	zend_hash_del(&EG(autoload_current_classnames), lc_name);

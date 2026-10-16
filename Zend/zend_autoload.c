@@ -22,6 +22,7 @@
 #include "zend_types.h"
 #include "zend_exceptions.h"
 #include "zend_string.h"
+#include "zend_compile.h"
 
 ZEND_TLS HashTable *zend_class_autoload_functions;
 
@@ -108,6 +109,8 @@ ZEND_API void zend_autoload_register_class_loader(zend_fcall_info_cache *fcc, bo
 
 	zend_fcc_addref(fcc);
 	zend_hash_next_index_insert_mem(zend_class_autoload_functions, fcc, sizeof(zend_fcall_info_cache));
+	/* PHP Modules: a new loader may find what an earlier module probe could not. */
+	zend_module_autoload_probe_reset();
 	if (prepend && zend_hash_num_elements(zend_class_autoload_functions) > 1) {
 		/* Move the newly created element to the head of the hashtable */
 		ZEND_ASSERT(!HT_IS_PACKED(zend_class_autoload_functions));
@@ -123,6 +126,7 @@ ZEND_API bool zend_autoload_unregister_class_loader(const zend_fcall_info_cache 
 		Bucket *p = autoload_find_registered_function(zend_class_autoload_functions, fcc);
 		if (p) {
 			zend_hash_del_bucket(zend_class_autoload_functions, p);
+			zend_module_autoload_probe_reset();
 			return true;
 		}
 	}

@@ -185,6 +185,7 @@ ZEND_API zend_php_module *zend_lookup_module(zend_string *lc_name);
  * the compiler never ran, so the per-request registry is always rebuilt. */
 ZEND_API void zend_declare_module_runtime(zend_string *name, HashTable *members);
 ZEND_API void zend_module_ensure_loaded(zend_string *name, zend_string *lc_name);
+ZEND_API void zend_module_autoload_probe_reset(void);
 ZEND_API void zend_declare_module_member_alias_runtime(zend_string *alias, zend_string *canonical);
 /* True if class scope `scope` may access an internal member declared in `member_ce`:
  * the accessor's module must BE that module or be nested beneath it (ancestor-or-self).
@@ -1311,6 +1312,8 @@ ZEND_API zend_string *zend_type_to_string(zend_type type);
 #define ZEND_FETCH_CLASS_ALLOW_UNLINKED 0x0400
 #define ZEND_FETCH_CLASS_ALLOW_NEARLY_LINKED 0x0800
 #define ZEND_FETCH_CLASS_NO_MODULE_GATE 0x1000
+/* PHP Modules: on an autoload miss, don't look for a module among the name's prefixes. */
+#define ZEND_FETCH_CLASS_NO_MODULE_PROBE 0x2000
 
 /* These should not clash with ZEND_ACC_PPP_MASK and ZEND_ACC_PPP_SET_MASK */
 #define ZEND_PARAM_REF      (1<<3)

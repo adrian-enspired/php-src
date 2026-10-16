@@ -203,6 +203,10 @@ struct _zend_executor_globals {
 	 * manifests, keyed by lowercased module name. Lazily allocated on the first
 	 * module declaration; freed at request shutdown. Value is zend_php_module*. */
 	HashTable *module_registry;
+	/* PHP Modules: prefixes whose autoload failed while looking for a module after an autoload
+	 * miss (zend_module_autoload_miss), so each is tried once per request; lazily allocated,
+	 * reset when the autoloader list changes. */
+	HashTable *module_probe_misses;
 
 	zval          *vm_stack_top;
 	zval          *vm_stack_end;
