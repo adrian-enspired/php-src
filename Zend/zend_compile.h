@@ -220,6 +220,7 @@ ZEND_API bool zend_module_path_covers_str(const char *aval, size_t alen, const c
  * reachable types. Concerns the declaration only -- never the returned value, whose own type
  * is checked separately and which may legitimately be an escaped internal instance. */
 ZEND_API ZEND_COLD void zend_module_verify_declared_return(const zend_function *fn);
+ZEND_API ZEND_COLD zend_result zend_module_verify_declared_properties(zend_class_entry *ce);
 /* String form of the above, for a scope-less caller whose module path is already known. */
 ZEND_API bool zend_module_container_allows_prefix(const zend_class_entry *ce, const char *cval, size_t clen);
 /* True if the currently-executing code may NOT access internal member `ce` (an internal
@@ -490,7 +491,7 @@ typedef struct _zend_oparray_context {
 /* Class cannot be serialized or unserialized             |     |     |     */
 #define ZEND_ACC_NOT_SERIALIZABLE        (1 << 29) /*  X  |     |     |     */
 /*                                                        |     |     |     */
-/* Class Flags 2 (ce_flags2) (unused: 5-31)               |     |     |     */
+/* Class Flags 2 (ce_flags2) (unused: 6-31)               |     |     |     */
 /* =========================                              |     |     |     */
 /*                                                        |     |     |     */
 /* PHP Modules (experimental): this class is an `internal` member of its module   */
@@ -527,6 +528,11 @@ typedef struct _zend_oparray_context {
  * module's static members (constants, functions). Also ZEND_ACC_EXPLICIT_ABSTRACT_CLASS, so
  * the existing uninstantiable check covers it. */
 #define ZEND_ACC2_MODULE                 (1 << 4) /*   X  |     |     |     */
+/* PHP Modules (experimental): a public property's type could not be checked against the */
+/* module's public surface at compile time (cold compile, or a "\" name off the roster). */
+/* ZEND_ACC_CONSTANTS_UPDATED is left clear so zend_update_class_constants() checks the  */
+/* resolved types once per request, on the class's first use.                            */
+#define ZEND_ACC2_PROPS_UNVERIFIED       (1 << 5) /*   X  |     |     |     */
 /* The flags whose presence means "this class can be denied to some accessor". */
 /* PHP Modules: ZEND_AST_CLASS decl->attr marker for a module's backing class (sets
  * ZEND_ACC2_MODULE on the class). */

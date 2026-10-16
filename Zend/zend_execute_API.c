@@ -2203,6 +2203,46 @@ ZEND_API ZEND_COLD void zend_module_verify_declared_return(const zend_function *
 	} ZEND_TYPE_FOREACH_END();
 }
 
+/* PHP Modules: verify the public property types of `ce` that the compiler could not decide
+ * (ZEND_ACC2_PROPS_UNVERIFIED), on the class's first use in a request. Like the deferred
+ * return check, it inspects the declaration only: a public property of a publicly reachable
+ * class may not name a type unreachable from outside its module. */
+ZEND_API ZEND_COLD zend_result zend_module_verify_declared_properties(zend_class_entry *ce)
+{
+	if (zend_module_access_denied_from(ce, NULL, 0, false, false, NULL)) {
+		return SUCCESS;                    /* the class itself is not public surface */
+	}
+	zend_property_info *prop;
+	ZEND_HASH_MAP_FOREACH_PTR(&ce->properties_info, prop) {
+		if ((prop->flags & (ZEND_ACC_PRIVATE | ZEND_ACC_PROTECTED | ZEND_ACC_MODULE_INTERNAL_MEMBER))
+		 || !ZEND_TYPE_IS_SET(prop->type)) {
+			continue;
+		}
+		const zend_type *single_type;
+		ZEND_TYPE_FOREACH(prop->type, single_type) {
+			if (!ZEND_TYPE_HAS_NAME(*single_type)) {
+				continue;
+			}
+			zend_class_entry *tce = zend_lookup_class(ZEND_TYPE_NAME(*single_type));
+			if (!tce) {
+				if (EG(exception)) {
+					return FAILURE;
+				}
+				continue;                  /* unresolvable -- not ours to report */
+			}
+			if (zend_module_access_denied_from(tce, NULL, 0, false, false, NULL)) {
+				zend_throw_error(NULL,
+					"the type of property %s::$%s references \"%s\", which is not reachable from "
+					"outside the module: a module's public surface may not expose internal or "
+					"unclaimed types (declare a public supertype instead)",
+					ZSTR_VAL(prop->ce->name), ZSTR_VAL(prop->name), ZSTR_VAL(tce->name));
+				return FAILURE;
+			}
+		} ZEND_TYPE_FOREACH_END();
+	} ZEND_HASH_FOREACH_END();
+	return SUCCESS;
+}
+
 /* PHP Modules: the containment walk, against an EXPLICIT accessor module.
  *
  * To reach "A::B::…::leaf" the accessor must cross each "::" boundary in turn, OUTERMOST

@@ -11149,7 +11149,11 @@ static void zend_compile_class_decl(znode *result, const zend_ast *ast, bool top
 			 && ZEND_TYPE_IS_SET(_sprop->type)) {
 				zend_string *w = zend_strpprintf(0, "the type of property %s::$%s",
 					ZSTR_VAL(ce->name), ZSTR_VAL(_sprop->name));
-				zend_module_check_public_surface_type(_sprop->type, ZSTR_VAL(w));
+				if (zend_module_check_public_surface_type(_sprop->type, ZSTR_VAL(w))) {
+					/* Undecidable here: check the resolved type on the class's first use. */
+					ce->ce_flags2 |= ZEND_ACC2_PROPS_UNVERIFIED;
+					ce->ce_flags &= ~ZEND_ACC_CONSTANTS_UPDATED;
+				}
 				zend_string_release(w);
 			}
 		} ZEND_HASH_FOREACH_END();

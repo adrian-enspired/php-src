@@ -1679,6 +1679,12 @@ ZEND_API zend_result zend_update_class_constants(zend_class_entry *ce) /* {{{ */
 		}
 	}
 
+	/* PHP Modules: public property types that were undecidable at compile time. */
+	if (UNEXPECTED(ce->ce_flags2 & ZEND_ACC2_PROPS_UNVERIFIED)
+	 && zend_module_verify_declared_properties(ce) != SUCCESS) {
+		return FAILURE;
+	}
+
 	ce_flags |= ZEND_ACC_CONSTANTS_UPDATED;
 	ce_flags &= ~ZEND_ACC_HAS_AST_CONSTANTS;
 	ce_flags &= ~ZEND_ACC_HAS_AST_PROPERTIES;

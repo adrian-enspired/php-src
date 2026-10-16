@@ -1920,6 +1920,13 @@ ZEND_API void zend_do_inheritance_ex(zend_class_entry *ce, zend_class_entry *par
 		}
 	}
 
+	/* PHP Modules: the parent's undecided public property types are inherited; make the
+	 * child's first use run the check too (it updates the parent first). */
+	if (UNEXPECTED(parent_ce->ce_flags2 & ZEND_ACC2_PROPS_UNVERIFIED)) {
+		ce->ce_flags2 |= ZEND_ACC2_PROPS_UNVERIFIED;
+		ce->ce_flags &= ~ZEND_ACC_CONSTANTS_UPDATED;
+	}
+
 	/* PHP Modules: a class outside a module may not extend an `internal` class of that
 	 * module. An internal class is an ordinary class carrying ZEND_ACC2_MODULE_INTERNAL,
 	 * so this check sits here at the shared linking site — reached by both runtime and

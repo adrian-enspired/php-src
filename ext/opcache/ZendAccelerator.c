@@ -4169,6 +4169,12 @@ static bool preload_try_resolve_constants(zend_class_entry *ce)
 	EG(exception) = NULL;
 	CG(in_compilation) = false;
 
+	/* PHP Modules: keep the per-request public property type check -- the class stays
+	 * "not updated", so resolving it must not count as progress either, or the caller's
+	 * fixed-point loop would never end. */
+	if (ce->ce_flags2 & ZEND_ACC2_PROPS_UNVERIFIED) {
+		return was_changed;
+	}
 	if (ok) {
 		ce->ce_flags |= ZEND_ACC_CONSTANTS_UPDATED;
 	}
