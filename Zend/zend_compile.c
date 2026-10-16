@@ -11477,7 +11477,11 @@ static void zend_compile_use(zend_ast *ast) /* {{{ */
 			lookup_name = zend_string_tolower(new_name);
 		}
 
-		if (type == ZEND_SYMBOL_CLASS && zend_is_reserved_class_name(new_name)) {
+		/* PHP Modules: `internal` is reserved as a class name, but no class can be named
+		 * Internal, so an `Internal` alias can only name a namespace (`use Amp\Internal;`
+		 * then `Internal\foo()`) -- keep that working. */
+		if (type == ZEND_SYMBOL_CLASS && zend_is_reserved_class_name(new_name)
+		 && !zend_string_equals_literal_ci(new_name, "internal")) {
 			zend_error_noreturn(E_COMPILE_ERROR, "Cannot use %s as %s because '%s' "
 				"is a special class name", ZSTR_VAL(old_name), ZSTR_VAL(new_name), ZSTR_VAL(new_name));
 		}
