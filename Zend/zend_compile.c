@@ -401,6 +401,12 @@ static void zend_end_namespace(void) /* {{{ */ {
 }
 /* }}} */
 
+/* PHP Modules: the module that `module::` and closures in the code being compiled belong to. */
+static zend_always_inline zend_string *zend_module_self(void)
+{
+	return FC(current_module) ? FC(current_module) : FC(eval_module);
+}
+
 void zend_file_context_begin(zend_file_context *prev_context) /* {{{ */
 {
 	*prev_context = CG(file_context);
@@ -411,6 +417,7 @@ void zend_file_context_begin(zend_file_context *prev_context) /* {{{ */
 	FC(in_namespace) = 0;
 	FC(has_bracketed_namespaces) = 0;
 	FC(current_module) = NULL;
+	FC(eval_module) = NULL;
 	FC(in_module_block) = false;
 	FC(declarables).ticks = 0;
 	zend_hash_init(&FC(seen_symbols), 8, NULL, NULL, 0);
@@ -424,6 +431,10 @@ void zend_file_context_end(const zend_file_context *prev_context) /* {{{ */
 	if (FC(current_module)) {
 		zend_string_release(FC(current_module));
 		FC(current_module) = NULL;
+	}
+	if (FC(eval_module)) {
+		zend_string_release(FC(eval_module));
+		FC(eval_module) = NULL;
 	}
 	zend_end_namespace();
 	zend_hash_destroy(&FC(seen_symbols));
@@ -1357,7 +1368,8 @@ static zend_string *zend_resolve_class_name(zend_string *name, uint32_t type) /*
 	if (type == ZEND_NAME_MODULE_SELF) {
 		/* The name is the keyword as spelled, optionally followed by a member chain:
 		 * "module" (the module itself) or "module::Helper[::…]". */
-		if (!FC(current_module)) {
+		zend_string *mod = zend_module_self();
+		if (!mod) {
 			/* `module` is a contextual keyword: outside a module, "Module::X" is an
 			 * ordinary reference to a class (or module) named "Module". */
 			return zend_resolve_class_name(name, ZEND_NAME_NOT_FQ);
@@ -1367,10 +1379,9 @@ static zend_string *zend_resolve_class_name(zend_string *name, uint32_t type) /*
 		 * plain module name — used by module::CONST / module::f() / module::$x. No
 		 * membership check: the backing class is the module itself. */
 		if (!self_sep) {
-			return zend_string_copy(FC(current_module));
+			return zend_string_copy(mod);
 		}
 		name = zend_string_init(self_sep + 2, ZSTR_VAL(name) + ZSTR_LEN(name) - (self_sep + 2), 0);
-		zend_string *mod = FC(current_module);
 		zend_string *canonical = zend_string_concat3(
 			ZSTR_VAL(mod), ZSTR_LEN(mod), "::", 2, ZSTR_VAL(name), ZSTR_LEN(name));
 		/* No compile-time existence check: an unclaimed member (declared in a member file but
@@ -2331,6 +2342,16 @@ int ZEND_FASTCALL zendlex(zend_parser_stack_elem *elem) /* {{{ */
 
 }
 /* }}} */
+
+/* PHP Modules: eval'd code runs as the code that calls eval() -- see FC(eval_module). */
+void zend_module_begin_eval_context(void)
+{
+	const char *val;
+	size_t len;
+	if (EG(current_execute_data) && zend_module_current_caller_module(&val, &len)) {
+		FC(eval_module) = zend_string_init(val, len, 0);
+	}
+}
 
 ZEND_API uint32_t zend_module_name_container_len(const zend_string *name)
 {
@@ -9792,14 +9813,15 @@ static zend_string *zend_begin_func_decl(znode *result, zend_op_array *op_array,
 		 * as the prefix before the FIRST "::{closure" — parsing by the LAST "::" would
 		 * misread a closure whose enclosing function's canonical name itself carries
 		 * "::". */
-		if (FC(current_module)) {
+		if (zend_module_self()) {
+			zend_string *mod = zend_module_self();
 			zend_string *plain = unqualified_name;
 			unqualified_name = zend_string_concat3(
-				ZSTR_VAL(FC(current_module)), ZSTR_LEN(FC(current_module)), "::", 2,
+				ZSTR_VAL(mod), ZSTR_LEN(mod), "::", 2,
 				ZSTR_VAL(plain), ZSTR_LEN(plain));
 			zend_string_release(plain);
 			op_array->fn_flags2 |= ZEND_ACC2_FN_MODULE_MEMBER;
-			op_array->module_len = (uint32_t) ZSTR_LEN(FC(current_module));
+			op_array->module_len = (uint32_t) ZSTR_LEN(mod);
 		}
 		op_array->function_name = name = unqualified_name;
 	} else {
@@ -11473,13 +11495,13 @@ static void zend_compile_use(zend_ast *ast) /* {{{ */
 		 * module of this membership file). Importing is pure aliasing, never an access, so
 		 * the member need not be known yet (a member file may compile before its module's
 		 * definition): just root the name at the current module. */
-		if (old_name_ast->attr == ZEND_NAME_MODULE_SELF && FC(current_module)) {
+		if (old_name_ast->attr == ZEND_NAME_MODULE_SELF && zend_module_self()) {
 			/* (Outside a module, `module` is an ordinary name: "use Module::X;".) */
 			const char *self_sep = zend_memnstr(ZSTR_VAL(old_name), "::", 2,
 				ZSTR_VAL(old_name) + ZSTR_LEN(old_name));
 			ZEND_ASSERT(self_sep);
 			module_self_name = zend_string_concat3(
-				ZSTR_VAL(FC(current_module)), ZSTR_LEN(FC(current_module)), "::", 2,
+				ZSTR_VAL(zend_module_self()), ZSTR_LEN(zend_module_self()), "::", 2,
 				self_sep + 2, ZSTR_VAL(old_name) + ZSTR_LEN(old_name) - (self_sep + 2));
 			old_name = module_self_name;
 		}

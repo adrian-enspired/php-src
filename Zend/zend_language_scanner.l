@@ -626,6 +626,9 @@ static zend_op_array *zend_compile_ast_internal(int type)
 	}
 
 	zend_file_context_begin(&original_file_context);
+	if (type == ZEND_EVAL_CODE) {
+		zend_module_begin_eval_context();
+	}
 	zend_oparray_context_begin(&original_oparray_context, op_array);
 	zend_compile_top_stmt(CG(ast));
 	CG(zend_lineno) = last_lineno;

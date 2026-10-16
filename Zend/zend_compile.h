@@ -118,6 +118,11 @@ typedef struct _zend_file_context {
 	 * scope for the current file, or NULL. Module-owned symbols are prefixed with
 	 * "<module>::" (the module boundary), then namespace-prefixed with "\" as usual. */
 	zend_string *current_module;
+	/* PHP Modules: when compiling eval'd code called from module code, that module, or NULL.
+	 * Eval'd code runs as its caller (like it runs in its caller's class scope): `module::`
+	 * resolves against it and closures created in it belong to it. Unlike current_module, it
+	 * doesn't make declarations module members (eval'd code doesn't inherit the namespace). */
+	zend_string *eval_module;
 	/* PHP Modules: transient — true while compiling an `internal` module member, so
 	 * zend_compile_class_decl can stamp ZEND_ACC2_MODULE_INTERNAL onto the member CE. */
 	bool current_member_internal;
@@ -250,6 +255,7 @@ ZEND_API bool zend_module_function_owner_prefix(const zend_function *fn, const c
  * rest is the declaring file). Computed once when a class or function is declared and
  * stored as module_len. */
 ZEND_API uint32_t zend_module_name_container_len(const zend_string *name);
+void zend_module_begin_eval_context(void);
 /* PHP Modules: true if the currently-executing code may NOT call module function `fn`
  * (an `internal` module function called from outside its module). One flag test for
  * non-module functions. Called at call-RESOLUTION points only (INIT_*FCALL cache-fill,

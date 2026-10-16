@@ -2447,7 +2447,10 @@ ZEND_API bool zend_module_function_owner_prefix(const zend_function *fn, const c
 ZEND_API bool zend_module_current_caller_module(const char **pval, size_t *plen)
 {
 	zend_execute_data *ex = EG(current_execute_data);
-	while (ex && (!ex->func || !ZEND_USER_CODE(ex->func->common.type))) {
+	/* Skip internal frames, and eval'd code outside a class: it runs as its caller (as it
+	 * runs in its caller's class scope when there is one). */
+	while (ex && (!ex->func || !ZEND_USER_CODE(ex->func->common.type)
+			|| (ex->func->type == ZEND_EVAL_CODE && !ex->func->common.scope))) {
 		ex = ex->prev_execute_data;
 	}
 	if (!ex || !ex->func) {
