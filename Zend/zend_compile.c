@@ -10784,6 +10784,21 @@ static zend_string *zend_generate_anon_class_name(const zend_ast_decl *decl)
 		prefix = zend_resolve_const_class_name_reference(list->child[0], "interface name");
 	}
 
+	/* PHP Modules: an anonymous class declared in module code belongs to that module. Like a
+	 * module closure ("M::{closure:…}"), its name starts with the module ("M::class@anonymous",
+	 * "M::Base@anonymous"; "M::N::C@anonymous" for a class of nested module N declared in M
+	 * is prefixed again, so the module part is always the one it was declared in). */
+	zend_string *mod = FC(current_module);
+	if (mod && !(ZSTR_LEN(prefix) > ZSTR_LEN(mod) + 2
+			&& zend_binary_strncasecmp(ZSTR_VAL(prefix), ZSTR_LEN(mod), ZSTR_VAL(mod), ZSTR_LEN(mod), ZSTR_LEN(mod)) == 0
+			&& ZSTR_VAL(prefix)[ZSTR_LEN(mod)] == ':'
+			&& !zend_memnstr(ZSTR_VAL(prefix) + ZSTR_LEN(mod) + 2, "::", 2, ZSTR_VAL(prefix) + ZSTR_LEN(prefix)))) {
+		zend_string *qualified = zend_string_concat3(
+			ZSTR_VAL(mod), ZSTR_LEN(mod), "::", 2, ZSTR_VAL(prefix), ZSTR_LEN(prefix));
+		zend_string_release(prefix);
+		prefix = qualified;
+	}
+
 	zend_string *result = zend_strpprintf(0, "%s@anonymous%c%s:%" PRIu32 "$%" PRIx32,
 		ZSTR_VAL(prefix), '\0', ZSTR_VAL(filename), start_lineno, CG(rtd_key_counter)++);
 	zend_string_release(prefix);
@@ -11024,7 +11039,9 @@ static void zend_compile_class_decl(znode *result, const zend_ast *ast, bool top
 	  || zend_memnstr(ZSTR_VAL(ce->name), "::", 2, ZSTR_VAL(ce->name) + ZSTR_LEN(ce->name)) != NULL)) {
 		ce->ce_flags2 |= ZEND_ACC2_MODULE_MEMBER;
 		const char *cv = ZSTR_VAL(ce->name), *cend = cv + ZSTR_LEN(ce->name);
-		ce->module_len = zend_module_name_container_len(ce->name);
+		ce->module_len = (decl->flags & ZEND_ACC_ANON_CLASS)
+			? (uint32_t) ZSTR_LEN(FC(current_module))
+			: zend_module_name_container_len(ce->name);
 		const char *first = zend_memnstr(cv, "::", 2, cend);
 		if ((decl->attr & ZEND_CLASS_DECL_MODULE)
 		 || (first && zend_memnstr(first + 2, "::", 2, cend))) {
