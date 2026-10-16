@@ -12142,7 +12142,7 @@ static zend_string *zend_module_member_tail(zend_string *source)
 	return zend_string_copy(source);
 }
 
-static void zend_preregister_module_subtree(zend_string *mod_name, const zend_ast *stmt_ast)
+static void zend_preregister_module_subtree(zend_string *mod_name, zend_ast *stmt_ast)
 {
 	if (!stmt_ast) {
 		return;
