@@ -221,10 +221,11 @@ ZEND_API bool zend_module_owner_path_of(const zend_class_entry *ce, const char *
  * unloaded container deny (required for COMPILE-time callers, which would
  * otherwise bake in a binding the runtime gate never sees). */
 ZEND_API bool zend_module_access_denied_from(const zend_class_entry *ce,
-		const char *cval, size_t clen, uint32_t cparent, bool have_module, bool unknown_denies,
-		const HashTable *local_classes);
-/* The nesting of the accessor's module (cparent above): its parent module's name length, 0 if
- * it is top-level, or ZEND_MODULE_PARENT_UNKNOWN (then the backing classes are consulted). */
+		const char *cval, size_t clen, const zend_class_entry *cscope, bool have_module,
+		bool unknown_denies, const HashTable *local_classes);
+/* The nesting of the module owning `scope`'s internals: its parent module's name length, 0 if
+ * it is top-level, or ZEND_MODULE_PARENT_UNKNOWN (then the backing classes are consulted).
+ * (cscope above is the accessor class it is read from, or NULL.) */
 #define ZEND_MODULE_PARENT_UNKNOWN UINT32_MAX
 ZEND_API uint32_t zend_module_owner_parent_hint(const zend_class_entry *scope);
 /* Ancestor-or-self test over two module names: true iff (aval,alen) is (dval,dlen) or a
@@ -241,7 +242,7 @@ ZEND_API void zend_module_materialize_constants_of(zend_class_entry *ce);
 ZEND_API void zend_module_preload_capture_constants(void);
 ZEND_API void zend_module_preload_restore_constants(void);
 /* String form of the above, for a scope-less caller whose module path is already known. */
-ZEND_API bool zend_module_container_allows_prefix(const zend_class_entry *ce, const char *cval, size_t clen, uint32_t cparent);
+ZEND_API bool zend_module_container_allows_prefix(const zend_class_entry *ce, const char *cval, size_t clen, const zend_class_entry *cscope);
 /* True if the currently-executing code may NOT access internal member `ce` (an internal
  * class, or a public member of an internal nested module). Used to gate name-based fetch
  * and object-based construction ("new $escaped") uniformly. */
