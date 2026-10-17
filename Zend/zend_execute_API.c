@@ -2106,7 +2106,7 @@ ZEND_API void zend_module_verify_declared_return(const zend_function *fn)
 	/* A function deferred while its own visibility was unknown (cold) may have resolved
 	 * internal: then its return type is not public surface. */
 	if (fn->common.scope
-		? zend_module_access_denied_from(fn->common.scope, NULL, 0, NULL, false, false, NULL)
+		? zend_module_access_denied_from(fn->common.scope, NULL, 0, NULL, false, NULL)
 		: zend_module_function_is_internal(fn)) {
 		goto pass;
 	}
@@ -2123,7 +2123,7 @@ ZEND_API void zend_module_verify_declared_return(const zend_function *fn)
 		}
 		/* Reachable from outside every module? Walks each boundary, so a public member of
 		 * an internal nested module is caught too. */
-		if (zend_module_access_denied_from(ce, NULL, 0, NULL, false, false, NULL)) {
+		if (zend_module_access_denied_from(ce, NULL, 0, NULL, false, NULL)) {
 			zend_throw_error(NULL,
 				"the return type of %s%s%s() references \"%s\", which is not reachable from "
 				"outside the module: a module's public surface may not expose internal or "
@@ -2151,7 +2151,7 @@ pass:
  * class may not name a type unreachable from outside its module. */
 ZEND_API ZEND_COLD zend_result zend_module_verify_declared_properties(zend_class_entry *ce)
 {
-	if (zend_module_access_denied_from(ce, NULL, 0, NULL, false, false, NULL)) {
+	if (zend_module_access_denied_from(ce, NULL, 0, NULL, false, NULL)) {
 		return SUCCESS;                    /* the class itself is not public surface */
 	}
 	zend_property_info *prop;
@@ -2172,7 +2172,7 @@ ZEND_API ZEND_COLD zend_result zend_module_verify_declared_properties(zend_class
 				}
 				continue;                  /* unresolvable -- not ours to report */
 			}
-			if (zend_module_access_denied_from(tce, NULL, 0, NULL, false, false, NULL)) {
+			if (zend_module_access_denied_from(tce, NULL, 0, NULL, false, NULL)) {
 				zend_throw_error(NULL,
 					"the type of property %s::$%s references \"%s\", which is not reachable from "
 					"outside the module: a module's public surface may not expose internal or "
@@ -2382,7 +2382,7 @@ ZEND_API void zend_module_preload_restore_constants(void)
  * COMPILE-time caller must treat it as denied, because its only alternative is to bake in a
  * binding that outruns the gate entirely. */
 ZEND_API bool zend_module_access_denied_from(const zend_class_entry *ce,
-		const char *cval, size_t clen, const zend_class_entry *cscope, bool have_module,
+		const char *cval, size_t clen, const zend_class_entry *cscope,
 		bool unknown_denies, const HashTable *local_classes)
 {
 	if (EXPECTED(!(ce->ce_flags2 &
@@ -2401,7 +2401,7 @@ ZEND_API bool zend_module_access_denied_from(const zend_class_entry *ce,
 	size_t child_len = ZSTR_LEN(ce->name);
 	for (;;) {
 		if (child_ce && UNEXPECTED(zend_module_member_is_internal(child_ce))) {
-			if (!have_module
+			if (!cval
 			 || !zend_module_container_allows_prefix(child_ce, cval, clen, cscope)) {
 				return true;
 			}
@@ -2460,7 +2460,7 @@ ZEND_API bool zend_module_runtime_access_denied(const zend_class_entry *ce)
 	} else {
 		have_module = zend_module_current_caller_module(&cval, &clen);
 	}
-	return zend_module_access_denied_from(ce, cval, clen, scope, have_module, false, NULL);
+	return zend_module_access_denied_from(ce, have_module ? cval : NULL, clen, scope, false, NULL);
 }
 
 /* PHP Modules: the owning-module prefix of a module-owned function's name, recorded at

@@ -221,7 +221,7 @@ ZEND_API bool zend_module_owner_path_of(const zend_class_entry *ce, const char *
  * unloaded container deny (required for COMPILE-time callers, which would
  * otherwise bake in a binding the runtime gate never sees). */
 ZEND_API bool zend_module_access_denied_from(const zend_class_entry *ce,
-		const char *cval, size_t clen, const zend_class_entry *cscope, bool have_module,
+		const char *cval, size_t clen, const zend_class_entry *cscope,
 		bool unknown_denies, const HashTable *local_classes);
 /* The nesting of the module owning `scope`'s internals: its parent module's name length, 0 if
  * it is top-level, or ZEND_MODULE_PARENT_UNKNOWN (then the backing classes are consulted).
