@@ -210,6 +210,9 @@ struct _zend_executor_globals {
 	/* PHP Modules: module constant name -> (uintptr_t) length of its owning module's name
 	 * (a prefix of it); lazily allocated, freed at request shutdown. */
 	HashTable *module_const_owners;
+	/* PHP Modules: functions whose deferred return-type publication check passed this request
+	 * (keyed by their opcodes), so it runs once, not on every return; lazily allocated. */
+	HashTable *module_verified_returns;
 
 	zval          *vm_stack_top;
 	zval          *vm_stack_end;

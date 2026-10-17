@@ -34,8 +34,8 @@ spl_autoload_register(function ($name) use ($dir) {
 });
 
 // This whole file compiled before the autoloader fired, so every chain below is cold.
-echo Shop\Money::CURRENCY, "\n";         // member class constant (autoloads the module)
-echo Shop\VERSION, "\n";                 // module constant (constants don't autoload)
+echo Shop\VERSION, "\n";                 // module constant (autoloads the module)
+echo Shop\Money::CURRENCY, "\n";         // member class constant
 echo Shop\Money::tag(), "\n";            // member static method
 echo Shop\Money::$scale, "\n";           // member static property
 echo Shop\Money::class, "\n";            // ::class on a chain
@@ -57,8 +57,8 @@ $dir = __DIR__ . '/csc_tmp';
 @rmdir($dir);
 ?>
 --EXPECT--
-USD
 3.0
+USD
 money
 2
 Shop\Money

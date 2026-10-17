@@ -294,6 +294,12 @@ ZEND_API zend_constant *zend_get_constant_ptr(zend_string *name)
 		return c;
 	}
 
+	/* PHP Modules: an inline module constant of a loaded module, not looked up yet. */
+	c = zend_module_materialize_constant(ZSTR_VAL(name), ZSTR_LEN(name), false);
+	if (c || EG(exception)) {
+		return c;
+	}
+
 	c = zend_get_halt_offset_constant(ZSTR_VAL(name), ZSTR_LEN(name));
 	if (c) {
 		return c;
@@ -484,6 +490,14 @@ ZEND_API zval *zend_get_constant_ex(zend_string *cname, const zend_class_entry *
 		c = zend_hash_str_find_ptr(EG(zend_constants), lcname, lcname_len);
 		free_alloca(lcname, use_heap);
 
+		if (!c) {
+			/* PHP Modules: an inline module constant not looked up yet this request. */
+			c = zend_module_materialize_constant(name, name_len,
+				!(flags & (IS_CONSTANT_UNQUALIFIED_IN_NAMESPACE | ZEND_FETCH_CLASS_SILENT)));
+			if (!c && EG(exception)) {
+				return NULL;
+			}
+		}
 		if (!c) {
 			if (flags & IS_CONSTANT_UNQUALIFIED_IN_NAMESPACE) {
 				/* name requires runtime resolution, need to check non-namespaced name */

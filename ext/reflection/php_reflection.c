@@ -8347,7 +8347,7 @@ static zend_constant *reflection_module_find_constant(const zend_class_entry *bc
 	zend_string *name = zend_string_concat3(
 		ZSTR_VAL(bce->name), ZSTR_LEN(bce->name), "\\", 1, ZSTR_VAL(tail), ZSTR_LEN(tail));
 	zend_string *key = zend_module_const_key(name);
-	zend_constant *c = zend_hash_find_ptr(EG(zend_constants), key);
+	zend_constant *c = zend_get_constant_ptr(key);   /* materializes an inline one */
 	zend_string_release(key);
 	zend_string_release(name);
 	return (c && zend_module_const_owner_len(c) == ZSTR_LEN(bce->name)) ? c : NULL;
@@ -8371,26 +8371,52 @@ static bool reflection_module_constant_is_internal(const zend_constant *c)
 	return !vis || (uintptr_t) vis == ZEND_MODULE_MEMBER_INTERNAL;
 }
 
+/* The module constants owned by `bce`, inline ones first in declaration order, then the
+ * member-file ones in declaration order (name -> zend_constant*). Caller destroys. */
+static void reflection_module_collect_constants(const zend_class_entry *bce, HashTable *out)
+{
+	zend_hash_init(out, 8, NULL, NULL, 0);
+	zend_module_materialize_constants_of((zend_class_entry *) bce);
+	zend_string *key;
+	ZEND_HASH_MAP_FOREACH_STR_KEY(&bce->constants_table, key) {
+		if (key && ZSTR_VAL(key)[0] == '\\') {
+			zend_string *tail = zend_string_init(ZSTR_VAL(key) + 1, ZSTR_LEN(key) - 1, 0);
+			zend_constant *c = reflection_module_find_constant(bce, tail);
+			zend_string_release(tail);
+			if (c) {
+				zend_hash_add_ptr(out, c->name, c);
+			}
+		}
+	} ZEND_HASH_FOREACH_END();
+	if (EG(module_const_owners)) {
+		zend_string *cn;
+		void *len;
+		size_t ml = ZSTR_LEN(bce->name);
+		ZEND_HASH_MAP_FOREACH_STR_KEY_PTR(EG(module_const_owners), cn, len) {
+			if ((uintptr_t) len != ml
+			 || zend_binary_strncasecmp(ZSTR_VAL(cn), ml, ZSTR_VAL(bce->name), ml, ml) != 0) {
+				continue;
+			}
+			zend_string *ckey = zend_module_const_key(cn);
+			zend_constant *c = zend_hash_find_ptr(EG(zend_constants), ckey);
+			zend_string_release(ckey);
+			if (c) {
+				zend_hash_add_ptr(out, c->name, c);
+			}
+		} ZEND_HASH_FOREACH_END();
+	}
+}
+
 /* Iterate the module constants owned by `bce`: `cn` is the constant's name. */
 #define REFLECTION_MODULE_FOREACH_CONSTANT(bce, cn, c) do { \
+		HashTable _consts; \
 		zend_string *cn; \
-		void *_len; \
-		if (EG(module_const_owners)) { \
-			ZEND_HASH_MAP_FOREACH_STR_KEY_PTR(EG(module_const_owners), cn, _len) { \
-				size_t _ml = ZSTR_LEN((bce)->name); \
-				if ((uintptr_t) _len != _ml \
-				 || zend_binary_strncasecmp(ZSTR_VAL(cn), _ml, ZSTR_VAL((bce)->name), _ml, _ml) != 0) { \
-					continue; \
-				} \
-				zend_string *_key = zend_module_const_key(cn); \
-				zend_constant *c = zend_hash_find_ptr(EG(zend_constants), _key); \
-				zend_string_release(_key); \
-				if (!c) { \
-					continue; \
-				}
+		zend_constant *c; \
+		reflection_module_collect_constants((bce), &_consts); \
+		ZEND_HASH_MAP_FOREACH_STR_KEY_PTR(&_consts, cn, c) {
 #define REFLECTION_MODULE_FOREACH_CONSTANT_END() \
-			} ZEND_HASH_FOREACH_END(); \
-		} \
+		} ZEND_HASH_FOREACH_END(); \
+		zend_hash_destroy(&_consts); \
 	} while (0)
 
 typedef enum { RMV_NONE, RMV_PUBLIC, RMV_INTERNAL } reflection_module_visibility;

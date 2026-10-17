@@ -883,7 +883,7 @@ static bool zend_optimizer_module_class_usable(const zend_script *script,
 	const char *cv = NULL;
 	size_t clen = 0;
 	bool have_module = zend_optimizer_accessor_module(op_array, &cv, &clen);
-	return !zend_module_access_denied_from(ce, cv, clen, have_module, true,
+	return !zend_module_access_denied_from(ce, cv, clen, ZEND_MODULE_PARENT_UNKNOWN, have_module, true,
 		script ? &script->class_table : NULL);
 }
 

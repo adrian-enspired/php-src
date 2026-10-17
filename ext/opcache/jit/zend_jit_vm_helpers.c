@@ -412,16 +412,26 @@ static zend_always_inline zend_constant* _zend_quick_get_constant(
 	zv = zend_hash_find_known_hash(EG(zend_constants), Z_STR_P(key));
 	if (zv) {
 		c = (zend_constant*)Z_PTR_P(zv);
-	} else if (flags & IS_CONSTANT_UNQUALIFIED_IN_NAMESPACE) {
-		key++;
-		zv = zend_hash_find_known_hash(EG(zend_constants), Z_STR_P(key));
-		if (zv) {
-			c = (zend_constant*)Z_PTR_P(zv);
+	} else {
+		/* PHP Modules: an inline module constant not looked up yet this request (loading
+		 * its module for a qualified fetch); before the global fallback, which it shadows. */
+		bool unqualified = (flags & IS_CONSTANT_UNQUALIFIED_IN_NAMESPACE) != 0;
+		/* (a fetch's key follows the name as written, which autoloading wants; defined()'s
+		 * key has the namespace lowercased, which is enough for a lookup) */
+		const zval *name = check_defined_only ? key : key - 1;
+		c = zend_module_materialize_constant(Z_STRVAL_P(name), Z_STRLEN_P(name),
+			!unqualified && !check_defined_only);
+		if (!c && unqualified && !EG(exception)) {
+			key++;
+			zv = zend_hash_find_known_hash(EG(zend_constants), Z_STR_P(key));
+			if (zv) {
+				c = (zend_constant*)Z_PTR_P(zv);
+			}
 		}
 	}
 
 	if (!c) {
-		if (!check_defined_only) {
+		if (!check_defined_only && !EG(exception)) {
 			zend_throw_error(NULL, "Undefined constant \"%s\"", Z_STRVAL_P(RT_CONSTANT(opline, opline->op2)));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
 		}

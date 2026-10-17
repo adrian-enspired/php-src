@@ -2227,6 +2227,7 @@ ZEND_API void zend_initialize_class_data(zend_class_entry *ce, bool nullify_hand
 
 	ce->refcount = 1;
 	ce->module_len = 0;
+	ce->module_owner_parent_len = 0;
 	ce->ce_flags = ZEND_ACC_CONSTANTS_UPDATED;
 	ce->ce_flags2 = 0;
 
@@ -10733,6 +10734,9 @@ static void zend_compile_class_decl(znode *result, const zend_ast *ast, bool top
 			ce->module_len = (uint32_t) ZSTR_LEN(FC(current_module));
 			if (FC(current_module_maybe_nested)) {
 				ce->ce_flags2 |= ZEND_ACC2_MODULE_NESTED;
+				if (FC(current_module_container_len) <= UINT16_MAX) {
+					ce->module_owner_parent_len = (uint16_t) FC(current_module_container_len);
+				}
 			}
 		}
 	}
@@ -11749,6 +11753,84 @@ ZEND_API zend_constant *zend_declare_module_const_runtime(zend_string *name, zva
 	return creg;
 }
 
+/* PHP Modules: an inline module constant lives on its module's backing class (as "\\K") and
+ * becomes the namespaced constant "M\\K" on its first lookup in a request: called when a
+ * lookup of `name` missed. Loads module "M" first when `autoload`. Returns the constant
+ * registered, or NULL (none; or an exception, e.g. from evaluating its value). */
+ZEND_API zend_constant *zend_module_materialize_constant(const char *name, size_t len, bool autoload)
+{
+	if (len && name[0] == '\\') {
+		name++;
+		len--;
+	}
+	const char *sep = zend_memrchr(name, '\\', len);
+	if (!sep || sep == name || sep == name + len - 1) {
+		return NULL;
+	}
+	size_t mlen = (size_t) (sep - name);
+	zend_class_entry *ce;
+	if (autoload) {
+		zend_string *mname = zend_string_init(name, mlen, 0);
+		ce = zend_lookup_class(mname);
+		zend_string_release(mname);
+	} else {
+		ce = zend_hash_str_find_ptr_lc(EG(class_table), name, mlen);
+	}
+	if (!ce || !(ce->ce_flags2 & ZEND_ACC2_MODULE)) {
+		return NULL;
+	}
+	zend_string *key = zend_string_init(sep, len - mlen, 0);   /* "\\K" */
+	zend_class_constant *cc = zend_hash_find_ptr(&ce->constants_table, key);
+	if (!cc) {
+		zend_string_release(key);
+		return NULL;
+	}
+	zval *value = zend_get_class_constant_ex(ce->name, key, ce, ZEND_FETCH_CLASS_SILENT);
+	zend_string_release(key);
+	if (!value) {
+		return NULL;
+	}
+	zend_string *full = zend_string_concat2(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), sep, len - mlen);
+	uint32_t ext = (uint32_t) ZSTR_LEN(ce->name) | ZEND_MODULE_CONST_VIS_KNOWN
+		| ((ZEND_CLASS_CONST_FLAGS(cc) & ZEND_ACC_MODULE_INTERNAL_MEMBER) ? ZEND_MODULE_CONST_INTERNAL : 0);
+	zend_constant *c = zend_declare_module_const_runtime(full, value, ext);
+	zend_string_release(full);
+	if (c) {
+		if (cc->attributes) {
+			c->attributes = cc->attributes;
+			GC_TRY_ADDREF(c->attributes);
+		}
+		if (c->filename) {
+			zend_string_release(c->filename);
+		}
+		c->filename = ce->info.user.filename ? zend_string_copy(ce->info.user.filename) : NULL;
+	}
+	return c;
+}
+
+/* PHP Modules: materialize every inline constant of module backing class `ce` (for listings). */
+ZEND_API void zend_module_materialize_constants_of(zend_class_entry *ce)
+{
+	zend_string *key;
+	ZEND_HASH_MAP_FOREACH_STR_KEY(&ce->constants_table, key) {
+		if (!key || ZSTR_VAL(key)[0] != '\\') {
+			continue;
+		}
+		zend_string *full = zend_string_concat2(ZSTR_VAL(ce->name), ZSTR_LEN(ce->name), ZSTR_VAL(key), ZSTR_LEN(key));
+		zend_string *lc = zend_string_tolower(full);
+		zend_str_tolower_copy(ZSTR_VAL(lc), ZSTR_VAL(full), ZSTR_LEN(ce->name));
+		memcpy(ZSTR_VAL(lc) + ZSTR_LEN(ce->name), ZSTR_VAL(key), ZSTR_LEN(key));
+		if (!zend_hash_exists(EG(zend_constants), lc)) {
+			zend_module_materialize_constant(ZSTR_VAL(full), ZSTR_LEN(full), false);
+		}
+		zend_string_release(lc);
+		zend_string_release(full);
+		if (EG(exception)) {
+			return;
+		}
+	} ZEND_HASH_FOREACH_END();
+}
+
 /* PHP Modules: the length of module constant `c`'s owning module's name, a prefix of its name. */
 ZEND_API uint32_t zend_module_const_owner_len(const zend_constant *c)
 {
@@ -12198,22 +12280,23 @@ static void zend_compile_module(const zend_ast *ast) /* {{{ */
 				continue;
 			}
 
-			/* Module constants are namespaced constants ("M\\K"), declared at runtime with
-			 * the block's visibility (zend_compile_const_decl). The grammar produced a
-			 * CLASS_CONST_GROUP (so an inline `#[Attr]` attaches as for a class constant);
-			 * recast it as a const declaration. */
+			/* Module constants are namespaced constants ("M\\K"). An inline one is stored on the
+			 * backing class, so it is compiled (and cached) with the class instead of being
+			 * declared on every request, and becomes the constant "M\\K" on its first lookup
+			 * (zend_module_materialize_constant). The grammar produced a CLASS_CONST_GROUP (an
+			 * inline `#[Attr]` attaches as for a class constant). Stored under "\\K", private:
+			 * not reachable as a class constant. */
 			if (decl->kind == ZEND_AST_CLASS_CONST_GROUP) {
 				const zend_ast_list *consts = zend_ast_get_list(decl->child[0]);
-				zend_ast *const_decl = zend_ast_create_list(0, ZEND_AST_CONST_DECL);
 				for (uint32_t j = 0; j < consts->children; j++) {
-					const_decl = zend_ast_list_add(const_decl, consts->child[j]);
+					zval *nzv = zend_ast_get_zval(consts->child[j]->child[0]);
+					zend_string *mangled = zend_string_concat2("\\", 1, Z_STRVAL_P(nzv), Z_STRLEN_P(nzv));
+					zval_ptr_dtor_str(nzv);
+					ZVAL_STR(nzv, mangled);
 				}
-				if (decl->child[1]) {
-					const_decl = zend_ast_list_add(const_decl, decl->child[1]);
-				}
-				FC(current_member_internal) = (visibility == ZEND_MODULE_MEMBER_INTERNAL);
-				zend_compile_const_decl(const_decl);
-				FC(current_member_internal) = false;
+				decl->attr = ZEND_ACC_PRIVATE
+					| (visibility == ZEND_MODULE_MEMBER_INTERNAL ? ZEND_ACC_MODULE_INTERNAL_MEMBER : 0);
+				backing_stmts = zend_ast_list_add(backing_stmts, decl);
 				continue;
 			}
 

@@ -150,6 +150,11 @@ C23_ENUM(zend_class_type, uint8_t) {
 
 struct _zend_class_entry {
 	zend_class_type type;
+	/* PHP Modules: length of the container of the module that owns this class's internals
+	 * (a nested module's parent), when known at compile time; 0 when unknown or none. Lets
+	 * the access gate answer "is A an ancestor of this module?" without a lookup. Fits in
+	 * the padding after `type`. */
+	uint16_t module_owner_parent_len;
 	zend_string *name;
 	/* class_entry or string depending on ZEND_ACC_LINKED */
 	union {

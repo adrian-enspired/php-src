@@ -2116,6 +2116,44 @@ static zend_always_inline bool zend_module_path_covers(
 	return dlen == alen || zend_module_is_ancestor(aval, alen, dval, dlen);
 }
 
+/* PHP Modules: zend_module_path_covers() with what is known of D's nesting: `dparent` is the
+ * length of D's parent module, 0 when D is top-level, ZEND_MODULE_PARENT_UNKNOWN when not
+ * known. Answers the common cases (D top-level; A is D's parent) without a lookup. */
+static zend_always_inline bool zend_module_path_covers_hint(
+		const char *aval, size_t alen, const char *dval, size_t dlen, uint32_t dparent)
+{
+	if (dlen < alen) {
+		return false;
+	}
+	if (dlen != alen && dval[alen] != '\\') {
+		return false;
+	}
+	if (zend_binary_strncasecmp(dval, alen, aval, alen, alen) != 0) {
+		return false;
+	}
+	if (dlen == alen) {
+		return true;
+	}
+	if (dparent == alen) {
+		return true;
+	}
+	if (dparent < alen) {
+		return false;   /* top-level D, or A lies between D and its parent: not a module of D's chain */
+	}
+	return zend_module_is_ancestor(aval, alen, dval, dlen);
+}
+
+/* PHP Modules: the nesting of the module owning `scope`'s internals, for
+ * zend_module_path_covers_hint(): its parent's length, 0 if top-level, or unknown. */
+ZEND_API uint32_t zend_module_owner_parent_hint(const zend_class_entry *scope)
+{
+	if (!(scope->ce_flags2 & ZEND_ACC2_MODULE_NESTED)) {
+		return 0;
+	}
+	uint32_t parent = (scope->ce_flags2 & ZEND_ACC2_MODULE) ? scope->module_len : scope->module_owner_parent_len;
+	return parent ? parent : ZEND_MODULE_PARENT_UNKNOWN;
+}
+
 /* The module that OWNS `ce`'s own internal members (methods, properties, constants).
  * For a module backing class that is the module itself (its internal statics belong to
  * it); for a member class it is its containing module (ce->module_len). False => not in a
@@ -2207,7 +2245,7 @@ ZEND_API bool zend_module_scope_allows(
 	if (!zend_module_owner_path(scope, &sval, &slen)) {
 		return false; /* accessor is not module code */
 	}
-	return zend_module_path_covers(mval, mlen, sval, slen);
+	return zend_module_path_covers_hint(mval, mlen, sval, slen, zend_module_owner_parent_hint(scope));
 }
 
 /* PHP Modules: the STRICT (exact same module) form. Retained for the one gate that must
@@ -2259,7 +2297,7 @@ ZEND_API bool zend_module_container_allows(
 	if (!zend_module_owner_path(scope, &sval, &slen)) {
 		return false;
 	}
-	return zend_module_path_covers(cval, clen, sval, slen);
+	return zend_module_path_covers_hint(cval, clen, sval, slen, zend_module_owner_parent_hint(scope));
 }
 
 /* PHP Modules: exported form of zend_module_owner_path — the module owning `ce`'s own
@@ -2280,14 +2318,14 @@ ZEND_API bool zend_module_path_covers_str(
 /* PHP Modules: string form of zend_module_container_allows, for a scope-less caller
  * (module function / module-born closure) whose module path is already in hand. */
 ZEND_API bool zend_module_container_allows_prefix(
-		const zend_class_entry *ce, const char *cval, size_t clen)
+		const zend_class_entry *ce, const char *cval, size_t clen, uint32_t cparent)
 {
 	const char *conv;
 	size_t conlen;
 	if (!zend_module_container_path(ce, &conv, &conlen)) {
 		return true;
 	}
-	return zend_module_path_covers(conv, conlen, cval, clen);
+	return zend_module_path_covers_hint(conv, conlen, cval, clen, cparent);
 }
 
 static ZEND_COLD void zend_bad_module_method_call(const zend_function *fbc)

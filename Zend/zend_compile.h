@@ -221,21 +221,27 @@ ZEND_API bool zend_module_owner_path_of(const zend_class_entry *ce, const char *
  * unloaded container deny (required for COMPILE-time callers, which would
  * otherwise bake in a binding the runtime gate never sees). */
 ZEND_API bool zend_module_access_denied_from(const zend_class_entry *ce,
-		const char *cval, size_t clen, bool have_module, bool unknown_denies,
+		const char *cval, size_t clen, uint32_t cparent, bool have_module, bool unknown_denies,
 		const HashTable *local_classes);
+/* The nesting of the accessor's module (cparent above): its parent module's name length, 0 if
+ * it is top-level, or ZEND_MODULE_PARENT_UNKNOWN (then the backing classes are consulted). */
+#define ZEND_MODULE_PARENT_UNKNOWN UINT32_MAX
+ZEND_API uint32_t zend_module_owner_parent_hint(const zend_class_entry *scope);
 /* Ancestor-or-self test over two module names: true iff (aval,alen) is (dval,dlen) or a
  * module that (dval,dlen) is nested in, to any depth (by the backing classes' nesting). */
 ZEND_API bool zend_module_path_covers_str(const char *aval, size_t alen, const char *dval, size_t dlen);
 /* PHP Modules: verify the DECLARED return type of a deferred function names only publicly
  * reachable types. Concerns the declaration only -- never the returned value, whose own type
  * is checked separately and which may legitimately be an escaped internal instance. */
-ZEND_API ZEND_COLD void zend_module_verify_declared_return(const zend_function *fn);
+ZEND_API void zend_module_verify_declared_return(const zend_function *fn);
 ZEND_API ZEND_COLD zend_result zend_module_verify_declared_properties(zend_class_entry *ce);
 ZEND_API void zend_module_bake_preloaded_visibility(void);
+ZEND_API struct _zend_constant *zend_module_materialize_constant(const char *name, size_t len, bool autoload);
+ZEND_API void zend_module_materialize_constants_of(zend_class_entry *ce);
 ZEND_API void zend_module_preload_capture_constants(void);
 ZEND_API void zend_module_preload_restore_constants(void);
 /* String form of the above, for a scope-less caller whose module path is already known. */
-ZEND_API bool zend_module_container_allows_prefix(const zend_class_entry *ce, const char *cval, size_t clen);
+ZEND_API bool zend_module_container_allows_prefix(const zend_class_entry *ce, const char *cval, size_t clen, uint32_t cparent);
 /* True if the currently-executing code may NOT access internal member `ce` (an internal
  * class, or a public member of an internal nested module). Used to gate name-based fetch
  * and object-based construction ("new $escaped") uniformly. */

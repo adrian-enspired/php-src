@@ -147,6 +147,7 @@ void init_executor(void) /* {{{ */
 	EG(module_registry) = NULL; /* PHP Modules (experimental): lazily allocated */
 	EG(module_probe_misses) = NULL;
 	EG(module_const_owners) = NULL;
+	EG(module_verified_returns) = NULL;
 
 	EG(error_handling) = EH_NORMAL;
 	EG(flags) = EG_FLAGS_INITIAL;
@@ -476,6 +477,11 @@ void shutdown_executor(void) /* {{{ */
 		zend_hash_destroy(EG(module_const_owners));
 		efree(EG(module_const_owners));
 		EG(module_const_owners) = NULL;
+	}
+	if (EG(module_verified_returns)) {
+		zend_hash_destroy(EG(module_verified_returns));
+		efree(EG(module_verified_returns));
+		EG(module_verified_returns) = NULL;
 	}
 
 	zend_shutdown_executor_values(fast_shutdown);
@@ -2082,17 +2088,27 @@ ZEND_API ZEND_COLD void zend_throw_module_access_error(const zend_class_entry *c
  * at compile time. Resolving the name to a class entry is what settles the ambiguity the
  * compiler could not: an unclaimed member carries module membership, an ordinary class in a
  * matching namespace does not. */
-ZEND_API ZEND_COLD void zend_module_verify_declared_return(const zend_function *fn)
+ZEND_API void zend_module_verify_declared_return(const zend_function *fn)
 {
 	const zend_arg_info *ret_info = fn->common.arg_info - 1;
 	const zend_type *single_type;
+	/* A pass is final for the request once every named type has resolved (classes are never
+	 * undeclared): remember it, keyed by the opcodes, which closures share with their
+	 * declaration. */
+	zend_ulong key = (zend_ulong) (uintptr_t) fn->op_array.opcodes;
+	bool final = true;
+
+	if (EXPECTED(EG(module_verified_returns) != NULL)
+	 && zend_hash_index_exists(EG(module_verified_returns), key)) {
+		return;
+	}
 
 	/* A function deferred while its own visibility was unknown (cold) may have resolved
 	 * internal: then its return type is not public surface. */
 	if (fn->common.scope
-		? zend_module_access_denied_from(fn->common.scope, NULL, 0, false, false, NULL)
+		? zend_module_access_denied_from(fn->common.scope, NULL, 0, 0, false, false, NULL)
 		: zend_module_function_is_internal(fn)) {
-		return;
+		goto pass;
 	}
 
 	ZEND_TYPE_FOREACH(ret_info->type, single_type) {
@@ -2102,11 +2118,12 @@ ZEND_API ZEND_COLD void zend_module_verify_declared_return(const zend_function *
 		zend_string *tname = ZEND_TYPE_NAME(*single_type);
 		zend_class_entry *ce = zend_lookup_class(tname);
 		if (!ce) {
+			final = false;
 			continue;                      /* unresolvable -- not ours to report */
 		}
 		/* Reachable from outside every module? Walks each boundary, so a public member of
 		 * an internal nested module is caught too. */
-		if (zend_module_access_denied_from(ce, NULL, 0, false, false, NULL)) {
+		if (zend_module_access_denied_from(ce, NULL, 0, 0, false, false, NULL)) {
 			zend_throw_error(NULL,
 				"the return type of %s%s%s() references \"%s\", which is not reachable from "
 				"outside the module: a module's public surface may not expose internal or "
@@ -2117,6 +2134,15 @@ ZEND_API ZEND_COLD void zend_module_verify_declared_return(const zend_function *
 			return;
 		}
 	} ZEND_TYPE_FOREACH_END();
+
+pass:
+	if (final && !EG(exception)) {
+		if (!EG(module_verified_returns)) {
+			EG(module_verified_returns) = emalloc(sizeof(HashTable));
+			zend_hash_init(EG(module_verified_returns), 8, NULL, NULL, 0);
+		}
+		zend_hash_index_add_empty_element(EG(module_verified_returns), key);
+	}
 }
 
 /* PHP Modules: verify the public property types of `ce` that the compiler could not decide
@@ -2125,7 +2151,7 @@ ZEND_API ZEND_COLD void zend_module_verify_declared_return(const zend_function *
  * class may not name a type unreachable from outside its module. */
 ZEND_API ZEND_COLD zend_result zend_module_verify_declared_properties(zend_class_entry *ce)
 {
-	if (zend_module_access_denied_from(ce, NULL, 0, false, false, NULL)) {
+	if (zend_module_access_denied_from(ce, NULL, 0, 0, false, false, NULL)) {
 		return SUCCESS;                    /* the class itself is not public surface */
 	}
 	zend_property_info *prop;
@@ -2146,7 +2172,7 @@ ZEND_API ZEND_COLD zend_result zend_module_verify_declared_properties(zend_class
 				}
 				continue;                  /* unresolvable -- not ours to report */
 			}
-			if (zend_module_access_denied_from(tce, NULL, 0, false, false, NULL)) {
+			if (zend_module_access_denied_from(tce, NULL, 0, 0, false, false, NULL)) {
 				zend_throw_error(NULL,
 					"the type of property %s::$%s references \"%s\", which is not reachable from "
 					"outside the module: a module's public surface may not expose internal or "
@@ -2279,6 +2305,18 @@ ZEND_API void zend_module_preload_capture_constants(void)
 		 || (ce->ce_flags & ZEND_ACC_IMMUTABLE) || !zend_module_value_preloadable(&c->value)) {
 			continue;
 		}
+		/* A constant directly in the module is stored like an inline one ("\\K"), and becomes
+		 * the constant again on its first lookup; an inline one is already there. One in a
+		 * sub-namespace keeps its full name and is re-declared every request. */
+		size_t mlen = (size_t) (uintptr_t) len;
+		bool direct = !memchr(ZSTR_VAL(name) + mlen + 1, '\\', ZSTR_LEN(name) - mlen - 1);
+		zend_string *ckey = direct
+			? zend_string_init(ZSTR_VAL(name) + mlen, ZSTR_LEN(name) - mlen, 0)
+			: zend_string_copy(name);
+		if (zend_hash_exists(&ce->constants_table, ckey)) {
+			zend_string_release(ckey);
+			continue;
+		}
 		bool internal;
 		if (ZEND_CONSTANT_FLAGS(c) & CONST_MODULE_VIS_UNKNOWN) {
 			zend_string *lc_mod = zend_string_tolower(ce->name);
@@ -2293,7 +2331,7 @@ ZEND_API void zend_module_preload_capture_constants(void)
 		}
 		zval value;
 		ZVAL_COPY(&value, &c->value);
-		zend_class_constant *cc = zend_declare_class_constant_ex(ce, zend_new_interned_string(zend_string_copy(name)),
+		zend_class_constant *cc = zend_declare_class_constant_ex(ce, zend_new_interned_string(ckey),
 			&value, ZEND_ACC_PRIVATE | (internal ? ZEND_ACC_MODULE_INTERNAL_MEMBER : 0), NULL);
 		if (cc && c->attributes) {
 			GC_TRY_ADDREF(c->attributes);
@@ -2317,7 +2355,8 @@ ZEND_API void zend_module_preload_restore_constants(void)
 		zend_string *cname;
 		zend_class_constant *cc;
 		ZEND_HASH_MAP_FOREACH_STR_KEY_PTR(&ce->constants_table, cname, cc) {
-			if (!memchr(ZSTR_VAL(cname), '\\', ZSTR_LEN(cname))) {
+			/* (a "\\K" one is materialized on its first lookup) */
+			if (ZSTR_VAL(cname)[0] == '\\' || !memchr(ZSTR_VAL(cname), '\\', ZSTR_LEN(cname))) {
 				continue;
 			}
 			uint32_t ext = (uint32_t) ZSTR_LEN(ce->name) | ZEND_MODULE_CONST_VIS_KNOWN
@@ -2343,7 +2382,7 @@ ZEND_API void zend_module_preload_restore_constants(void)
  * COMPILE-time caller must treat it as denied, because its only alternative is to bake in a
  * binding that outruns the gate entirely. */
 ZEND_API bool zend_module_access_denied_from(const zend_class_entry *ce,
-		const char *cval, size_t clen, bool have_module, bool unknown_denies,
+		const char *cval, size_t clen, uint32_t cparent, bool have_module, bool unknown_denies,
 		const HashTable *local_classes)
 {
 	if (EXPECTED(!(ce->ce_flags2 &
@@ -2363,7 +2402,7 @@ ZEND_API bool zend_module_access_denied_from(const zend_class_entry *ce,
 	for (;;) {
 		if (child_ce && UNEXPECTED(zend_module_member_is_internal(child_ce))) {
 			if (!have_module
-			 || !zend_module_container_allows_prefix(child_ce, cval, clen)) {
+			 || !zend_module_container_allows_prefix(child_ce, cval, clen, cparent)) {
 				return true;
 			}
 		}
@@ -2414,14 +2453,16 @@ ZEND_API bool zend_module_runtime_access_denied(const zend_class_entry *ce)
 	const char *cval = NULL;
 	size_t clen = 0;
 	bool have_module = false;
+	uint32_t cparent = ZEND_MODULE_PARENT_UNKNOWN;
 
 	zend_class_entry *scope = zend_module_current_user_scope();
 	if (scope) {
 		have_module = zend_module_owner_path_of(scope, &cval, &clen);
+		cparent = zend_module_owner_parent_hint(scope);
 	} else {
 		have_module = zend_module_current_caller_module(&cval, &clen);
 	}
-	return zend_module_access_denied_from(ce, cval, clen, have_module, false, NULL);
+	return zend_module_access_denied_from(ce, cval, clen, cparent, have_module, false, NULL);
 }
 
 /* PHP Modules: the owning-module prefix of a module-owned function's name, recorded at
@@ -2541,7 +2582,7 @@ ZEND_API bool zend_module_function_access_denied(const zend_function *fn)
 		zend_class_entry *child_ce = zend_hash_str_find_ptr_lc(EG(class_table), mod, mlen);
 		while (child_ce && (child_ce->ce_flags2 & ZEND_ACC2_MODULE) && child_ce->module_len) {
 			if (UNEXPECTED(zend_module_member_is_internal(child_ce))
-			 && (!have_caller || !zend_module_container_allows_prefix(child_ce, cval, clen))) {
+			 && (!have_caller || !zend_module_container_allows_prefix(child_ce, cval, clen, ZEND_MODULE_PARENT_UNKNOWN))) {
 				return true;
 			}
 			child_ce = zend_hash_str_find_ptr_lc(EG(class_table), mod, child_ce->module_len);
