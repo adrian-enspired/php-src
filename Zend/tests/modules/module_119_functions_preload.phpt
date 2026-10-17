@@ -16,12 +16,12 @@ if (substr(PHP_OS, 0, 3) == 'WIN') die('skip not for Windows');
  * baked on fn_flags, so gating works with an EMPTY per-request module registry. */
 var_dump(PreFn\x());               // member-file fn, claimed public, via M::
 var_dump(\PreFn\x());               // projected namespaced name (persisted alias key)
-var_dump(PreFn::inl());             // inline fn (canonical key only)
+var_dump(PreFn\inl());             // inline fn (canonical key only)
 var_dump(function_exists('PreFn\inl'));   // an inline module function's name is namespaced too
 
-try { PreFn::sec(); echo "LEAK\n"; } catch (\Error $e) { echo $e->getMessage(), "\n"; }
+try { PreFn\sec(); echo "LEAK\n"; } catch (\Error $e) { echo $e->getMessage(), "\n"; }
 try { \PreFn\sec(); echo "LEAK\n"; } catch (\Error $e) { echo $e->getMessage(), "\n"; }
-try { PreFn::inlsec(); echo "LEAK\n"; } catch (\Error $e) { echo $e->getMessage(), "\n"; }
+try { PreFn\inlsec(); echo "LEAK\n"; } catch (\Error $e) { echo $e->getMessage(), "\n"; }
 
 $fns = (new ReflectionModule('PreFn'))->getFunctionNames();
 sort($fns);

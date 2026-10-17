@@ -20,11 +20,11 @@ echo str_contains(
     lint("module M { protected function f() {} }\n"),
     'syntax error') ? "reject ok: protected function\n" : "FAIL 2\n";
 
-// attributes on a member-file module constant point at the inline form
+// attributes on a member-file module constant are allowed (like on any constant)
 echo str_contains(
     lint("module M;\n#[MyAttr]\nconst K = 1;\n"),
-    'Attributes are not supported on a module constant declared in a membership file')
-    ? "reject ok: attributed member-file const\n" : "FAIL 3\n";
+    'No syntax errors')
+    ? "allow ok: attributed member-file const\n" : "FAIL 3\n";
 
 // a claimed-but-undefined function is undefined at the call, not before
 module Claims { public ghost; }
@@ -55,6 +55,6 @@ $dir = __DIR__ . '/mod123_tmp';
 --EXPECTF--
 reject ok: static function
 reject ok: protected function
-reject ok: attributed member-file const
+allow ok: attributed member-file const
 Call to undefined function Claims\ghost()
 int(4)

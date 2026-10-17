@@ -7999,25 +7999,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
-			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
-				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
-				 * in EG(zend_constants) under its canonical key, not on the backing class
-				 * (inline module constants — backing class constants — answered above).
-				 * Resolution gates internal visibility. */
-				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
-				if (mc) {
-					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
-
-
-					ZEND_VM_NEXT_OPCODE();
-				}
-				if (UNEXPECTED(EG(exception))) {
-					ZVAL_UNDEF(EX_VAR(opline->result.var));
-
-
-					HANDLE_EXCEPTION();
-				}
-			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -8433,33 +8414,35 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_DECLARE_MODUL
 
 static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_DECLARE_MODULE_CONST_SPEC_CONST_CONST_HANDLER(ZEND_OPCODE_HANDLER_ARGS)
 {
-	/* PHP Modules: declare a member-file MODULE CONSTANT — op1 = canonical name
-	 * ("M::K" / "M::Sub\K"), op2 = value. Mirrors ZEND_DECLARE_CONST's value handling,
-	 * then registers the canonical entry (claim visibility; cold = VIS_UNKNOWN) plus its
-	 * projected namespaced-name alias. Runtime-driven, so both entries and the resolved
-	 * visibility replay on an opcache hit. */
+	/* PHP Modules: declare a MODULE CONSTANT — op1 = its name ("M\K" / "M\Sub\K"),
+	 * op2 = value, extended_value = the owning module's name length plus the visibility of an
+	 * inline constant (ZEND_MODULE_CONST_*). Mirrors ZEND_DECLARE_CONST's value handling. With
+	 * ADOPT (op2 unused), the preceding ZEND_DECLARE_ATTRIBUTED_CONST registered it; mark it.
+	 * Runtime-driven, so the constant and its resolved visibility replay on an opcache hit. */
 	USE_OPLINE
 	zval *name;
-	zval *val;
-	zval value;
 
 	SAVE_OPLINE();
 	name  = RT_CONSTANT(opline, opline->op1);
-	val   = RT_CONSTANT(opline, opline->op2);
+	if (IS_CONST == IS_UNUSED) {
+		zend_declare_module_const_runtime(Z_STR_P(name), NULL, opline->extended_value);
+	} else {
+		zval *val = RT_CONSTANT(opline, opline->op2);
+		zval value;
+		ZVAL_COPY(&value, val);
+		if (Z_OPT_TYPE(value) == IS_CONSTANT_AST) {
+			if (UNEXPECTED(zval_update_constant_ex(&value, EX(func)->op_array.scope) != SUCCESS)) {
+				zval_ptr_dtor_nogc(&value);
 
-	ZVAL_COPY(&value, val);
-	if (Z_OPT_TYPE(value) == IS_CONSTANT_AST) {
-		if (UNEXPECTED(zval_update_constant_ex(&value, EX(func)->op_array.scope) != SUCCESS)) {
-			zval_ptr_dtor_nogc(&value);
 
 
 
-
-			HANDLE_EXCEPTION();
+				HANDLE_EXCEPTION();
+			}
 		}
+		zend_declare_module_const_runtime(Z_STR_P(name), &value, opline->extended_value);
+		zval_ptr_dtor_nogc(&value);
 	}
-	zend_declare_module_const_runtime(Z_STR_P(name), &value);
-	zval_ptr_dtor_nogc(&value);
 
 
 
@@ -9433,23 +9416,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
-			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
-				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
-				 * in EG(zend_constants) under its canonical key, not on the backing class
-				 * (inline module constants — backing class constants — answered above).
-				 * Resolution gates internal visibility. */
-				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
-				if (mc) {
-					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
-					FREE_OP(opline->op2_type, opline->op2.var);
-					ZEND_VM_NEXT_OPCODE();
-				}
-				if (UNEXPECTED(EG(exception))) {
-					ZVAL_UNDEF(EX_VAR(opline->result.var));
-					FREE_OP(opline->op2_type, opline->op2.var);
-					HANDLE_EXCEPTION();
-				}
-			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -11956,6 +11922,44 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_ISSET_ISEMPTY
 }
 
 /* No specialization for op_types (CONST|TMPVAR|CV, UNUSED|CLASS_FETCH|CONST|TMP) */
+static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_DECLARE_MODULE_CONST_SPEC_CONST_UNUSED_HANDLER(ZEND_OPCODE_HANDLER_ARGS)
+{
+	/* PHP Modules: declare a MODULE CONSTANT — op1 = its name ("M\K" / "M\Sub\K"),
+	 * op2 = value, extended_value = the owning module's name length plus the visibility of an
+	 * inline constant (ZEND_MODULE_CONST_*). Mirrors ZEND_DECLARE_CONST's value handling. With
+	 * ADOPT (op2 unused), the preceding ZEND_DECLARE_ATTRIBUTED_CONST registered it; mark it.
+	 * Runtime-driven, so the constant and its resolved visibility replay on an opcache hit. */
+	USE_OPLINE
+	zval *name;
+
+	SAVE_OPLINE();
+	name  = RT_CONSTANT(opline, opline->op1);
+	if (IS_UNUSED == IS_UNUSED) {
+		zend_declare_module_const_runtime(Z_STR_P(name), NULL, opline->extended_value);
+	} else {
+		zval *val = NULL;
+		zval value;
+		ZVAL_COPY(&value, val);
+		if (Z_OPT_TYPE(value) == IS_CONSTANT_AST) {
+			if (UNEXPECTED(zval_update_constant_ex(&value, EX(func)->op_array.scope) != SUCCESS)) {
+				zval_ptr_dtor_nogc(&value);
+
+
+
+
+				HANDLE_EXCEPTION();
+			}
+		}
+		zend_declare_module_const_runtime(Z_STR_P(name), &value, opline->extended_value);
+		zval_ptr_dtor_nogc(&value);
+	}
+
+
+
+
+	ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();
+}
+
 static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_YIELD_SPEC_CONST_UNUSED_HANDLER(ZEND_OPCODE_HANDLER_ARGS)
 {
 	USE_OPLINE
@@ -26486,25 +26490,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
-			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
-				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
-				 * in EG(zend_constants) under its canonical key, not on the backing class
-				 * (inline module constants — backing class constants — answered above).
-				 * Resolution gates internal visibility. */
-				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
-				if (mc) {
-					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
-
-
-					ZEND_VM_NEXT_OPCODE();
-				}
-				if (UNEXPECTED(EG(exception))) {
-					ZVAL_UNDEF(EX_VAR(opline->result.var));
-
-
-					HANDLE_EXCEPTION();
-				}
-			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -27057,23 +27042,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
-			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
-				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
-				 * in EG(zend_constants) under its canonical key, not on the backing class
-				 * (inline module constants — backing class constants — answered above).
-				 * Resolution gates internal visibility. */
-				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
-				if (mc) {
-					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
-					FREE_OP(opline->op2_type, opline->op2.var);
-					ZEND_VM_NEXT_OPCODE();
-				}
-				if (UNEXPECTED(EG(exception))) {
-					ZVAL_UNDEF(EX_VAR(opline->result.var));
-					FREE_OP(opline->op2_type, opline->op2.var);
-					HANDLE_EXCEPTION();
-				}
-			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -35243,25 +35211,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
-			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
-				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
-				 * in EG(zend_constants) under its canonical key, not on the backing class
-				 * (inline module constants — backing class constants — answered above).
-				 * Resolution gates internal visibility. */
-				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
-				if (mc) {
-					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
-
-
-					ZEND_VM_NEXT_OPCODE();
-				}
-				if (UNEXPECTED(EG(exception))) {
-					ZVAL_UNDEF(EX_VAR(opline->result.var));
-
-
-					HANDLE_EXCEPTION();
-				}
-			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -35655,23 +35604,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_FETCH_CLASS_C
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
-			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
-				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
-				 * in EG(zend_constants) under its canonical key, not on the backing class
-				 * (inline module constants — backing class constants — answered above).
-				 * Resolution gates internal visibility. */
-				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
-				if (mc) {
-					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
-					FREE_OP(opline->op2_type, opline->op2.var);
-					ZEND_VM_NEXT_OPCODE();
-				}
-				if (UNEXPECTED(EG(exception))) {
-					ZVAL_UNDEF(EX_VAR(opline->result.var));
-					FREE_OP(opline->op2_type, opline->op2.var);
-					HANDLE_EXCEPTION();
-				}
-			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -61493,25 +61425,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
-			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
-				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
-				 * in EG(zend_constants) under its canonical key, not on the backing class
-				 * (inline module constants — backing class constants — answered above).
-				 * Resolution gates internal visibility. */
-				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
-				if (mc) {
-					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
-
-
-					ZEND_VM_NEXT_OPCODE();
-				}
-				if (UNEXPECTED(EG(exception))) {
-					ZVAL_UNDEF(EX_VAR(opline->result.var));
-
-
-					HANDLE_EXCEPTION();
-				}
-			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -61927,33 +61840,35 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_DECLARE_MODULE_MEM
 
 static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_DECLARE_MODULE_CONST_SPEC_CONST_CONST_TAILCALL_HANDLER(ZEND_OPCODE_HANDLER_ARGS)
 {
-	/* PHP Modules: declare a member-file MODULE CONSTANT — op1 = canonical name
-	 * ("M::K" / "M::Sub\K"), op2 = value. Mirrors ZEND_DECLARE_CONST's value handling,
-	 * then registers the canonical entry (claim visibility; cold = VIS_UNKNOWN) plus its
-	 * projected namespaced-name alias. Runtime-driven, so both entries and the resolved
-	 * visibility replay on an opcache hit. */
+	/* PHP Modules: declare a MODULE CONSTANT — op1 = its name ("M\K" / "M\Sub\K"),
+	 * op2 = value, extended_value = the owning module's name length plus the visibility of an
+	 * inline constant (ZEND_MODULE_CONST_*). Mirrors ZEND_DECLARE_CONST's value handling. With
+	 * ADOPT (op2 unused), the preceding ZEND_DECLARE_ATTRIBUTED_CONST registered it; mark it.
+	 * Runtime-driven, so the constant and its resolved visibility replay on an opcache hit. */
 	USE_OPLINE
 	zval *name;
-	zval *val;
-	zval value;
 
 	SAVE_OPLINE();
 	name  = RT_CONSTANT(opline, opline->op1);
-	val   = RT_CONSTANT(opline, opline->op2);
+	if (IS_CONST == IS_UNUSED) {
+		zend_declare_module_const_runtime(Z_STR_P(name), NULL, opline->extended_value);
+	} else {
+		zval *val = RT_CONSTANT(opline, opline->op2);
+		zval value;
+		ZVAL_COPY(&value, val);
+		if (Z_OPT_TYPE(value) == IS_CONSTANT_AST) {
+			if (UNEXPECTED(zval_update_constant_ex(&value, EX(func)->op_array.scope) != SUCCESS)) {
+				zval_ptr_dtor_nogc(&value);
 
-	ZVAL_COPY(&value, val);
-	if (Z_OPT_TYPE(value) == IS_CONSTANT_AST) {
-		if (UNEXPECTED(zval_update_constant_ex(&value, EX(func)->op_array.scope) != SUCCESS)) {
-			zval_ptr_dtor_nogc(&value);
 
 
 
-
-			HANDLE_EXCEPTION();
+				HANDLE_EXCEPTION();
+			}
 		}
+		zend_declare_module_const_runtime(Z_STR_P(name), &value, opline->extended_value);
+		zval_ptr_dtor_nogc(&value);
 	}
-	zend_declare_module_const_runtime(Z_STR_P(name), &value);
-	zval_ptr_dtor_nogc(&value);
 
 
 
@@ -62927,23 +62842,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
-			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
-				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
-				 * in EG(zend_constants) under its canonical key, not on the backing class
-				 * (inline module constants — backing class constants — answered above).
-				 * Resolution gates internal visibility. */
-				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
-				if (mc) {
-					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
-					FREE_OP(opline->op2_type, opline->op2.var);
-					ZEND_VM_NEXT_OPCODE();
-				}
-				if (UNEXPECTED(EG(exception))) {
-					ZVAL_UNDEF(EX_VAR(opline->result.var));
-					FREE_OP(opline->op2_type, opline->op2.var);
-					HANDLE_EXCEPTION();
-				}
-			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -65348,6 +65246,44 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_ISSET_ISEMPTY_VAR_
 }
 
 /* No specialization for op_types (CONST|TMPVAR|CV, UNUSED|CLASS_FETCH|CONST|TMP) */
+static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_DECLARE_MODULE_CONST_SPEC_CONST_UNUSED_TAILCALL_HANDLER(ZEND_OPCODE_HANDLER_ARGS)
+{
+	/* PHP Modules: declare a MODULE CONSTANT — op1 = its name ("M\K" / "M\Sub\K"),
+	 * op2 = value, extended_value = the owning module's name length plus the visibility of an
+	 * inline constant (ZEND_MODULE_CONST_*). Mirrors ZEND_DECLARE_CONST's value handling. With
+	 * ADOPT (op2 unused), the preceding ZEND_DECLARE_ATTRIBUTED_CONST registered it; mark it.
+	 * Runtime-driven, so the constant and its resolved visibility replay on an opcache hit. */
+	USE_OPLINE
+	zval *name;
+
+	SAVE_OPLINE();
+	name  = RT_CONSTANT(opline, opline->op1);
+	if (IS_UNUSED == IS_UNUSED) {
+		zend_declare_module_const_runtime(Z_STR_P(name), NULL, opline->extended_value);
+	} else {
+		zval *val = NULL;
+		zval value;
+		ZVAL_COPY(&value, val);
+		if (Z_OPT_TYPE(value) == IS_CONSTANT_AST) {
+			if (UNEXPECTED(zval_update_constant_ex(&value, EX(func)->op_array.scope) != SUCCESS)) {
+				zval_ptr_dtor_nogc(&value);
+
+
+
+
+				HANDLE_EXCEPTION();
+			}
+		}
+		zend_declare_module_const_runtime(Z_STR_P(name), &value, opline->extended_value);
+		zval_ptr_dtor_nogc(&value);
+	}
+
+
+
+
+	ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();
+}
+
 static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_YIELD_SPEC_CONST_UNUSED_TAILCALL_HANDLER(ZEND_OPCODE_HANDLER_ARGS)
 {
 	USE_OPLINE
@@ -79778,25 +79714,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
-			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
-				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
-				 * in EG(zend_constants) under its canonical key, not on the backing class
-				 * (inline module constants — backing class constants — answered above).
-				 * Resolution gates internal visibility. */
-				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
-				if (mc) {
-					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
-
-
-					ZEND_VM_NEXT_OPCODE();
-				}
-				if (UNEXPECTED(EG(exception))) {
-					ZVAL_UNDEF(EX_VAR(opline->result.var));
-
-
-					HANDLE_EXCEPTION();
-				}
-			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -80349,23 +80266,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
-			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
-				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
-				 * in EG(zend_constants) under its canonical key, not on the backing class
-				 * (inline module constants — backing class constants — answered above).
-				 * Resolution gates internal visibility. */
-				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
-				if (mc) {
-					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
-					FREE_OP(opline->op2_type, opline->op2.var);
-					ZEND_VM_NEXT_OPCODE();
-				}
-				if (UNEXPECTED(EG(exception))) {
-					ZVAL_UNDEF(EX_VAR(opline->result.var));
-					FREE_OP(opline->op2_type, opline->op2.var);
-					HANDLE_EXCEPTION();
-				}
-			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -88535,25 +88435,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
-			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
-				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
-				 * in EG(zend_constants) under its canonical key, not on the backing class
-				 * (inline module constants — backing class constants — answered above).
-				 * Resolution gates internal visibility. */
-				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
-				if (mc) {
-					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
-
-
-					ZEND_VM_NEXT_OPCODE();
-				}
-				if (UNEXPECTED(EG(exception))) {
-					ZVAL_UNDEF(EX_VAR(opline->result.var));
-
-
-					HANDLE_EXCEPTION();
-				}
-			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -88947,23 +88828,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_FETCH_CLASS_CONSTA
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
-			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
-				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
-				 * in EG(zend_constants) under its canonical key, not on the backing class
-				 * (inline module constants — backing class constants — answered above).
-				 * Resolution gates internal visibility. */
-				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
-				if (mc) {
-					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
-					FREE_OP(opline->op2_type, opline->op2.var);
-					ZEND_VM_NEXT_OPCODE();
-				}
-				if (UNEXPECTED(EG(exception))) {
-					ZVAL_UNDEF(EX_VAR(opline->result.var));
-					FREE_OP(opline->op2_type, opline->op2.var);
-					HANDLE_EXCEPTION();
-				}
-			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -110896,6 +110760,10 @@ ZEND_API void execute_ex(zend_execute_data *ex)
 			(void*)&&ZEND_DECLARE_MODULE_MEMBER_ALIAS_SPEC_CONST_CONST_LABEL,
 			(void*)&&ZEND_DECLARE_MODULE_FUNCTION_SPEC_CONST_CONST_LABEL,
 			(void*)&&ZEND_DECLARE_MODULE_CONST_SPEC_CONST_CONST_LABEL,
+			(void*)&&ZEND_NULL_LABEL,
+			(void*)&&ZEND_NULL_LABEL,
+			(void*)&&ZEND_DECLARE_MODULE_CONST_SPEC_CONST_UNUSED_LABEL,
+			(void*)&&ZEND_NULL_LABEL,
 			(void*)&&ZEND_INIT_FCALL_OFFSET_SPEC_CONST_LABEL,
 			(void*)&&ZEND_RECV_NOTYPE_SPEC_LABEL,
 			(void*)&&ZEND_NULL_LABEL,
@@ -113263,6 +113131,11 @@ zend_leave_helper_SPEC_LABEL:
 				VM_TRACE(ZEND_ISSET_ISEMPTY_VAR_SPEC_CONST_UNUSED)
 				ZEND_ISSET_ISEMPTY_VAR_SPEC_CONST_UNUSED_HANDLER(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU);
 				VM_TRACE_OP_END(ZEND_ISSET_ISEMPTY_VAR_SPEC_CONST_UNUSED)
+				HYBRID_BREAK();
+			HYBRID_CASE(ZEND_DECLARE_MODULE_CONST_SPEC_CONST_UNUSED):
+				VM_TRACE(ZEND_DECLARE_MODULE_CONST_SPEC_CONST_UNUSED)
+				ZEND_DECLARE_MODULE_CONST_SPEC_CONST_UNUSED_HANDLER(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU);
+				VM_TRACE_OP_END(ZEND_DECLARE_MODULE_CONST_SPEC_CONST_UNUSED)
 				HYBRID_BREAK();
 			HYBRID_CASE(ZEND_YIELD_SPEC_CONST_UNUSED):
 				VM_TRACE(ZEND_YIELD_SPEC_CONST_UNUSED)
@@ -119888,6 +119761,10 @@ void zend_vm_init(void)
 		ZEND_DECLARE_MODULE_MEMBER_ALIAS_SPEC_CONST_CONST_HANDLER,
 		ZEND_DECLARE_MODULE_FUNCTION_SPEC_CONST_CONST_HANDLER,
 		ZEND_DECLARE_MODULE_CONST_SPEC_CONST_CONST_HANDLER,
+		ZEND_NULL_HANDLER,
+		ZEND_NULL_HANDLER,
+		ZEND_DECLARE_MODULE_CONST_SPEC_CONST_UNUSED_HANDLER,
+		ZEND_NULL_HANDLER,
 		ZEND_INIT_FCALL_OFFSET_SPEC_CONST_HANDLER,
 		ZEND_RECV_NOTYPE_SPEC_HANDLER,
 		ZEND_NULL_HANDLER,
@@ -123380,6 +123257,10 @@ void zend_vm_init(void)
 		ZEND_DECLARE_MODULE_MEMBER_ALIAS_SPEC_CONST_CONST_TAILCALL_HANDLER,
 		ZEND_DECLARE_MODULE_FUNCTION_SPEC_CONST_CONST_TAILCALL_HANDLER,
 		ZEND_DECLARE_MODULE_CONST_SPEC_CONST_CONST_TAILCALL_HANDLER,
+		ZEND_NULL_TAILCALL_HANDLER,
+		ZEND_NULL_TAILCALL_HANDLER,
+		ZEND_DECLARE_MODULE_CONST_SPEC_CONST_UNUSED_TAILCALL_HANDLER,
+		ZEND_NULL_TAILCALL_HANDLER,
 		ZEND_INIT_FCALL_OFFSET_SPEC_CONST_TAILCALL_HANDLER,
 		ZEND_RECV_NOTYPE_SPEC_TAILCALL_HANDLER,
 		ZEND_NULL_TAILCALL_HANDLER,
@@ -124348,7 +124229,7 @@ void zend_vm_init(void)
 		1255,
 		1256 | SPEC_RULE_OP1,
 		1261 | SPEC_RULE_OP1,
-		3488,
+		3492,
 		1266 | SPEC_RULE_OP1,
 		1271 | SPEC_RULE_OP1,
 		1276 | SPEC_RULE_OP2,
@@ -124382,7 +124263,7 @@ void zend_vm_init(void)
 		1559 | SPEC_RULE_OP1 | SPEC_RULE_OP2,
 		1584 | SPEC_RULE_OP1,
 		1589,
-		3488,
+		3492,
 		1590 | SPEC_RULE_OP1,
 		1595 | SPEC_RULE_OP1 | SPEC_RULE_OP2,
 		1620 | SPEC_RULE_OP1 | SPEC_RULE_OP2,
@@ -124520,45 +124401,45 @@ void zend_vm_init(void)
 		2569,
 		2570,
 		2571,
-		2572,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
-		3488,
+		2572 | SPEC_RULE_OP2,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
+		3492,
 	};
 #if 0
 #elif (ZEND_VM_KIND == ZEND_VM_KIND_HYBRID)
@@ -124751,7 +124632,7 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2581 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 2585 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 				if (op->op1_type < op->op2_type) {
 					zend_swap_operands(op);
 				}
@@ -124759,7 +124640,7 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2606 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 2610 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 				if (op->op1_type < op->op2_type) {
 					zend_swap_operands(op);
 				}
@@ -124767,7 +124648,7 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2631 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 2635 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 				if (op->op1_type < op->op2_type) {
 					zend_swap_operands(op);
 				}
@@ -124778,17 +124659,17 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2656 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
+				spec = 2660 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
 			} else if (op1_info == MAY_BE_LONG && op2_info == MAY_BE_LONG) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2681 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
+				spec = 2685 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2706 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
+				spec = 2710 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
 			}
 			break;
 		case ZEND_MUL:
@@ -124799,17 +124680,17 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2731 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 2735 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 			} else if (op1_info == MAY_BE_LONG && op2_info == MAY_BE_LONG) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2756 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 2760 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2781 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 2785 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 			}
 			break;
 		case ZEND_IS_IDENTICAL:
@@ -124820,19 +124701,19 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2806 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 2810 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2881 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 2885 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op->op2_type == IS_CONST && (Z_TYPE_P(RT_CONSTANT(op, op->op2)) == IS_ARRAY && zend_hash_num_elements(Z_ARR_P(RT_CONSTANT(op, op->op2))) == 0)) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3106 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 3110 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op->op1_type == IS_CV && (op->op2_type & (IS_CONST|IS_CV)) && !(op1_info & (MAY_BE_UNDEF|MAY_BE_REF)) && !(op2_info & (MAY_BE_UNDEF|MAY_BE_REF)) && !((op1_info & op2_info) & MAY_BE_ARRAY_OF_ARRAY)) {
-				spec = 3112 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 3116 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 			}
 			break;
 		case ZEND_IS_NOT_IDENTICAL:
@@ -124843,19 +124724,19 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2956 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 2960 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3031 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 3035 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op->op2_type == IS_CONST && (Z_TYPE_P(RT_CONSTANT(op, op->op2)) == IS_ARRAY && zend_hash_num_elements(Z_ARR_P(RT_CONSTANT(op, op->op2))) == 0)) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3109 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 3113 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op->op1_type == IS_CV && (op->op2_type & (IS_CONST|IS_CV)) && !(op1_info & (MAY_BE_UNDEF|MAY_BE_REF)) && !(op2_info & (MAY_BE_UNDEF|MAY_BE_REF)) && !((op1_info & op2_info) & MAY_BE_ARRAY_OF_ARRAY)) {
-				spec = 3117 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
+				spec = 3121 | SPEC_RULE_OP2 | SPEC_RULE_COMMUTATIVE;
 			}
 			break;
 		case ZEND_IS_EQUAL:
@@ -124866,12 +124747,12 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2806 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 2810 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2881 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 2885 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			}
 			break;
 		case ZEND_IS_NOT_EQUAL:
@@ -124882,12 +124763,12 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 2956 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 2960 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3031 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
+				spec = 3035 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH | SPEC_RULE_COMMUTATIVE;
 			}
 			break;
 		case ZEND_IS_SMALLER:
@@ -124895,12 +124776,12 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3122 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
+				spec = 3126 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3197 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
+				spec = 3201 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
 			}
 			break;
 		case ZEND_IS_SMALLER_OR_EQUAL:
@@ -124908,79 +124789,79 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3272 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
+				spec = 3276 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
 			} else if (op1_info == MAY_BE_DOUBLE && op2_info == MAY_BE_DOUBLE) {
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3347 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
+				spec = 3351 | SPEC_RULE_OP1 | SPEC_RULE_OP2 | SPEC_RULE_SMART_BRANCH;
 			}
 			break;
 		case ZEND_QM_ASSIGN:
 			if (op1_info == MAY_BE_LONG) {
-				spec = 3434 | SPEC_RULE_OP1;
+				spec = 3438 | SPEC_RULE_OP1;
 			} else if (op1_info == MAY_BE_DOUBLE) {
-				spec = 3439 | SPEC_RULE_OP1;
+				spec = 3443 | SPEC_RULE_OP1;
 			} else if ((op->op1_type == IS_CONST) ? !Z_REFCOUNTED_P(RT_CONSTANT(op, op->op1)) : (!(op1_info & ((MAY_BE_ANY|MAY_BE_UNDEF)-(MAY_BE_NULL|MAY_BE_FALSE|MAY_BE_TRUE|MAY_BE_LONG|MAY_BE_DOUBLE))))) {
-				spec = 3444 | SPEC_RULE_OP1;
+				spec = 3448 | SPEC_RULE_OP1;
 			}
 			break;
 		case ZEND_PRE_INC:
-			if (res_info == MAY_BE_LONG && op1_info == MAY_BE_LONG) {
-				spec = 3422 | SPEC_RULE_RETVAL;
-			} else if (op1_info == MAY_BE_LONG) {
-				spec = 3424 | SPEC_RULE_RETVAL;
-			}
-			break;
-		case ZEND_PRE_DEC:
 			if (res_info == MAY_BE_LONG && op1_info == MAY_BE_LONG) {
 				spec = 3426 | SPEC_RULE_RETVAL;
 			} else if (op1_info == MAY_BE_LONG) {
 				spec = 3428 | SPEC_RULE_RETVAL;
 			}
 			break;
+		case ZEND_PRE_DEC:
+			if (res_info == MAY_BE_LONG && op1_info == MAY_BE_LONG) {
+				spec = 3430 | SPEC_RULE_RETVAL;
+			} else if (op1_info == MAY_BE_LONG) {
+				spec = 3432 | SPEC_RULE_RETVAL;
+			}
+			break;
 		case ZEND_POST_INC:
 			if (res_info == MAY_BE_LONG && op1_info == MAY_BE_LONG) {
-				spec = 3430;
+				spec = 3434;
 			} else if (op1_info == MAY_BE_LONG) {
-				spec = 3431;
+				spec = 3435;
 			}
 			break;
 		case ZEND_POST_DEC:
 			if (res_info == MAY_BE_LONG && op1_info == MAY_BE_LONG) {
-				spec = 3432;
+				spec = 3436;
 			} else if (op1_info == MAY_BE_LONG) {
-				spec = 3433;
+				spec = 3437;
 			}
 			break;
 		case ZEND_JMP:
 			if (OP_JMP_ADDR(op, op->op1) > op) {
-				spec = 2580;
+				spec = 2584;
 			}
 			break;
 		case ZEND_INIT_FCALL:
 			if (Z_EXTRA_P(RT_CONSTANT(op, op->op2)) != 0) {
-				spec = 2573;
+				spec = 2577;
 			}
 			break;
 		case ZEND_RECV:
 			if (op->op2.num == MAY_BE_ANY) {
-				spec = 2574;
+				spec = 2578;
 			}
 			break;
 		case ZEND_SEND_VAL:
 			if (op->op1_type == IS_CONST && op->op2_type == IS_UNUSED && !Z_REFCOUNTED_P(RT_CONSTANT(op, op->op1))) {
-				spec = 3484;
+				spec = 3488;
 			}
 			break;
 		case ZEND_SEND_VAR_EX:
 			if (op->op2_type == IS_UNUSED && op->op2.num <= MAX_ARG_FLAG_NUM && (op1_info & (MAY_BE_UNDEF|MAY_BE_REF)) == 0) {
-				spec = 3479 | SPEC_RULE_OP1;
+				spec = 3483 | SPEC_RULE_OP1;
 			}
 			break;
 		case ZEND_FE_FETCH_R:
 			if (op->op2_type == IS_CV && (op1_info & (MAY_BE_ANY|MAY_BE_REF)) == MAY_BE_ARRAY) {
-				spec = 3486 | SPEC_RULE_RETVAL;
+				spec = 3490 | SPEC_RULE_RETVAL;
 			}
 			break;
 		case ZEND_FETCH_DIM_R:
@@ -124988,22 +124869,22 @@ ZEND_API void ZEND_FASTCALL zend_vm_set_opcode_handler_ex(zend_op* op, uint32_t 
 				if (op->op1_type == IS_CONST && op->op2_type == IS_CONST) {
 					break;
 				}
-				spec = 3449 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
+				spec = 3453 | SPEC_RULE_OP1 | SPEC_RULE_OP2;
 			}
 			break;
 		case ZEND_SEND_VAL_EX:
 			if (op->op2_type == IS_UNUSED && op->op2.num <= MAX_ARG_FLAG_NUM && op->op1_type == IS_CONST && !Z_REFCOUNTED_P(RT_CONSTANT(op, op->op1))) {
-				spec = 3485;
+				spec = 3489;
 			}
 			break;
 		case ZEND_SEND_VAR:
 			if (op->op2_type == IS_UNUSED && (op1_info & (MAY_BE_UNDEF|MAY_BE_REF)) == 0) {
-				spec = 3474 | SPEC_RULE_OP1;
+				spec = 3478 | SPEC_RULE_OP1;
 			}
 			break;
 		case ZEND_COUNT:
 			if (op->op1_type != IS_CONST && (op1_info & (MAY_BE_ANY|MAY_BE_UNDEF|MAY_BE_REF)) == MAY_BE_ARRAY) {
-				spec = 2575 | SPEC_RULE_OP1;
+				spec = 2579 | SPEC_RULE_OP1;
 			}
 			break;
 		case ZEND_BW_OR:

@@ -6373,23 +6373,6 @@ ZEND_VM_HANDLER(181, ZEND_FETCH_CLASS_CONSTANT, VAR|CONST|UNUSED|CLASS_FETCH, CO
 				CACHE_POLYMORPHIC_PTR(opline->extended_value, ce, value);
 			}
 		} else {
-			if (UNEXPECTED((ce->ce_flags2 & ZEND_ACC2_MODULE))) {
-				/* PHP Modules: a member-file MODULE CONSTANT ("M::K" / "module::K") lives
-				 * in EG(zend_constants) under its canonical key, not on the backing class
-				 * (inline module constants — backing class constants — answered above).
-				 * Resolution gates internal visibility. */
-				zend_constant *mc = zend_module_lookup_module_constant(ce, constant_name, false);
-				if (mc) {
-					ZVAL_COPY_OR_DUP(EX_VAR(opline->result.var), &mc->value);
-					FREE_OP2();
-					ZEND_VM_NEXT_OPCODE();
-				}
-				if (UNEXPECTED(EG(exception))) {
-					ZVAL_UNDEF(EX_VAR(opline->result.var));
-					FREE_OP2();
-					HANDLE_EXCEPTION();
-				}
-			}
 			zend_throw_error(NULL, "Undefined constant %s::%s",
 				ZSTR_VAL(ce->name), ZSTR_VAL(constant_name));
 			ZVAL_UNDEF(EX_VAR(opline->result.var));
@@ -8530,34 +8513,35 @@ ZEND_VM_HANDLER(215, ZEND_DECLARE_MODULE_MEMBER_ALIAS, CONST, CONST)
 	ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();
 }
 
-ZEND_VM_HANDLER(217, ZEND_DECLARE_MODULE_CONST, CONST, CONST)
+ZEND_VM_HANDLER(217, ZEND_DECLARE_MODULE_CONST, CONST, CONST|UNUSED, NUM)
 {
-	/* PHP Modules: declare a member-file MODULE CONSTANT — op1 = canonical name
-	 * ("M::K" / "M::Sub\K"), op2 = value. Mirrors ZEND_DECLARE_CONST's value handling,
-	 * then registers the canonical entry (claim visibility; cold = VIS_UNKNOWN) plus its
-	 * projected namespaced-name alias. Runtime-driven, so both entries and the resolved
-	 * visibility replay on an opcache hit. */
+	/* PHP Modules: declare a MODULE CONSTANT — op1 = its name ("M\K" / "M\Sub\K"),
+	 * op2 = value, extended_value = the owning module's name length plus the visibility of an
+	 * inline constant (ZEND_MODULE_CONST_*). Mirrors ZEND_DECLARE_CONST's value handling. With
+	 * ADOPT (op2 unused), the preceding ZEND_DECLARE_ATTRIBUTED_CONST registered it; mark it.
+	 * Runtime-driven, so the constant and its resolved visibility replay on an opcache hit. */
 	USE_OPLINE
 	zval *name;
-	zval *val;
-	zval value;
 
 	SAVE_OPLINE();
 	name  = GET_OP1_ZVAL_PTR(BP_VAR_R);
-	val   = GET_OP2_ZVAL_PTR(BP_VAR_R);
-
-	ZVAL_COPY(&value, val);
-	if (Z_OPT_TYPE(value) == IS_CONSTANT_AST) {
-		if (UNEXPECTED(zval_update_constant_ex(&value, EX(func)->op_array.scope) != SUCCESS)) {
-			zval_ptr_dtor_nogc(&value);
-			FREE_OP1();
-			FREE_OP2();
-			HANDLE_EXCEPTION();
+	if (OP2_TYPE == IS_UNUSED) {
+		zend_declare_module_const_runtime(Z_STR_P(name), NULL, opline->extended_value);
+	} else {
+		zval *val = GET_OP2_ZVAL_PTR(BP_VAR_R);
+		zval value;
+		ZVAL_COPY(&value, val);
+		if (Z_OPT_TYPE(value) == IS_CONSTANT_AST) {
+			if (UNEXPECTED(zval_update_constant_ex(&value, EX(func)->op_array.scope) != SUCCESS)) {
+				zval_ptr_dtor_nogc(&value);
+				FREE_OP1();
+				FREE_OP2();
+				HANDLE_EXCEPTION();
+			}
 		}
+		zend_declare_module_const_runtime(Z_STR_P(name), &value, opline->extended_value);
+		zval_ptr_dtor_nogc(&value);
 	}
-	zend_declare_module_const_runtime(Z_STR_P(name), &value);
-	zval_ptr_dtor_nogc(&value);
-
 	FREE_OP1();
 	FREE_OP2();
 	ZEND_VM_NEXT_OPCODE_CHECK_EXCEPTION();

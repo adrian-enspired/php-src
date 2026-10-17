@@ -19,12 +19,12 @@ module Billing {
 }
 
 // External access via M::C
-echo Billing::RATE, " ", Billing::LABEL, " ", Billing::DERIVED, "\n";
+echo Billing\RATE, " ", Billing\LABEL, " ", Billing\DERIVED, "\n";
 // Internal self-reference via module::C
 $c = new Billing\Calc();
 echo $c->tax(200), " ", $c->label(), "\n";
 // Constant and member class of the same name coexist:
-echo Billing::Invoice, " ";                 // the constant
+echo Billing\Invoice, " ";                 // the constant
 var_dump(new Billing\Invoice instanceof Billing\Invoice);   // the class
 // module::class resolves to the backing class name
 echo Billing::class, "\n";

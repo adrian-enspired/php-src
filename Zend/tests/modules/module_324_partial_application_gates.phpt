@@ -11,7 +11,7 @@ module M {
         internal function secret(int $a, int $b) { return $a + $b; }
         internal static function ssecret(int $a) { return $a * 10; }
         public function fromInside() {
-            return [($this->secret(?, 2))(1), (self::ssecret(?))(2), (module::f(?))(3), (\M::f(?))(4), (f(?))(5)];
+            return [($this->secret(?, 2))(1), (self::ssecret(?))(2), (module::f(?))(3), (\M\f(?))(4), (f(?))(5)];
         }
     }
     internal function f(int $a) { return $a + 100; }
@@ -20,7 +20,7 @@ function t($n, $f) { try { $r = json_encode($f()); echo "$n: $r\n"; } catch (Err
 $c = new M\C;
 t('method', fn() => ($c->secret(?, 2))(1));
 t('static', fn() => (M\C::ssecret(?))(1));
-t('module fn', fn() => (M::f(?))(1));
+t('module fn', fn() => (M\f(?))(1));
 t('inside', fn() => $c->fromInside());
 ?>
 --EXPECT--

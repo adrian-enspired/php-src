@@ -1,9 +1,9 @@
 --TEST--
 Modules: review-follow-up behaviour survives an opcache file-cache hit and preloading
 --DESCRIPTION--
-Inline ordinary names, nested-module denial (MODULE_NESTED/GATED flags), direct `M::f()` calls,
+Inline ordinary names, nested-module denial (MODULE_NESTED/GATED flags), direct `M\f()` calls,
 internal module functions, relative heads, the cold deferred return check, reflection getModule()
-and dynamic 'M::f' strings all depend on compile-time state. Run 1 compiles and fills the file
+and dynamic 'M\f' strings all depend on compile-time state. Run 1 compiles and fills the file
 cache; run 2 executes from the cache only (compiler skipped); run 3 preloads the definition.
 --SKIPIF--
 <?php
@@ -39,12 +39,12 @@ function t($n, $f) { try { $r = $f(); echo "$n: ", is_object($r) ? get_class($r)
 t('ordinary name', fn() => new N\M\C);
 t('internal via ordinary', fn() => new N\M\H);
 t('public of internal nested', fn() => new N\M\In\G);
-t('M::f()', fn() => N\M::f());
-t('M::g() internal', fn() => N\M::g());
+t('M\f()', fn() => N\M\f());
+t('M\g() internal', fn() => N\M\g());
 t('module::g() inside', fn() => N\M\T::callG());
 t('relative head', fn() => N\M\T::viaRel());
 t('getModule', fn() => (new ReflectionClass('N\M\C'))->getModule()->getName());
-t('dyn string call', fn() => ('N\M::f')());
+t('dyn string call', fn() => ('N\M\f')());
 PHP;
 file_put_contents("$dir/run.php", "<?php\nspl_autoload_register(function (\$c) { if (strtolower(\$c) === 'n\\m') require __DIR__ . '/lib.php'; });\n"
     . "require __DIR__ . '/mem.php';\n$body\nt('deferred return (cold)', fn() => (new N\\M\\Late)->leak());\n");
@@ -74,8 +74,8 @@ foreach ($it as $f) { $f->isDir() ? @rmdir($f->getPathname()) : @unlink($f->getP
 ordinary name: N\M\C
 internal via ordinary: Cannot access internal module member "N\M\H" from outside its module
 public of internal nested: Cannot access "N\M\In\G": module "N\M\In" is internal to its parent module
-M::f(): 'f'
-M::g() internal: Cannot call internal module function N\M\g() from outside its module
+M\f(): 'f'
+M\g() internal: Cannot call internal module function N\M\g() from outside its module
 module::g() inside: 'g'
 relative head: 'N\\M\\Inner2\\X'
 getModule: 'N\\M'

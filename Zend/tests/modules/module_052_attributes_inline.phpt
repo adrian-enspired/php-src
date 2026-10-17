@@ -29,7 +29,7 @@ echo tagOf((new ReflectionClass(App\C::class))->getAttributes()), "\n";
 echo tagOf((new ReflectionClass(App\Contract::class))->getAttributes()), "\n";
 echo tagOf((new ReflectionClass(App\Helper::class))->getAttributes()), "\n";
 echo tagOf((new ReflectionClass(App\E::class))->getAttributes()), "\n";
-echo tagOf((new ReflectionClassConstant("App", "K"))->getAttributes()), "\n";
+echo tagOf((new ReflectionConstant("App\K"))->getAttributes()), "\n";
 
 // Bare attribute name resolves module-relative (App\Local), like any bare class ref.
 echo tagOf((new ReflectionClass(App\UsesLocal::class))->getAttributes()), "\n";

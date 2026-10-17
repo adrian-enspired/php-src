@@ -30,7 +30,7 @@ file_put_contents($dir . '/consumer.php', <<<'PHP'
 <?php
 require __DIR__ . '/manifest.php';
 require __DIR__ . '/funcs.php';
-echo "x=", OcFn\x(), " ns=", \OcFn\x(), " rate=", OcFn::RATE, "\n";
+echo "x=", OcFn\x(), " ns=", \OcFn\x(), " rate=", OcFn\RATE, "\n";
 try { \OcFn\f(); echo "LEAK-F\n"; } catch (\Error $e) { echo "gated-f\n"; }
 try { $v = \OcFn\HIDDEN; echo "LEAK-K\n"; } catch (\Error $e) { echo "gated-k\n"; }
 PHP);

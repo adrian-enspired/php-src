@@ -2433,30 +2433,6 @@ ZEND_API zend_function *zend_std_get_static_method(const zend_class_entry *ce, z
 		}
 module_checked: ;
 	} else {
-		/* PHP Modules: a MODULE FUNCTION spelled through its module — "M::f()",
-		 * "module::f()", a "M::f" string callable. A module backing class has no methods,
-		 * so a method miss on it consults the function table for "M\f" (a claimed member
-		 * name's alias key answers the same probe, so `Sub\f as g` resolves as "M\g"). Visibility is gated here, at resolution
-		 * — the call site then caches the result exactly like a static method, so the
-		 * gate runs once per call site. Returns directly: a module function has no class
-		 * scope, so the trait/abstract tail below must not run for it. */
-		if (UNEXPECTED(ce->ce_flags2 & ZEND_ACC2_MODULE)) {
-			zend_string *lc_canonical = zend_string_alloc(
-				ZSTR_LEN(ce->name) + 1 + ZSTR_LEN(function_name), 0);
-			zend_str_tolower_copy(ZSTR_VAL(lc_canonical), ZSTR_VAL(ce->name), ZSTR_LEN(ce->name));
-			ZSTR_VAL(lc_canonical)[ZSTR_LEN(ce->name)] = '\\';
-			zend_str_tolower_copy(ZSTR_VAL(lc_canonical) + ZSTR_LEN(ce->name) + 1,
-				ZSTR_VAL(function_name), ZSTR_LEN(function_name));
-			zend_function *mfn = zend_hash_find_ptr(EG(function_table), lc_canonical);
-			zend_string_release(lc_canonical);
-			if (mfn && (mfn->common.fn_flags2 & ZEND_ACC2_FN_MODULE_MEMBER)) {
-				if (ZEND_MODULE_FN_DENIED(mfn)) {
-					zend_throw_module_function_access_error(mfn);
-					return NULL;
-				}
-				return mfn;
-			}
-		}
 		fbc = get_static_method_fallback(ce, function_name);
 	}
 

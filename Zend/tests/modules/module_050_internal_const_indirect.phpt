@@ -27,7 +27,7 @@ function deny(string $label, callable $fn): void {
 
 // Public resolves — direct, const-walk, and plain (non-module) chains.
 echo M\Pub::K, "\n";
-echo M::PUBPATH::K, "\n";
+echo (M\PUBPATH)::K, "\n";
 echo X::Y::W, "\n";
 
 // Same-module internal access works.
@@ -36,7 +36,7 @@ echo M\Api::insideWalk(), "\n";
 
 // Internal denied from outside through every route.
 deny('direct M\Sec::H',      fn() => M\Sec::H);
-deny('const-walk M::SECPATH::H', fn() => M::SECPATH::H);
+deny('const-walk M\SECPATH::H', fn() => (M\SECPATH)::H);
 deny('constant("M\Sec::H")', fn() => constant("M\Sec::H"));
 deny('dynamic $c::H',         function () { $c = "M\Sec"; return $c::H; });
 ?>
@@ -47,6 +47,6 @@ zw
 secH
 secH
 denied: direct M\Sec::H
-denied: const-walk M::SECPATH::H
+denied: const-walk M\SECPATH::H
 denied: constant("M\Sec::H")
 denied: dynamic $c::H

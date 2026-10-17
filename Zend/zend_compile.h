@@ -232,6 +232,8 @@ ZEND_API bool zend_module_path_covers_str(const char *aval, size_t alen, const c
 ZEND_API ZEND_COLD void zend_module_verify_declared_return(const zend_function *fn);
 ZEND_API ZEND_COLD zend_result zend_module_verify_declared_properties(zend_class_entry *ce);
 ZEND_API void zend_module_bake_preloaded_visibility(void);
+ZEND_API void zend_module_preload_capture_constants(void);
+ZEND_API void zend_module_preload_restore_constants(void);
 /* String form of the above, for a scope-less caller whose module path is already known. */
 ZEND_API bool zend_module_container_allows_prefix(const zend_class_entry *ce, const char *cval, size_t clen);
 /* True if the currently-executing code may NOT access internal member `ce` (an internal
@@ -273,7 +275,16 @@ ZEND_API bool zend_module_current_caller_module(const char **pval, size_t *plen)
 /* PHP Modules: runtime registrar for a member-file MODULE CONSTANT — registers the
  * canonical "M::K" entry (claim visibility; cold = VIS_UNKNOWN) and its projected
  * namespaced-name alias entry. */
-ZEND_API void zend_declare_module_const_runtime(zend_string *canonical, zval *value);
+/* PHP Modules: ZEND_DECLARE_MODULE_CONST's extended_value: the owning module's name length,
+ * plus the visibility of an inline (block) constant. ADOPT: the constant was just registered
+ * by the preceding ZEND_DECLARE_ATTRIBUTED_CONST (an attributed module constant); make it a
+ * module constant instead of registering one (op2 unused). */
+#define ZEND_MODULE_CONST_LEN_MASK      0x00ffffff
+#define ZEND_MODULE_CONST_VIS_KNOWN     (1u << 28)
+#define ZEND_MODULE_CONST_INTERNAL      (1u << 29)
+#define ZEND_MODULE_CONST_ADOPT         (1u << 30)
+ZEND_API struct _zend_constant *zend_declare_module_const_runtime(zend_string *name, zval *value, uint32_t ext);
+ZEND_API uint32_t zend_module_const_owner_len(const struct _zend_constant *c);
 /* PHP Modules: runtime registrar for a member-file module function's extra function-table
  * keys — its projected namespaced name, and (when claimed with a differing handle) its flat
  * member name. `alias` empty = resolve the handle from the module registry (sentinel). */

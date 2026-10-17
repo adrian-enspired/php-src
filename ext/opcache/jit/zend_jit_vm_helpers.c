@@ -432,7 +432,7 @@ static zend_always_inline zend_constant* _zend_quick_get_constant(
 	/* PHP Modules: resolve (alias hop) and gate (`internal`) a module constant, exactly
 	 * as the VM's _zend_quick_get_constant does; the resolved entry is what gets cached. */
 	if (UNEXPECTED(ZEND_CONSTANT_FLAGS(c)
-			& (CONST_MODULE_ALIAS | CONST_MODULE_INTERNAL | CONST_MODULE_VIS_UNKNOWN))) {
+			& CONST_MODULE_ANY)) {
 		c = zend_module_constant_resolve(c, check_defined_only);
 		if (!c) {
 			if (!check_defined_only) {

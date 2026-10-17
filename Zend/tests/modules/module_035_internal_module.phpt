@@ -30,7 +30,7 @@ module Outer {
     // because Inner is internal to Outer, not to itself.
     public class Sibling {
         public function reach(): string {
-            return module::Inner::IV . "/" . module::Inner\Api::make()
+            return Inner\IV . "/" . module::Inner\Api::make()
                  . "/" . (new module::Inner\Gadget)->who();
         }
     }
@@ -55,7 +55,7 @@ echo "reachUp: ", Outer\Main::reachUpProbe(), "\n";
 // From outside Outer: every path into the internal module is denied — even its
 // PUBLIC members (const, static function, member class, static-on-member).
 $probes = [
-    'const'      => fn() => Outer\Inner::IV,
+    'const'      => fn() => Outer\Inner\IV,
     'static-fn'  => fn() => Outer\Inner\Api::make(),
     'new-member' => fn() => new Outer\Inner\Gadget(),
     'static-on'  => fn() => Outer\Inner\Gadget::who(),
@@ -76,7 +76,7 @@ echo "reflect: ", $r->getName(), "\n";
 --EXPECT--
 inside: iv/made/gadget/hidden
 reachUp: outer-secret
-const: Cannot access internal module member "Outer\Inner" from outside its module
+const: Cannot access Outer\Inner\IV: module "Outer\Inner" is internal to its parent module
 static-fn: Cannot access "Outer\Inner\Api": module "Outer\Inner" is internal to its parent module
 new-member: Cannot access "Outer\Inner\Gadget": module "Outer\Inner" is internal to its parent module
 static-on: Cannot access "Outer\Inner\Gadget": module "Outer\Inner" is internal to its parent module

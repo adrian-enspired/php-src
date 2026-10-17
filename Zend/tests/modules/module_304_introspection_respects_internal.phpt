@@ -22,7 +22,7 @@ echo implode(",", get_class_methods('M\P')), "\n";
 echo implode(",", array_keys(get_class_vars('M\P'))), "\n";
 [$m, $v] = M\P::inside();
 echo implode(",", $m), " | ", implode(",", $v), "\n";
-echo implode(",", M::fromModuleFunction()), "\n";
+echo implode(",", M\fromModuleFunction()), "\n";
 class Sub extends M\P {
     public function mine() { return get_class_methods($this); }
 }

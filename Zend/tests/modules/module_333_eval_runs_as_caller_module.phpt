@@ -33,19 +33,19 @@ module M {
     public function closureFromEval() { return eval('return fn() => get_class(new module::Secret);'); }
     public function declares() { eval('class Declared {} function declared_fn() {}'); return [class_exists('Declared', false) ? 'global Declared' : 'no global', class_exists('M\Declared', false) ? 'M\Declared' : 'not a member']; }
 }
-report('M::viaFunction', M::viaFunction());
+report('M\viaFunction', M\viaFunction());
 report('M\Cls::viaMethod', M\Cls::viaMethod());
-report('M::viaClosure', M::viaClosure());
-echo "== nested eval: ", M::nested(), "\n";
-$c = M::closureFromEval();
+report('M\viaClosure', M\viaClosure());
+echo "== nested eval: ", M\nested(), "\n";
+$c = M\closureFromEval();
 try { echo "== closure from eval, called outside: ", $c(), "\n"; } catch (Error $e) { echo "== closure from eval: ERR ", $e->getMessage(), "\n"; }
-echo "== declarations in eval: ", implode(', ', M::declares()), "\n";
-foreach (['return get_class(new \M\Secret);', 'return \M::hid();'] as $code) {
+echo "== declarations in eval: ", implode(', ', M\declares()), "\n";
+foreach (['return get_class(new \M\Secret);', 'return \M\hid();'] as $code) {
     try { echo "outside: ", eval($code), " LEAK\n"; } catch (Error $e) { echo "outside: ", $e->getMessage(), "\n"; }
 }
 ?>
 --EXPECT--
-== M::viaFunction
+== M\viaFunction
   new \M\Secret: M\Secret
   new module::Secret: M\Secret
   module::Secret::K: k
@@ -65,7 +65,7 @@ foreach (['return get_class(new \M\Secret);', 'return \M::hid();'] as $code) {
   instanceof: yes
   nested module internal: ERR Cannot access internal module member "M\In\Deep" from outside its module
   internal method: hidden
-== M::viaClosure
+== M\viaClosure
   new \M\Secret: M\Secret
   new module::Secret: M\Secret
   module::Secret::K: k

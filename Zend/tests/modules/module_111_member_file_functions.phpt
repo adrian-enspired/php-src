@@ -18,7 +18,7 @@ file_put_contents($dir . '/functions.php', <<<'PHP'
 <?php
 module Vendor\Package\Feature;
 
-// unclaimed -> internal; canonical Vendor\Package\Feature::f; namespaced ...\Feature\f
+// unclaimed -> internal; canonical Vendor\Package\Feature\f; namespaced ...\Feature\f
 function f(): string { return "f:" . x(); }          // bare same-module call (ns fallback)
 // claimed public
 function x(): string { return "x"; }
@@ -30,7 +30,7 @@ module Vendor\Package\Feature;
 class Widget {
     public function viaBare(): string  { return f(); }          // internal, same module
     public function viaModule(): string { return module::f(); } // module:: self-call
-    public function viaCanonical(): string { return \Vendor\Package\Feature::f(); }
+    public function viaCanonical(): string { return \Vendor\Package\Feature\f(); }
 }
 PHP);
 
@@ -49,7 +49,7 @@ var_dump($w->viaModule());
 var_dump($w->viaCanonical());
 
 // internal function, gated from outside on every route
-try { Vendor\Package\Feature::f(); echo "LEAK\n"; }
+try { Vendor\Package\Feature\f(); echo "LEAK\n"; }
 catch (\Error $e) { echo $e->getMessage(), "\n"; }
 try { \Vendor\Package\Feature\f(); echo "LEAK\n"; }
 catch (\Error $e) { echo $e->getMessage(), "\n"; }

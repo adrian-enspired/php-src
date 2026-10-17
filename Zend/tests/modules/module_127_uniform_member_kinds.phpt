@@ -19,7 +19,7 @@ module X {
 
     public class Direct {
         public static function cls(): string { return \X\Cls::tag(); }
-        public static function kon(): string { return \X::KON; }
+        public static function kon(): string { return \X\KON; }
         public static function mod(): string { return \X\N\Pub::tag(); }
         public static function deep(): string {
             try { return \X\N\Priv::tag(); } catch (\Error $e) { return "denied"; }
@@ -28,7 +28,7 @@ module X {
     public module Y { public module Z {
         public class Deep {
             public static function cls(): string { return \X\Cls::tag(); }
-            public static function kon(): string { return \X::KON; }
+            public static function kon(): string { return \X\KON; }
             public static function mod(): string { return \X\N\Pub::tag(); }
             public static function deep(): string {
                 try { return \X\N\Priv::tag(); } catch (\Error $e) { return "denied"; }
@@ -45,7 +45,7 @@ printf("%-26s class=%-6s const=%-6s module=%-14s module-internal=%s\n",
 echo "-- from outside X: every kind denied --\n";
 foreach ([
     'class'  => fn() => X\Cls::tag(),
-    'const'  => fn() => X::KON,
+    'const'  => fn() => X\KON,
     'module' => fn() => X\N\Pub::tag(),
 ] as $label => $probe) {
     try { $probe(); echo "$label: LEAKED\n"; } catch (\Error $e) { echo "$label: denied\n"; }

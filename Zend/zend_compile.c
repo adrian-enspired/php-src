@@ -3064,26 +3064,23 @@ static zend_string *zend_try_module_chain_class(zend_ast *class_ast) /* {{{ */
 	}
 	zend_string *canonical = zend_concat_names(ZSTR_VAL(mod), ZSTR_LEN(mod),
 		ZSTR_VAL(member), ZSTR_LEN(member));
-	/* A claimed (or inline) member is a class; otherwise a constant of the module's backing
-	 * class makes this a constant walk. Anything else is taken as a member class (it may be
-	 * unclaimed, and not loaded yet). */
+	/* A claimed (or inline) member is a class; otherwise a constant of the module (one of the
+	 * block's own, or one already declared) makes this a constant walk. Anything else is taken
+	 * as a member class (it may be unclaimed, and not loaded yet). */
 	zend_string *lc_mod = zend_string_tolower(mod);
 	zend_php_module *owner = zend_lookup_module(lc_mod);
-	zend_class_entry *mce = zend_hash_find_ptr(CG(class_table), lc_mod);
 	zend_string_release(lc_mod);
 	zend_string *lc_canonical = zend_string_tolower(canonical);
 	bool claimed = owner && zend_hash_exists(&owner->members, lc_canonical);
 	zend_string_release(lc_canonical);
 	bool is_const = false;
 	if (!claimed) {
-		if (mce && (mce->ce_flags2 & ZEND_ACC2_MODULE)) {
-			is_const = zend_hash_exists(&mce->constants_table, member);
-		} else if (FC(module_block_consts) && FC(current_module) == mod) {
+		if (FC(module_block_consts) && FC(current_module) == mod) {
 			is_const = zend_hash_exists(FC(module_block_consts), member);
 		}
 		if (!is_const) {
-			/* a member-file constant registered by a file already run */
-			zend_string *cname = zend_string_concat3(ZSTR_VAL(mod), ZSTR_LEN(mod), "::", 2,
+			/* a module constant registered by a file already run */
+			zend_string *cname = zend_concat_names(ZSTR_VAL(mod), ZSTR_LEN(mod),
 				ZSTR_VAL(member), ZSTR_LEN(member));
 			zend_string *ckey = zend_module_const_key(cname);
 			is_const = zend_hash_exists(EG(zend_constants), ckey);
@@ -6101,6 +6098,26 @@ static const zend_function *zend_get_compatible_func_or_null(const zend_class_en
 }
 /* }}} */
 
+/* PHP Modules: for "module::NAME" (a constant or a function of the enclosing module), the
+ * fully-qualified name node "<module>\\NAME"; NULL for anything else. Module constants and
+ * functions are namespaced, so this is a plain constant fetch / function call. */
+static zend_ast *zend_module_self_member_name(zend_ast *class_ast, zend_ast *name_ast)
+{
+	if (class_ast->kind != ZEND_AST_ZVAL || class_ast->attr != ZEND_NAME_MODULE_SELF
+	 || name_ast->kind != ZEND_AST_ZVAL || Z_TYPE_P(zend_ast_get_zval(name_ast)) != IS_STRING) {
+		return NULL;
+	}
+	zend_string *self = zend_ast_get_str(class_ast);
+	zend_string *mod = zend_module_self();
+	if (!mod || zend_memnstr(ZSTR_VAL(self), "::", 2, ZSTR_VAL(self) + ZSTR_LEN(self))) {
+		return NULL;
+	}
+	zend_string *member = zend_ast_get_str(name_ast);
+	zval zv;
+	ZVAL_STR(&zv, zend_concat_names(ZSTR_VAL(mod), ZSTR_LEN(mod), ZSTR_VAL(member), ZSTR_LEN(member)));
+	return zend_ast_create_zval_ex(&zv, ZEND_NAME_FQ);
+}
+
 static void zend_compile_static_call(znode *result, zend_ast *ast, uint32_t type) /* {{{ */
 {
 	zend_ast *class_ast = ast->child[0];
@@ -6115,45 +6132,22 @@ static void zend_compile_static_call(znode *result, zend_ast *ast, uint32_t type
 		return;
 	}
 
+	/* PHP Modules: "module::f(...)" calls module function "<module>\\f". */
+	{
+		zend_ast *fname = zend_module_self_member_name(class_ast, method_ast);
+		if (fname) {
+			zend_ast *call = zend_ast_create(ZEND_AST_CALL, fname, args_ast);
+			call->lineno = zend_ast_get_lineno(method_ast);
+			zend_compile_call(result, call, type);
+			zend_ast_destroy(fname);   /* not part of the file's AST; the args are */
+			return;
+		}
+	}
+
 	zend_short_circuiting_mark_inner(class_ast);
 	zend_compile_class_ref(&class_node, class_ast, ZEND_FETCH_CLASS_EXCEPTION);
 
 	zend_compile_expr(&method_node, method_ast);
-
-	/* PHP Modules: "M::f(...)" where M is a module known at compile time and "M\f" a
-	 * module function: compile it as the plain function call it is (INIT_FCALL / DO_UCALL,
-	 * gated at call resolution like any module function call), not as a static-method
-	 * dispatch through the module's backing class. A cold module (definition not yet
-	 * seen) keeps the static-call form, which resolves the function at runtime. */
-	if (class_node.op_type == IS_CONST && Z_TYPE(class_node.u.constant) == IS_STRING
-	 && method_node.op_type == IS_CONST && Z_TYPE(method_node.u.constant) == IS_STRING) {
-		zend_string *cname = Z_STR(class_node.u.constant);
-		zend_string *lc_cname = zend_string_tolower(cname);
-		const zend_class_entry *mce = zend_hash_find_ptr(CG(class_table), lc_cname);
-		zend_string_release(lc_cname);
-		if (mce && (mce->ce_flags2 & ZEND_ACC2_MODULE)) {
-			zend_string *fname = zend_concat_names(ZSTR_VAL(cname), ZSTR_LEN(cname),
-				Z_STRVAL(method_node.u.constant), Z_STRLEN(method_node.u.constant));
-			zend_string *lc_fname = zend_string_tolower(fname);
-			const zend_function *mfn = zend_hash_find_ptr(CG(function_table), lc_fname);
-			zend_string_release(lc_fname);
-			if (mfn && mfn->type == ZEND_USER_FUNCTION
-			 && (mfn->common.fn_flags2 & ZEND_ACC2_FN_MODULE_MEMBER)) {
-				zval zv;
-				ZVAL_STR(&zv, fname);
-				zend_ast *call = zend_ast_create(ZEND_AST_CALL,
-					zend_ast_create_zval_ex(&zv, ZEND_NAME_FQ), args_ast);
-				call->lineno = zend_ast_get_lineno(method_ast);
-				zval_ptr_dtor(&class_node.u.constant);
-				zval_ptr_dtor(&method_node.u.constant);
-				zend_compile_call(result, call, type);
-				/* the synthesized name node is not part of the file's AST; args are */
-				zend_ast_destroy(call->child[0]);
-				return;
-			}
-			zend_string_release(fname);
-		}
-	}
 
 	if (method_node.op_type == IS_CONST) {
 		zval *name = &method_node.u.constant;
@@ -11264,25 +11258,6 @@ static void zend_compile_group_use(const zend_ast *ast) /* {{{ */
 }
 /* }}} */
 
-/* PHP Modules: the name of a constant declared in a member file. Module constants keep the
- * "::" form ("M::K", like a module's inline constants, which are its backing class's), with
- * the file's sub-namespace under the module: "M::Sub\K". */
-static zend_string *zend_module_const_canonical(zend_string *tail)
-{
-	zend_string *mod = FC(current_module);
-	zend_string *ns = FC(current_namespace);
-	if (ns && ZSTR_LEN(ns) > ZSTR_LEN(mod) && ZSTR_VAL(ns)[ZSTR_LEN(mod)] == '\\') {
-		const char *rel = ZSTR_VAL(ns) + ZSTR_LEN(mod) + 1;
-		size_t rel_len = ZSTR_LEN(ns) - ZSTR_LEN(mod) - 1;
-		zend_string *sub = zend_concat_names(rel, rel_len, ZSTR_VAL(tail), ZSTR_LEN(tail));
-		zend_string *res = zend_string_concat3(
-			ZSTR_VAL(mod), ZSTR_LEN(mod), "::", 2, ZSTR_VAL(sub), ZSTR_LEN(sub));
-		zend_string_release(sub);
-		return res;
-	}
-	return zend_string_concat3(ZSTR_VAL(mod), ZSTR_LEN(mod), "::", 2, ZSTR_VAL(tail), ZSTR_LEN(tail));
-}
-
 static void zend_compile_const_decl(zend_ast *ast) /* {{{ */
 {
 	zend_ast_list *list = zend_ast_get_list(ast);
@@ -11313,26 +11288,13 @@ static void zend_compile_const_decl(zend_ast *ast) /* {{{ */
 				"Cannot redeclare constant '%s'", ZSTR_VAL(unqualified_name));
 		}
 
-		/* PHP Modules: a top-level const in a MEMBER FILE is a MODULE CONSTANT — its
-		 * identity is the canonical "M::K" (like every member), its projected namespaced
-		 * name is registered alongside at runtime, and its visibility comes from the
-		 * module's claim (unclaimed = internal). Compiled to ZEND_DECLARE_MODULE_CONST.
-		 * Inline `module { const … }` constants are untouched (backing-class constants),
-		 * and non-module files keep the plain path. */
-		bool is_module_const = FC(current_module) && !FC(in_module_block);
-		if (is_module_const) {
-			if (attributes_ast != NULL || (i + 1 < list->children
-					&& list->child[i + 1]->kind == ZEND_AST_ATTRIBUTE_LIST)) {
-				zend_error_noreturn(E_COMPILE_ERROR,
-					"Attributes are not supported on a module constant declared in a "
-					"membership file; declare the constant inline in the module "
-					"definition block instead");
-			}
-			name = zend_module_const_canonical(unqualified_name);
-		} else {
-			name = zend_prefix_with_ns(unqualified_name);
-		}
-		name = zend_new_interned_string(name);
+		/* PHP Modules: a const in module code (inline in the block, or in a member file) is
+		 * a MODULE CONSTANT, named in the module's namespace like any namespaced constant
+		 * ("M\K", "M\Sub\K"). Its visibility is the block's for an inline one, else its
+		 * claim's (unclaimed = internal), resolved at runtime. Compiled to
+		 * ZEND_DECLARE_MODULE_CONST, which records its module. */
+		bool is_module_const = FC(current_module) != NULL;
+		name = zend_new_interned_string(zend_prefix_with_ns(unqualified_name));
 
 		if (FC(imports_const)) {
 			zend_string *import_name = zend_hash_find_ptr(FC(imports_const), unqualified_name);
@@ -11348,11 +11310,25 @@ static void zend_compile_const_decl(zend_ast *ast) /* {{{ */
 		last_op = zend_emit_op(NULL,
 			is_module_const ? ZEND_DECLARE_MODULE_CONST : ZEND_DECLARE_CONST,
 			&name_node, &value_node);
+		if (is_module_const) {
+			last_op->extended_value = (uint32_t) ZSTR_LEN(FC(current_module));
+			if (FC(in_module_block)) {
+				last_op->extended_value |= ZEND_MODULE_CONST_VIS_KNOWN
+					| (FC(current_member_internal) ? ZEND_MODULE_CONST_INTERNAL : 0);
+			}
+		}
 
 		zend_register_seen_symbol(name, ZEND_SYMBOL_CONST);
 	}
 	if (attributes_ast == NULL) {
 		return;
+	}
+	uint32_t module_ext = 0;
+	zend_string *module_const_name = NULL;
+	if (last_op->opcode == ZEND_DECLARE_MODULE_CONST) {
+		module_ext = last_op->extended_value;
+		last_op->extended_value = 0;
+		module_const_name = Z_STR_P(CT_CONSTANT_EX(CG(active_op_array), last_op->op1.constant));
 	}
 	/* Validate: attributes can only be applied to one constant at a time
 	 * Since we store the AST for the attributes in the list of children,
@@ -11374,6 +11350,15 @@ static void zend_compile_const_decl(zend_ast *ast) /* {{{ */
 	ZVAL_PTR(&attribs_node.u.constant, attributes);
 	zend_emit_op_data(&attribs_node);
 	CG(active_op_array)->fn_flags |= ZEND_ACC_PTR_OPS;
+	if (module_ext) {
+		/* PHP Modules: an attributed module constant is registered (with its attributes)
+		 * by the op above; make it a module constant. */
+		znode adopt_name;
+		adopt_name.op_type = IS_CONST;
+		ZVAL_STR_COPY(&adopt_name.u.constant, module_const_name);
+		zend_op *adopt = zend_emit_op(NULL, ZEND_DECLARE_MODULE_CONST, &adopt_name, NULL);
+		adopt->extended_value = module_ext | ZEND_MODULE_CONST_ADOPT;
+	}
 }
 /* }}}*/
 
@@ -11698,83 +11683,77 @@ done:
 	zend_string_release(lc_canon);
 }
 
-/* PHP Modules: runtime registrar for a member-file MODULE CONSTANT. Registers two
- * EG(zend_constants) entries: the canonical ("M::K", the identity) carrying the claim
- * visibility — internal when unclaimed or claimed `internal`, VIS_UNKNOWN when the
- * manifest is not loaded (cold; resolves at fetch, failing closed) — and the projected
- * namespaced name ("M\K") as an ALIAS entry whose value is the canonical name string,
- * resolved and gated through the canonical at fetch. The value is fully evaluated by the
- * ZEND_DECLARE_MODULE_CONST handler before this runs. */
-ZEND_API void zend_declare_module_const_runtime(zend_string *canonical, zval *value) {
-	const char *cv = ZSTR_VAL(canonical);
-	const char *cend = cv + ZSTR_LEN(canonical);
-	const char *last = NULL;
-	for (const char *p = zend_memnstr(cv, "::", 2, cend); p;
-			p = zend_memnstr(p + 2, "::", 2, cend)) {
-		last = p;
-	}
-	if (!last) {
-		return;
-	}
-	size_t mlen = (size_t) (last - cv);
-
-	/* claim visibility (same reconciliation as classes/functions: manifest seen ->
-	 * claims table is authoritative, absent claim = internal; not seen -> UNKNOWN) */
+/* PHP Modules: runtime registrar for a MODULE CONSTANT ("M\\K", "M\\Sub\\K"). `ext` carries the
+ * owning module's name length and, for an inline constant, its visibility (see
+ * ZEND_MODULE_CONST_*). A member-file constant takes its claim's visibility: internal when
+ * unclaimed or claimed `internal`, VIS_UNKNOWN when the module's definition is not loaded yet
+ * (cold; resolved at fetch, failing closed). The owner is recorded in EG(module_const_owners).
+ * The value is fully evaluated by the handler before this runs. Returns the registered
+ * constant (NULL on redeclaration, already reported). */
+ZEND_API zend_constant *zend_declare_module_const_runtime(zend_string *name, zval *value, uint32_t ext)
+{
+	uint32_t mlen = ext & ZEND_MODULE_CONST_LEN_MASK;
 	uint32_t mflags;
 	zend_string *lc_mod = zend_string_alloc(mlen, 0);
-	zend_str_tolower_copy(ZSTR_VAL(lc_mod), cv, mlen);
+	zend_str_tolower_copy(ZSTR_VAL(lc_mod), ZSTR_VAL(name), mlen);
 	zend_class_entry *mce = zend_hash_find_ptr(EG(class_table), lc_mod);
-	if (mce && (mce->ce_flags2 & ZEND_ACC2_MODULE)) {
+	bool def_seen = mce && (mce->ce_flags2 & ZEND_ACC2_MODULE);
+	if (ext & ZEND_MODULE_CONST_VIS_KNOWN) {
+		mflags = (ext & ZEND_MODULE_CONST_INTERNAL) ? CONST_MODULE_INTERNAL : 0;
+	} else if (def_seen) {
 		zend_php_module *m = zend_lookup_module(lc_mod);
-		/* Claims are kind-less and keyed by the member's namespaced name ("m\k"). */
-		zend_string *lc_claim = zend_string_alloc(ZSTR_LEN(canonical) - 1, 0);
-		zend_str_tolower_copy(ZSTR_VAL(lc_claim), cv, mlen);
-		ZSTR_VAL(lc_claim)[mlen] = '\\';
-		zend_str_tolower_copy(ZSTR_VAL(lc_claim) + mlen + 1, last + 2, (size_t) (cend - last - 2));
-		void *vis = m ? zend_hash_find_ptr(&m->members, lc_claim) : NULL;
-		zend_string_release(lc_claim);
-		mflags = (!vis || (uintptr_t) vis == ZEND_MODULE_MEMBER_INTERNAL)
-			? CONST_MODULE_INTERNAL : 0;
+		zend_string *lc_name = zend_string_tolower(name);
+		void *vis = m ? zend_hash_find_ptr(&m->members, lc_name) : NULL;
+		zend_string_release(lc_name);
+		mflags = (!vis || (uintptr_t) vis == ZEND_MODULE_MEMBER_INTERNAL) ? CONST_MODULE_INTERNAL : 0;
 	} else {
 		mflags = CONST_MODULE_VIS_UNKNOWN;
 	}
 	zend_string_release(lc_mod);
-
-	/* canonical entry */
-	zend_constant c;
-	ZVAL_COPY(&c.value, value);
-	ZEND_CONSTANT_SET_FLAGS(&c, mflags, PHP_USER_CONSTANT);
-	c.name = zend_string_copy(canonical);
-	zend_string *ckey = zend_module_const_key(canonical);
-	zend_constant *creg = zend_register_constant_with_key(&c, ckey);
-	zend_string_release(ckey);
-	if (!creg) {
-		return; /* redeclaration warning already raised; skip the alias */
+	/* nested (or not known yet): reading it also crosses the enclosing boundaries */
+	if (!def_seen || mce->module_len) {
+		mflags |= CONST_MODULE_NESTED;
 	}
 
-	/* projected namespaced-name alias ("::" -> "\", value = canonical name string) */
-	zend_string *projected = zend_string_alloc(ZSTR_LEN(canonical), 0);
-	{
-		size_t plen = 0;
-		for (const char *p = cv; p < cend; ) {
-			if (p + 1 < cend && p[0] == ':' && p[1] == ':') {
-				ZSTR_VAL(projected)[plen++] = '\\';
-				p += 2;
-			} else {
-				ZSTR_VAL(projected)[plen++] = *p++;
-			}
+	zend_constant *creg;
+	if (!value) {
+		/* ADOPT: registered (with its attributes) by ZEND_DECLARE_ATTRIBUTED_CONST */
+		zend_string *key = zend_module_const_key(name);
+		creg = zend_hash_find_ptr(EG(zend_constants), key);
+		zend_string_release(key);
+		/* (a constant of that name declared elsewhere means the declaration failed, already
+		 * reported: don't adopt someone else's constant) */
+		zend_string *file = zend_get_executed_filename_ex();
+		if (!creg || ZEND_CONSTANT_MODULE_NUMBER(creg) != PHP_USER_CONSTANT
+		 || !zend_string_equals(creg->name, name)
+		 || (ZEND_CONSTANT_FLAGS(creg) & CONST_MODULE_ANY)
+		 || !creg->filename || !file || !zend_string_equals(creg->filename, file)) {
+			return NULL;
 		}
-		ZSTR_VAL(projected)[plen] = '\0';
-		ZSTR_LEN(projected) = plen;
+		ZEND_CONSTANT_SET_FLAGS(creg, ZEND_CONSTANT_FLAGS(creg) | mflags, PHP_USER_CONSTANT);
+	} else {
+		zend_constant c;
+		ZVAL_COPY(&c.value, value);
+		ZEND_CONSTANT_SET_FLAGS(&c, mflags, PHP_USER_CONSTANT);
+		c.name = zend_string_copy(name);
+		creg = zend_register_constant(&c);
+		if (!creg) {
+			return NULL;
+		}
 	}
-	zend_constant pc;
-	ZVAL_STR_COPY(&pc.value, canonical);
-	ZEND_CONSTANT_SET_FLAGS(&pc, CONST_MODULE_ALIAS, PHP_USER_CONSTANT);
-	pc.name = zend_string_copy(projected);
-	zend_string *pkey = zend_module_const_key(projected);
-	zend_register_constant_with_key(&pc, pkey);
-	zend_string_release(pkey);
-	zend_string_release(projected);
+	if (!EG(module_const_owners)) {
+		EG(module_const_owners) = emalloc(sizeof(HashTable));
+		zend_hash_init(EG(module_const_owners), 8, NULL, NULL, 0);
+	}
+	zend_hash_update_ptr(EG(module_const_owners), creg->name, (void *) (uintptr_t) mlen);
+	return creg;
+}
+
+/* PHP Modules: the length of module constant `c`'s owning module's name, a prefix of its name. */
+ZEND_API uint32_t zend_module_const_owner_len(const zend_constant *c)
+{
+	void *len = EG(module_const_owners) ? zend_hash_find_ptr(EG(module_const_owners), c->name) : NULL;
+	return (uint32_t) (uintptr_t) len;
 }
 
 /* Build the name AST of "module::Name" / "module::Sub\Name" (module_self, "::", a name):
@@ -12219,20 +12198,22 @@ static void zend_compile_module(const zend_ast *ast) /* {{{ */
 				continue;
 			}
 
-			/* Module-level constants become class constants of the backing class,
-			 * not global constants. Collect them as class-const groups; they are
-			 * compiled below as part of the backing class, not here. */
+			/* Module constants are namespaced constants ("M\\K"), declared at runtime with
+			 * the block's visibility (zend_compile_const_decl). The grammar produced a
+			 * CLASS_CONST_GROUP (so an inline `#[Attr]` attaches as for a class constant);
+			 * recast it as a const declaration. */
 			if (decl->kind == ZEND_AST_CLASS_CONST_GROUP) {
-				/* Module constants become class constants of the backing class. The grammar
-				 * already produced a CLASS_CONST_GROUP (so an inline `#[Attr]` attaches to it
-				 * exactly as for a class-body constant); here we just stamp the module
-				 * visibility. An `internal` one carries the low-bit member flag. */
-				uint32_t cflags = ZEND_ACC_PUBLIC;
-				if (visibility == ZEND_MODULE_MEMBER_INTERNAL) {
-					cflags |= ZEND_ACC_MODULE_INTERNAL_MEMBER;
+				const zend_ast_list *consts = zend_ast_get_list(decl->child[0]);
+				zend_ast *const_decl = zend_ast_create_list(0, ZEND_AST_CONST_DECL);
+				for (uint32_t j = 0; j < consts->children; j++) {
+					const_decl = zend_ast_list_add(const_decl, consts->child[j]);
 				}
-				decl->attr = cflags;
-				backing_stmts = zend_ast_list_add(backing_stmts, decl);
+				if (decl->child[1]) {
+					const_decl = zend_ast_list_add(const_decl, decl->child[1]);
+				}
+				FC(current_member_internal) = (visibility == ZEND_MODULE_MEMBER_INTERNAL);
+				zend_compile_const_decl(const_decl);
+				FC(current_member_internal) = false;
 				continue;
 			}
 
@@ -13680,6 +13661,17 @@ static void zend_compile_class_const(znode *result, zend_ast *ast, uint8_t type)
 	class_ast = ast->child[0];
 	const_ast = ast->child[1];
 
+	/* PHP Modules: "module::K" is module constant "<module>\\K". */
+	{
+		zend_ast *cname = zend_module_self_member_name(class_ast, const_ast);
+		if (cname) {
+			zend_ast *c = zend_ast_create(ZEND_AST_CONST, cname);
+			zend_compile_const(result, c, type);
+			zend_ast_destroy(c);
+			return;
+		}
+	}
+
 	if (class_ast->kind == ZEND_AST_ZVAL && const_ast->kind == ZEND_AST_ZVAL) {
 		zval *const_zv = zend_ast_get_zval(const_ast);
 		if (Z_TYPE_P(const_zv) == IS_STRING) {
@@ -13959,12 +13951,23 @@ static bool zend_is_allowed_in_const_expr(zend_ast_kind kind) /* {{{ */
 }
 /* }}} */
 
+static void zend_compile_const_expr_const(zend_ast **ast_ptr);
+
 static void zend_compile_const_expr_class_const(zend_ast **ast_ptr) /* {{{ */
 {
 	zend_ast *ast = *ast_ptr;
 	zend_ast *class_ast = ast->child[0];
 	zend_string *class_name;
 	int fetch_type;
+
+	/* PHP Modules: "module::K" is module constant "<module>\\K". */
+	zend_ast *module_const = zend_module_self_member_name(class_ast, ast->child[1]);
+	if (module_const) {
+		zend_ast_destroy(ast);
+		*ast_ptr = zend_ast_create(ZEND_AST_CONST, module_const);
+		zend_compile_const_expr_const(ast_ptr);
+		return;
+	}
 
 	if (class_ast->kind != ZEND_AST_ZVAL) {
 		/* PHP Modules: a "module::C" chain used as the class of a compile-time class-constant

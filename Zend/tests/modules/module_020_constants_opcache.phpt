@@ -26,7 +26,7 @@ PHP);
 file_put_contents($dir . '/consumer.php', <<<'PHP'
 <?php
 require __DIR__ . '/mod.inc';
-echo Vendor\App::VERSION, "\n";
+echo Vendor\App\VERSION, "\n";
 PHP);
 
 $opts = '-d opcache.enable_cli=1 -d opcache.file_cache=' . escapeshellarg($cache)

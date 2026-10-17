@@ -16,14 +16,14 @@ module Outer {
 }
 
 // Outer members unchanged
-echo Outer::OV, "\n";
+echo Outer\OV, "\n";
 var_dump(new Outer\Widget instanceof Outer\Widget);
 
 // The nested module is canonically "Outer\Inner" (module boundary is "::").
 var_dump((new ReflectionModule("Outer\Inner"))->getName() === "Outer\Inner");
 
 // Nested module-level members via chained "::"
-echo Outer\Inner::IV, "\n";
+echo Outer\Inner\IV, "\n";
 
 // Nested member class: static access via chain, and direct instantiation through
 // the multi-"::" class reference "new Outer\Inner\Gadget".

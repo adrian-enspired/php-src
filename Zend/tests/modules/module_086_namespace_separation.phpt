@@ -23,7 +23,7 @@ var_dump(class_exists('X\Y\X\Y\Z\C')); // NOT double-prefixed by the namespace
 // From inside namespace X\Y, reach the root-declared module with a leading "\".
 $o = new \X\Y\Z\C;
 echo $o::class, "\n";
-echo \X\Y\Z::V, "\n";
+echo \X\Y\Z\V, "\n";
 ?>
 --EXPECT--
 bool(true)

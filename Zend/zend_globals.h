@@ -207,6 +207,9 @@ struct _zend_executor_globals {
 	 * miss (zend_module_autoload_miss), so each is tried once per request; lazily allocated,
 	 * reset when the autoloader list changes. */
 	HashTable *module_probe_misses;
+	/* PHP Modules: module constant name -> (uintptr_t) length of its owning module's name
+	 * (a prefix of it); lazily allocated, freed at request shutdown. */
+	HashTable *module_const_owners;
 
 	zval          *vm_stack_top;
 	zval          *vm_stack_end;

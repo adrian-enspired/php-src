@@ -29,7 +29,7 @@ var_dump($m->getName(), $m->getShortName(), $m->getNamespaceName(), $m->inNamesp
 var_dump(array_map(fn($o) => get_class($o), $m->getClasses()), $m->getClassNames(), $m->getInterfaceNames(), $m->getTraitNames(), $m->getEnumNames(), $m->getModuleNames(), $m->getFunctionNames());
 var_dump(get_class($m->getEnums()['V\M\E']), get_class($m->getModules()['V\M\N']), get_class($m->getFunctions()['V\M\f']));
 var_dump($m->getConstants());
-foreach (['I', 'V\M\I', 'P', 'T', 'f', 'g', 'C', 'S', 'N', 'V\M::S', 'Nope', 'N\Deep'] as $n) { try { echo "$n: ", $m->getSymbolVisibility($n), " ", var_export($m->hasMember($n), true), "\n"; } catch (\Throwable $e) { echo $e->getMessage(), "\n"; } }
+foreach (['I', 'V\M\I', 'P', 'T', 'f', 'g', 'C', 'S', 'N', 'V\M\S', 'Nope', 'N\Deep'] as $n) { try { echo "$n: ", $m->getSymbolVisibility($n), " ", var_export($m->hasMember($n), true), "\n"; } catch (\Throwable $e) { echo $e->getMessage(), "\n"; } }
 $n = $m->getModules()['V\M\N'];
 var_dump($n->getName(), $n->getShortName(), $n->getNamespaceName(), $n->getParentModule()->getName(), $n->getClassNames());
 var_dump((new \ReflectionClass('V\M\I'))->isModuleInternal(), (new \ReflectionClass('V\M\P'))->isModuleInternal(), (new \ReflectionClass('V\M\N\Deep'))->getModule()->name, (new \ReflectionClass('V\M\P'))->getModule()->name, (new \ReflectionClass('V\Tag'))->getModule());
@@ -53,8 +53,8 @@ Module [ <user> V\M ] {
     internal module V\M\N
     internal function V\M\f
     public function V\M\g
-    public const V\M::C
-    internal const V\M::S
+    public const V\M\C
+    internal const V\M\S
   }
 }
 string(3) "V\M"
@@ -116,7 +116,7 @@ g: public true
 C: public true
 S: internal true
 N: internal true
-V\M::S: internal true
+V\M\S: internal true
 Nope: Symbol "Nope" is not a member of module "V\M"
 N\Deep: Symbol "N\Deep" is not a member of module "V\M"
 string(5) "V\M\N"

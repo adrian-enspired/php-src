@@ -21,7 +21,7 @@ foreach ($names as $n) {
 }
 echo $run("module M; function __invoke() {}"), "\n";                       // member file
 echo $run("module M { public class C { public function __construct() {} public function __invoke() { return 'ok'; } } } echo (new M\C)(), \"\\n\";"), "\n";
-echo $run("module M { public function __helper() { return 'ok'; } } echo M::__helper(), \"\\n\";"), "\n";
+echo $run("module M { public function __helper() { return 'ok'; } } echo M\__helper(), \"\\n\";"), "\n";
 @unlink($f);
 ?>
 --EXPECT--

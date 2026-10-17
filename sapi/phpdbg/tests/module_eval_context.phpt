@@ -30,4 +30,4 @@ module M {
         return $x;
     }
 }
-M::f();
+M\f();

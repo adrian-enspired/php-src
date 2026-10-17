@@ -12,11 +12,11 @@ module Billing {
 }
 
 // public inline function: module-qualified spelling works from anywhere
-var_dump(Billing::tax(5));
-var_dump(Billing::tax(5));                    // second call: cached static-call path
+var_dump(Billing\tax(5));
+var_dump(Billing\tax(5));                    // second call: cached static-call path
 
 // internal inline function: gated outside, usable inside
-try { Billing::rate(); echo "LEAK\n"; } catch (\Error $e) { echo $e->getMessage(), "\n"; }
+try { Billing\rate(); echo "LEAK\n"; } catch (\Error $e) { echo $e->getMessage(), "\n"; }
 $s = new Billing\Svc();
 var_dump($s->viaModule());
 var_dump($s->viaBare());
@@ -28,7 +28,7 @@ var_dump(function_exists('Billing\tax'));
 module Fallback {
     public function len(): int { return strlen("abcd"); }
 }
-var_dump(Fallback::len());
+var_dump(Fallback\len());
 ?>
 --EXPECT--
 int(15)

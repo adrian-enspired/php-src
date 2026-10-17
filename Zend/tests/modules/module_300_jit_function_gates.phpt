@@ -39,8 +39,8 @@ class Out {
     static function readInternal(M\C $o) { return $o->p; }
     static function callInternal(M\C $o) { return $o->m(); }
     static function constInternal() { return M\C::K; }
-    static function fnInternal() { return M::f(); }
-    static function fnStatic() { return M::g(); }
+    static function fnInternal() { return M\f(); }
+    static function fnStatic() { return M\g(); }
     static function newInternal() { return new M\I; }
 }
 

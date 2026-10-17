@@ -3876,6 +3876,8 @@ static void preload_activate(void)
 	if (ZCSG(preload_script)->ping_auto_globals_mask & ~ZCG(auto_globals_mask)) {
 		zend_accel_set_auto_globals(ZCSG(preload_script)->ping_auto_globals_mask & ~ZCG(auto_globals_mask));
 	}
+	/* PHP Modules: re-declare the module constants preloading stored on backing classes. */
+	zend_module_preload_restore_constants();
 }
 
 static void preload_restart(void)
@@ -4931,6 +4933,9 @@ static zend_result accel_preload(const char *config, bool in_child)
 				EG(current_execute_data) = orig_execute_data;
 			} ZEND_HASH_FOREACH_END();
 		}
+
+		/* PHP Modules: keep the module constants, which the cleanup below destroys. */
+		zend_module_preload_capture_constants();
 
 		/* Cleanup executor */
 		EG(flags) |= EG_FLAGS_IN_SHUTDOWN;

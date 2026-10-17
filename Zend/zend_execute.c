@@ -5153,38 +5153,6 @@ static zend_never_inline zend_execute_data *zend_init_dynamic_call_string(zend_s
 		size_t cname_length = colon - ZSTR_VAL(function) - 1;
 		size_t mname_length = ZSTR_LEN(function) - cname_length - (sizeof("::") - 1);
 
-		/* PHP Modules: "M::f" may name module function "M\f": try that first -- one lookup,
-		 * instead of resolving M as a class and falling back from its (method-less) backing
-		 * class. Only once a module exists in this request. */
-		if (EG(module_registry)) {
-			const char *fv = ZSTR_VAL(function);
-			size_t clen = cname_length, fl = ZSTR_LEN(function) - 1;
-			if (clen && fv[0] == '\\') {
-				fv++;
-				clen--;
-				fl--;
-			}
-			ALLOCA_FLAG(use_heap);
-			char *key = do_alloca(fl + 1, use_heap);
-			memcpy(key, fv, clen);
-			key[clen] = '\\';
-			memcpy(key + clen + 1, colon + 1, mname_length);
-			key[fl] = '\0';
-			zend_function *mfn = zend_hash_str_find_ptr_lc(EG(function_table), key, fl);
-			free_alloca(key, use_heap);
-			if (mfn && (mfn->common.fn_flags2 & ZEND_ACC2_FN_MODULE_MEMBER)) {
-				if (ZEND_MODULE_FN_DENIED(mfn)) {
-					zend_throw_module_function_access_error(mfn);
-					return NULL;
-				}
-				if (EXPECTED(mfn->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&mfn->op_array))) {
-					init_func_run_time_cache(&mfn->op_array);
-				}
-				return zend_vm_stack_push_call_frame(ZEND_CALL_NESTED_FUNCTION | ZEND_CALL_DYNAMIC,
-					mfn, num_args, NULL);
-			}
-		}
-
 		lcname = zend_string_init(ZSTR_VAL(function), cname_length, 0);
 
 		called_scope = zend_fetch_class_by_name(lcname, NULL, ZEND_FETCH_CLASS_DEFAULT | ZEND_FETCH_CLASS_EXCEPTION);
@@ -5533,7 +5501,7 @@ static zend_always_inline zend_result _zend_quick_get_constant(
 	 * RESOLUTION — the resolved entry is what gets cached below, so a call site pays this
 	 * once; non-module constants pay one predicted-not-taken flag test. */
 	if (UNEXPECTED(ZEND_CONSTANT_FLAGS(c)
-			& (CONST_MODULE_ALIAS | CONST_MODULE_INTERNAL | CONST_MODULE_VIS_UNKNOWN))) {
+			& CONST_MODULE_ANY)) {
 		c = zend_module_constant_resolve(c, check_defined_only);
 		if (!c) {
 			if (!check_defined_only) {

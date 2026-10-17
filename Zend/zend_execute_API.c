@@ -146,6 +146,7 @@ void init_executor(void) /* {{{ */
 	EG(class_table) = CG(class_table);
 	EG(module_registry) = NULL; /* PHP Modules (experimental): lazily allocated */
 	EG(module_probe_misses) = NULL;
+	EG(module_const_owners) = NULL;
 
 	EG(error_handling) = EH_NORMAL;
 	EG(flags) = EG_FLAGS_INITIAL;
@@ -471,6 +472,11 @@ void shutdown_executor(void) /* {{{ */
 		EG(module_registry) = NULL;
 	}
 	zend_module_autoload_probe_reset();
+	if (EG(module_const_owners)) {
+		zend_hash_destroy(EG(module_const_owners));
+		efree(EG(module_const_owners));
+		EG(module_const_owners) = NULL;
+	}
 
 	zend_shutdown_executor_values(fast_shutdown);
 
@@ -2261,6 +2267,96 @@ ZEND_API void zend_module_bake_preloaded_visibility(void)
 		} else {
 			fn->common.fn_flags2 &= ~ZEND_ACC2_FN_MODULE_INTERNAL;
 		}
+	} ZEND_HASH_FOREACH_END();
+}
+
+/* PHP Modules: preloading keeps classes and functions but not constants, so the module
+ * constants a preload script declared would be gone in every request. Before preloading
+ * destroys them, each one is stored on its module's backing class (which preloading keeps) as a
+ * private class constant named by the constant's full name -- unreachable as "M::..." syntax,
+ * since a name with "\\" can't be written there -- and re-declared from it per request. */
+static bool zend_module_preloaded_constants;
+
+static bool zend_module_value_preloadable(const zval *v)
+{
+	if (Z_TYPE_P(v) == IS_OBJECT || Z_TYPE_P(v) == IS_RESOURCE || Z_TYPE_P(v) == IS_CONSTANT_AST) {
+		return false;
+	}
+	if (Z_TYPE_P(v) == IS_ARRAY) {
+		zval *e;
+		ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(v), e) {
+			if (!zend_module_value_preloadable(e)) {
+				return false;
+			}
+		} ZEND_HASH_FOREACH_END();
+	}
+	return true;
+}
+
+ZEND_API void zend_module_preload_capture_constants(void)
+{
+	if (!EG(module_const_owners)) {
+		return;
+	}
+	zend_string *name;
+	void *len;
+	ZEND_HASH_MAP_FOREACH_STR_KEY_PTR(EG(module_const_owners), name, len) {
+		zend_string *key = zend_module_const_key(name);
+		zend_constant *c = zend_hash_find_ptr(EG(zend_constants), key);
+		zend_string_release(key);
+		zend_class_entry *ce = zend_hash_str_find_ptr_lc(EG(class_table), ZSTR_VAL(name), (size_t) (uintptr_t) len);
+		if (!c || !ce || ce->type != ZEND_USER_CLASS || !(ce->ce_flags2 & ZEND_ACC2_MODULE)
+		 || (ce->ce_flags & ZEND_ACC_IMMUTABLE) || !zend_module_value_preloadable(&c->value)) {
+			continue;
+		}
+		bool internal;
+		if (ZEND_CONSTANT_FLAGS(c) & CONST_MODULE_VIS_UNKNOWN) {
+			zend_string *lc_mod = zend_string_tolower(ce->name);
+			zend_php_module *m = zend_lookup_module(lc_mod);
+			zend_string_release(lc_mod);
+			zend_string *lc_name = zend_string_tolower(name);
+			void *vis = m ? zend_hash_find_ptr(&m->members, lc_name) : NULL;
+			zend_string_release(lc_name);
+			internal = !vis || (uintptr_t) vis == ZEND_MODULE_MEMBER_INTERNAL;
+		} else {
+			internal = (ZEND_CONSTANT_FLAGS(c) & CONST_MODULE_INTERNAL) != 0;
+		}
+		zval value;
+		ZVAL_COPY(&value, &c->value);
+		zend_class_constant *cc = zend_declare_class_constant_ex(ce, zend_new_interned_string(zend_string_copy(name)),
+			&value, ZEND_ACC_PRIVATE | (internal ? ZEND_ACC_MODULE_INTERNAL_MEMBER : 0), NULL);
+		if (cc && c->attributes) {
+			GC_TRY_ADDREF(c->attributes);
+			cc->attributes = c->attributes;
+		}
+		zend_module_preloaded_constants = true;
+	} ZEND_HASH_FOREACH_END();
+}
+
+ZEND_API void zend_module_preload_restore_constants(void)
+{
+	if (!zend_module_preloaded_constants) {
+		return;
+	}
+	zend_class_entry *ce;
+	ZEND_HASH_MAP_FOREACH_PTR(EG(class_table), ce) {
+		if (ce->type != ZEND_USER_CLASS || !(ce->ce_flags2 & ZEND_ACC2_MODULE)
+		 || !(ce->ce_flags & ZEND_ACC_PRELOADED)) {
+			continue;
+		}
+		zend_string *cname;
+		zend_class_constant *cc;
+		ZEND_HASH_MAP_FOREACH_STR_KEY_PTR(&ce->constants_table, cname, cc) {
+			if (!memchr(ZSTR_VAL(cname), '\\', ZSTR_LEN(cname))) {
+				continue;
+			}
+			uint32_t ext = (uint32_t) ZSTR_LEN(ce->name) | ZEND_MODULE_CONST_VIS_KNOWN
+				| ((ZEND_CLASS_CONST_FLAGS(cc) & ZEND_ACC_MODULE_INTERNAL_MEMBER) ? ZEND_MODULE_CONST_INTERNAL : 0);
+			zend_constant *c = zend_declare_module_const_runtime(cname, &cc->value, ext);
+			if (c && cc->attributes) {
+				zend_constant_add_attributes(c, cc->attributes);
+			}
+		} ZEND_HASH_FOREACH_END();
 	} ZEND_HASH_FOREACH_END();
 }
 

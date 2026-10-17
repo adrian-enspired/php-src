@@ -363,20 +363,6 @@ ZEND_API zval *zend_get_class_constant_ex(zend_string *class_name, zend_string *
 		}
 		c = zend_hash_find_ptr(CE_CONSTANTS_TABLE(ce), constant_name);
 		if (c == NULL) {
-			/* PHP Modules: a member-file MODULE CONSTANT reached through the backing
-			 * class ("M::K", "module::K", constant("M::K")). Inline module constants are
-			 * backing-class class constants and answer above; a member-file constant
-			 * lives in EG(zend_constants) under its canonical key. */
-			if (UNEXPECTED(ce->ce_flags2 & ZEND_ACC2_MODULE)) {
-				zend_constant *mc = zend_module_lookup_module_constant(
-					ce, constant_name, (flags & ZEND_FETCH_CLASS_SILENT) != 0);
-				if (mc) {
-					return &mc->value;
-				}
-				if (EG(exception)) {
-					goto failure;
-				}
-			}
 			if ((flags & ZEND_FETCH_CLASS_SILENT) == 0) {
 				zend_throw_error(NULL, "Undefined constant %s::%s", ZSTR_VAL(class_name), ZSTR_VAL(constant_name));
 				goto failure;
@@ -521,7 +507,7 @@ ZEND_API zval *zend_get_constant_ex(zend_string *cname, const zend_class_entry *
 
 	/* PHP Modules: alias-hop + visibility gate for a module constant, at resolution. */
 	if (UNEXPECTED(ZEND_CONSTANT_FLAGS(c)
-			& (CONST_MODULE_ALIAS | CONST_MODULE_INTERNAL | CONST_MODULE_VIS_UNKNOWN))) {
+			& CONST_MODULE_ANY)) {
 		c = zend_module_constant_resolve(c, (flags & ZEND_FETCH_CLASS_SILENT) != 0);
 		if (!c) {
 			if (!(flags & ZEND_FETCH_CLASS_SILENT) && !EG(exception)) {
@@ -617,38 +603,6 @@ ZEND_API zend_constant *zend_register_constant(zend_constant *c)
 	return ret;
 }
 
-/* PHP Modules: register a constant under an explicit, pre-normalized key. Used for a
- * member-file module constant's canonical ("m::K") and projected ("m\…\K") entries,
- * whose module prefix must be lowercased in FULL — zend_register_constant's
- * last-backslash rule cannot normalize the "::" segments (a root member "M::K" has no
- * backslash at all). Mirrors zend_register_constant's bookkeeping and failure path. */
-ZEND_API zend_constant *zend_register_constant_with_key(zend_constant *c, zend_string *key)
-{
-	zend_constant *ret;
-	bool persistent = (ZEND_CONSTANT_FLAGS(c) & CONST_PERSISTENT) != 0;
-
-	c->filename = NULL;
-	if (ZEND_CONSTANT_MODULE_NUMBER(c) == PHP_USER_CONSTANT) {
-		zend_string *filename = zend_get_executed_filename_ex();
-		if (filename) {
-			c->filename = zend_string_copy(filename);
-		}
-	}
-	c->attributes = NULL;
-
-	if ((ret = zend_hash_add_constant(EG(zend_constants), key, c)) == NULL) {
-		zend_error(E_WARNING, "Constant %s already defined, this will be an error in PHP 9", ZSTR_VAL(key));
-		zend_string_release(c->name);
-		if (c->filename) {
-			zend_string_release(c->filename);
-			c->filename = NULL;
-		}
-		if (!persistent) {
-			zval_ptr_dtor_nogc(&c->value);
-		}
-	}
-	return ret;
-}
 
 /* PHP Modules: the hash key for a module constant name — lowercase everything up to and
  * including the LAST separator ("\" or "::"), preserve the (case-sensitive) tail. */
@@ -674,42 +628,33 @@ ZEND_API zend_string *zend_module_const_key(const zend_string *name)
 	return key;
 }
 
-/* PHP Modules: fetch-time resolution of a module-flagged constant. Follows an ALIAS
- * (projected-name) entry to its canonical, then applies the visibility gate: `internal`
- * is fetchable only from EXACTLY its module; VIS_UNKNOWN (cold) resolves the claim from
- * the module registry, failing closed. Runs at constant RESOLUTION only — every fetch
- * path caches the result per call site, so a site pays the gate once. */
+/* PHP Modules: fetch-time gate of a module constant. An `internal` one is readable from its
+ * module and modules nested in it; VIS_UNKNOWN (cold) resolves the claim from the module
+ * registry, failing closed; a NESTED one also needs the caller to be able to cross into its
+ * module (a public constant of an internal nested module is hidden too). Runs at constant
+ * RESOLUTION only — every fetch path caches the result per call site, so a site pays the
+ * gate once. Returns `c`, or NULL when gated (an Error is thrown unless `silent`). */
 ZEND_API zend_constant *zend_module_constant_resolve(zend_constant *c, bool silent)
 {
 	uint32_t f = ZEND_CONSTANT_FLAGS(c);
-	if (f & CONST_MODULE_ALIAS) {
-		ZEND_ASSERT(Z_TYPE(c->value) == IS_STRING);
-		zend_string *key = zend_module_const_key(Z_STR(c->value));
-		zend_constant *canon = zend_hash_find_ptr(EG(zend_constants), key);
-		zend_string_release(key);
-		if (!canon) {
+	uint32_t mlen = zend_module_const_owner_len(c);
+	if (!mlen) {
+		return c;
+	}
+	const char *val = ZSTR_VAL(c->name);
+
+	if (f & CONST_MODULE_NESTED) {
+		zend_class_entry *mce = zend_hash_str_find_ptr_lc(EG(class_table), val, mlen);
+		if (mce && (mce->ce_flags2 & ZEND_ACC2_MODULE) && mce->module_len
+		 && zend_module_runtime_access_denied(mce)) {
+			if (!silent) {
+				zend_throw_error(NULL,
+					"Cannot access %s: module \"%s\" is internal to its parent module",
+					ZSTR_VAL(c->name), ZSTR_VAL(mce->name));
+			}
 			return NULL;
 		}
-		c = canon;
-		f = ZEND_CONSTANT_FLAGS(c);
 	}
-
-	if (!(f & (CONST_MODULE_INTERNAL | CONST_MODULE_VIS_UNKNOWN))) {
-		return c;
-	}
-
-	/* owner = the canonical name's prefix before its LAST "::" */
-	const char *val = ZSTR_VAL(c->name);
-	const char *end = val + ZSTR_LEN(c->name);
-	const char *last = NULL;
-	for (const char *p = zend_memnstr(val, "::", 2, end); p;
-			p = zend_memnstr(p + 2, "::", 2, end)) {
-		last = p;
-	}
-	if (!last) {
-		return c;
-	}
-	size_t mlen = (size_t) (last - val);
 
 	bool internal;
 	if (f & CONST_MODULE_VIS_UNKNOWN) {
@@ -719,25 +664,20 @@ ZEND_API zend_constant *zend_module_constant_resolve(zend_constant *c, bool sile
 		zend_php_module *m = zend_lookup_module(lc_mod);
 		zend_string_release(lc_mod);
 		if (m) {
-			/* Claims are kind-less and keyed by the member's namespaced name ("m\k"). */
-			zend_string *lc_name = zend_string_alloc(ZSTR_LEN(c->name) - 1, 0);
-			zend_str_tolower_copy(ZSTR_VAL(lc_name), val, mlen);
-			ZSTR_VAL(lc_name)[mlen] = '\\';
-			zend_str_tolower_copy(ZSTR_VAL(lc_name) + mlen + 1, last + 2, (size_t) (end - last - 2));
+			zend_string *lc_name = zend_string_tolower(c->name);
 			void *vis = zend_hash_find_ptr(&m->members, lc_name);
 			zend_string_release(lc_name);
 			internal = (!vis || (uintptr_t) vis == ZEND_MODULE_MEMBER_INTERNAL);
 		}
 	} else {
-		internal = true; /* CONST_MODULE_INTERNAL is set */
+		internal = (f & CONST_MODULE_INTERNAL) != 0;
 	}
 
 	if (internal) {
 		const char *cval;
 		size_t clen;
 		if (!zend_module_current_caller_module(&cval, &clen)
-		 || clen != mlen
-		 || zend_binary_strncasecmp(cval, clen, val, mlen, mlen) != 0) {
+		 || !zend_module_path_covers_str(val, mlen, cval, clen)) {
 			if (!silent) {
 				zend_throw_error(NULL,
 					"Cannot access internal module constant %s from outside its module",
@@ -747,24 +687,6 @@ ZEND_API zend_constant *zend_module_constant_resolve(zend_constant *c, bool sile
 		}
 	}
 	return c;
-}
-
-/* PHP Modules: probe for a member-file module constant reached through its module's
- * backing class — "M::K", "module::K", constant("M::K"). */
-ZEND_API zend_constant *zend_module_lookup_module_constant(
-		const zend_class_entry *bce, const zend_string *const_name, bool silent)
-{
-	zend_string *canonical = zend_string_concat3(
-		ZSTR_VAL(bce->name), ZSTR_LEN(bce->name), "::", 2,
-		ZSTR_VAL(const_name), ZSTR_LEN(const_name));
-	zend_string *key = zend_module_const_key(canonical);
-	zend_string_release(canonical);
-	zend_constant *c = zend_hash_find_ptr(EG(zend_constants), key);
-	zend_string_release(key);
-	if (!c) {
-		return NULL;
-	}
-	return zend_module_constant_resolve(c, silent);
 }
 
 void zend_constant_add_attributes(zend_constant *c, HashTable *attributes) {

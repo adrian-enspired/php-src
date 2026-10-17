@@ -4002,29 +4002,6 @@ get_function_via_handler:
 					}
 				}
 			}
-		} else if (fcc->calling_scope && (fcc->calling_scope->ce_flags2 & ZEND_ACC2_MODULE)
-				&& !fcc->object) {
-			/* PHP Modules: "M::f" names module function "M\f". Gated softly here, like a module
-			 * function reached by its own name above (the static-method fallback throws). */
-			zend_string *fname = zend_string_concat3(
-				ZSTR_VAL(fcc->calling_scope->name), ZSTR_LEN(fcc->calling_scope->name), "\\", 1,
-				ZSTR_VAL(mname), ZSTR_LEN(mname));
-			zend_function *mfn = zend_fetch_function(fname);
-			zend_string_release(fname);
-			if (mfn && (mfn->common.fn_flags2 & ZEND_ACC2_FN_MODULE_MEMBER)) {
-				if (ZEND_MODULE_FN_DENIED(mfn)) {
-					if (error) {
-						zend_spprintf(error, 0,
-							"cannot call internal module function %s() from outside its module",
-							ZSTR_VAL(mfn->common.function_name));
-					}
-				} else {
-					fcc->function_handler = mfn;
-					fcc->calling_scope = NULL;
-					fcc->called_scope = NULL;
-					retval = true;
-				}
-			}
 		} else if (fcc->calling_scope) {
 			if (fcc->calling_scope->get_static_method) {
 				fcc->function_handler = fcc->calling_scope->get_static_method(fcc->calling_scope, mname);
@@ -4096,7 +4073,7 @@ get_function_via_handler:
 				retval = false;
 			}
 		}
-	} else if (error && !*error) {   /* (PHP Modules: unless a module gate already said why) */
+	} else if (error) {
 		if (fcc->calling_scope) {
 			zend_spprintf(error, 0, "class %s does not have a method \"%s\"", ZSTR_VAL(fcc->calling_scope->name), ZSTR_VAL(mname));
 		} else {

@@ -33,11 +33,11 @@ require $dir . '/manifest.php';
 require $dir . '/consts.php';
 
 // public: all spellings from outside
-var_dump(Cfg::RATE);
+var_dump(Cfg\RATE);
 var_dump(\Cfg\RATE);
-var_dump(constant('Cfg::RATE'));
 var_dump(constant('Cfg\RATE'));
-var_dump(Cfg::INLINE_RATE);
+var_dump(constant('Cfg\RATE'));
+var_dump(Cfg\INLINE_RATE);
 
 // in-module use
 var_dump(Cfg\calc(100.0));
@@ -46,9 +46,9 @@ var_dump($b->viaModule());
 var_dump($b->viaBare());
 
 // internal: gated from outside on every route
-try { $x = Cfg::SECRET; echo "LEAK\n"; } catch (\Error $e) { echo $e->getMessage(), "\n"; }
+try { $x = Cfg\SECRET; echo "LEAK\n"; } catch (\Error $e) { echo $e->getMessage(), "\n"; }
 try { $x = \Cfg\SECRET; echo "LEAK\n"; } catch (\Error $e) { echo $e->getMessage(), "\n"; }
-try { constant('Cfg::SECRET'); echo "LEAK\n"; } catch (\Error $e) { echo $e->getMessage(), "\n"; }
+try { constant('Cfg\SECRET'); echo "LEAK\n"; } catch (\Error $e) { echo $e->getMessage(), "\n"; }
 
 // observability: defined() is silent -> false outside for internal, true for public
 var_dump(defined('Cfg\SECRET'));
@@ -70,8 +70,8 @@ int(1)
 float(15)
 string(6) "s3cr3t"
 string(6) "s3cr3t"
-Cannot access internal module constant Cfg::SECRET from outside its module
-Cannot access internal module constant Cfg::SECRET from outside its module
-Cannot access internal module constant Cfg::SECRET from outside its module
+Cannot access internal module constant Cfg\SECRET from outside its module
+Cannot access internal module constant Cfg\SECRET from outside its module
+Cannot access internal module constant Cfg\SECRET from outside its module
 bool(false)
 bool(true)

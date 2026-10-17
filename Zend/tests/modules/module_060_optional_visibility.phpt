@@ -28,7 +28,7 @@ echo (new UsesT())->hi(), "\n";
 echo M\E::One->value, "\n";
 
 // module-level const is public
-echo M::K, "\n";
+echo M\K, "\n";
 
 // nested module + its member are public
 var_dump(new M\Inner\G() instanceof M\Inner\G);

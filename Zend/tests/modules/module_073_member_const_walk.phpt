@@ -32,12 +32,12 @@ echo "walkSec:   ", M\Api::walkSec(), "\n";     // secH (internal, but reached f
 echo "classWalk: ", M\Api::classWalk(), "\n";   // pubK
 
 echo "\n-- from outside the module --\n";
-echo "public walk M::PUBPATH::K: ", M::PUBPATH::K, "\n";   // pubK
+echo "public walk M\PUBPATH::K: ", (M\PUBPATH)::K, "\n";   // pubK
 try {
-    $x = M::SECPATH::H;                                     // internal target -> denied
+    $x = (M\SECPATH)::H;                                     // internal target -> denied
     echo "LEAK internal walk\n";
 } catch (\Error $e) {
-    echo "internal walk M::SECPATH::H: ", $e->getMessage(), "\n";
+    echo "internal walk M\SECPATH::H: ", $e->getMessage(), "\n";
 }
 echo "class walk M\Pub::K: ", M\Pub::K, "\n";            // pubK
 ?>
@@ -48,6 +48,6 @@ walkSec:   secH
 classWalk: pubK
 
 -- from outside the module --
-public walk M::PUBPATH::K: pubK
-internal walk M::SECPATH::H: Cannot access internal module member "M\Sec" from outside its module
+public walk M\PUBPATH::K: pubK
+internal walk M\SECPATH::H: Cannot access internal module member "M\Sec" from outside its module
 class walk M\Pub::K: pubK
