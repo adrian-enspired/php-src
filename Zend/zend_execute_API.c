@@ -1256,6 +1256,35 @@ ZEND_API bool zend_is_valid_class_name(const zend_string *name) {
  * own name -- a prefix of the member's. Walk the prefixes, longest first: an existing class
  * ends the walk (a module is consulted; anything else means no module here), a missing one is
  * autoloaded. Only on a miss, so loaded classes and successful autoloads pay nothing. */
+/* PHP Modules: a module function is namespaced ("M\\f"), declared when its module's definition
+ * runs. Called when a qualified call to `name` found no function: loads module "M" (the name's
+ * namespace) if it is one, and looks again. NULL if there is no such module function (or an
+ * exception was thrown while loading). */
+ZEND_API zend_function *zend_module_function_autoload(zend_string *name)
+{
+	const char *v = ZSTR_VAL(name);
+	size_t len = ZSTR_LEN(name);
+	if (len && v[0] == '\\') {
+		v++;
+		len--;
+	}
+	const char *sep = zend_memrchr(v, '\\', len);
+	if (!sep || sep == v || zend_is_compiling()) {
+		return NULL;
+	}
+	zend_string *mname = zend_string_init(v, (size_t) (sep - v), 0);
+	zend_class_entry *ce = zend_lookup_class(mname);
+	zend_string_release(mname);
+	if (!ce || !(ce->ce_flags2 & ZEND_ACC2_MODULE) || EG(exception)) {
+		return NULL;
+	}
+	zend_function *fbc = zend_hash_str_find_ptr_lc(EG(function_table), v, len);
+	if (fbc && fbc->type == ZEND_USER_FUNCTION && !RUN_TIME_CACHE(&fbc->op_array)) {
+		zend_init_func_run_time_cache(&fbc->op_array);
+	}
+	return fbc;
+}
+
 ZEND_API void zend_module_autoload_probe_reset(void)
 {
 	if (EG(module_probe_misses)) {

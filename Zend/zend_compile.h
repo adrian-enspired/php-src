@@ -238,6 +238,7 @@ ZEND_API void zend_module_verify_declared_return(const zend_function *fn);
 ZEND_API ZEND_COLD zend_result zend_module_verify_declared_properties(zend_class_entry *ce);
 ZEND_API void zend_module_bake_preloaded_visibility(void);
 ZEND_API struct _zend_constant *zend_module_materialize_constant(const char *name, size_t len, bool autoload);
+ZEND_API union _zend_function *zend_module_function_autoload(zend_string *name);
 ZEND_API void zend_module_materialize_constants_of(zend_class_entry *ce);
 ZEND_API void zend_module_preload_capture_constants(void);
 ZEND_API void zend_module_preload_restore_constants(void);

@@ -4072,10 +4072,19 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_FUNC_CCONV ZEND_I
 	if (UNEXPECTED(fbc == NULL)) {
 		function_name = (zval*)RT_CONSTANT(opline, opline->op2);
 		func = zend_hash_find_known_hash(EG(function_table), Z_STR_P(function_name+1));
-		if (UNEXPECTED(func == NULL)) {
-			ZEND_VM_TAIL_CALL(zend_undefined_function_helper_SPEC(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU));
+		if (EXPECTED(func != NULL)) {
+			fbc = Z_FUNC_P(func);
+		} else {
+			/* PHP Modules: a module function whose module isn't loaded yet */
+			SAVE_OPLINE();
+			fbc = zend_module_function_autoload(Z_STR_P(function_name));
+			if (UNEXPECTED(fbc == NULL)) {
+				if (UNEXPECTED(EG(exception))) {
+					HANDLE_EXCEPTION();
+				}
+				ZEND_VM_TAIL_CALL(zend_undefined_function_helper_SPEC(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU));
+			}
 		}
-		fbc = Z_FUNC_P(func);
 		/* PHP Modules: gate an internal module function at call RESOLUTION (this branch
 		 * runs once per call site; the cached fast path above is untouched). One
 		 * predicted-not-taken flag test for every non-module function. A denied site
@@ -57498,10 +57507,19 @@ static ZEND_VM_HOT ZEND_OPCODE_HANDLER_RET ZEND_OPCODE_HANDLER_CCONV ZEND_INIT_F
 	if (UNEXPECTED(fbc == NULL)) {
 		function_name = (zval*)RT_CONSTANT(opline, opline->op2);
 		func = zend_hash_find_known_hash(EG(function_table), Z_STR_P(function_name+1));
-		if (UNEXPECTED(func == NULL)) {
-			ZEND_VM_TAIL_CALL(zend_undefined_function_helper_SPEC_TAILCALL(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU));
+		if (EXPECTED(func != NULL)) {
+			fbc = Z_FUNC_P(func);
+		} else {
+			/* PHP Modules: a module function whose module isn't loaded yet */
+			SAVE_OPLINE();
+			fbc = zend_module_function_autoload(Z_STR_P(function_name));
+			if (UNEXPECTED(fbc == NULL)) {
+				if (UNEXPECTED(EG(exception))) {
+					HANDLE_EXCEPTION();
+				}
+				ZEND_VM_TAIL_CALL(zend_undefined_function_helper_SPEC_TAILCALL(ZEND_OPCODE_HANDLER_ARGS_PASSTHRU));
+			}
 		}
-		fbc = Z_FUNC_P(func);
 		/* PHP Modules: gate an internal module function at call RESOLUTION (this branch
 		 * runs once per call site; the cached fast path above is untouched). One
 		 * predicted-not-taken flag test for every non-module function. A denied site

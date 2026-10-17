@@ -4229,21 +4229,23 @@ again:
 				}
 
 				zend_function *func = zend_fetch_function(Z_STR_P(callable));
+				if (UNEXPECTED(func == NULL)) {
+					/* PHP Modules: a module function whose module isn't loaded yet */
+					func = zend_module_function_autoload(Z_STR_P(callable));
+					if (UNEXPECTED(EG(exception))) {
+						return false;
+					}
+				}
 				if (EXPECTED(func != NULL)) {
-					zend_function *func = zend_fetch_function(Z_STR_P(callable));
-					if (EXPECTED(func != NULL)) {
-						/* PHP Modules: gate an internal module function reached as a string callable
-						* (array_map, is_callable, Closure::fromCallable). */
-						if (ZEND_MODULE_FN_DENIED(func)) {
-							if (error) {
-								zend_spprintf(error, 0,
-									"cannot call internal module function %s() from outside its module",
-									ZSTR_VAL(func->common.function_name));
-							}
-							return false;
+					/* PHP Modules: gate an internal module function reached as a string callable
+					 * (array_map, is_callable, Closure::fromCallable). */
+					if (ZEND_MODULE_FN_DENIED(func)) {
+						if (error) {
+							zend_spprintf(error, 0,
+								"cannot call internal module function %s() from outside its module",
+								ZSTR_VAL(func->common.function_name));
 						}
-						fcc->function_handler = func;
-						return true;
+						return false;
 					}
 					fcc->function_handler = func;
 					return true;

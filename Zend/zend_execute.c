@@ -5194,7 +5194,12 @@ static zend_never_inline zend_execute_data *zend_init_dynamic_call_string(zend_s
 	} else {
 		fbc = zend_fetch_function(function);
 		if (UNEXPECTED(fbc == NULL)) {
-			zend_throw_error(NULL, "Call to undefined function %s()", ZSTR_VAL(function));
+			fbc = zend_module_function_autoload(function);
+		}
+		if (UNEXPECTED(fbc == NULL)) {
+			if (!EG(exception)) {
+				zend_throw_error(NULL, "Call to undefined function %s()", ZSTR_VAL(function));
+			}
 			return NULL;
 		}
 		/* PHP Modules: gate an internal module function reached by a dynamic name

@@ -56,10 +56,20 @@ static zend_function* ZEND_FASTCALL zend_jit_find_func_helper(zend_string *name,
 	zval *func = zend_hash_find_known_hash(EG(function_table), name);
 	zend_function *fbc;
 
-	if (UNEXPECTED(func == NULL)) {
-		return NULL;
+	if (EXPECTED(func != NULL)) {
+		fbc = Z_FUNC_P(func);
+	} else {
+		/* PHP Modules: a module function whose module isn't loaded yet (a qualified call:
+		 * the name as written, for the autoloader, is the literal before the key). */
+		const zend_op *opline = EG(current_execute_data)->opline;
+		if (opline->opcode != ZEND_INIT_FCALL_BY_NAME) {
+			return NULL;
+		}
+		fbc = zend_module_function_autoload(Z_STR_P(RT_CONSTANT(opline, opline->op2)));
+		if (!fbc) {
+			return NULL;
+		}
 	}
-	fbc = Z_FUNC_P(func);
 	/* PHP Modules: same resolution-time gate as the VM's INIT_*FCALL handlers. A denied
 	 * site throws, never caches, and returns NULL; the undefined-function stub sees the
 	 * pending exception and does not report a second error. */
