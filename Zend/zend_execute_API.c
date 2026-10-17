@@ -2411,6 +2411,11 @@ ZEND_API bool zend_module_access_denied_from(const zend_class_entry *ce,
 		if (!container_len) {
 			return false;
 		}
+		/* Only a NESTED class's chain has more than one boundary: otherwise its container is
+		 * a top-level module, with nothing above it to check -- skip looking it up. */
+		if (!(child_ce->ce_flags2 & ZEND_ACC2_MODULE_NESTED)) {
+			return false;
+		}
 		child_len = container_len;
 		zend_string *lc = zend_string_alloc(child_len, 0);
 		zend_str_tolower_copy(ZSTR_VAL(lc), val, child_len);
