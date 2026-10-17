@@ -61,10 +61,10 @@ typed: N\M\Inner\Gadget
 Helper::K::V: gadget
 module::Inner\Gadget::V: gadget
 \N\Other\X::V: other
-new Other\X: "Other\X" is not a member of module "N\M"
-new N\M\C: "N\M\C" is not a member of module "N\M"
-N\M\Inner\Gadget::V: "N\M\Inner\Gadget" is not a member of module "N\M"
-new Sub\X: "Sub\X" is not a member of module "N\M"
+new Other\X: Class "N\M\Other\X" not found
+new N\M\C: Class "N\M\N\M\C" not found
+N\M\Inner\Gadget::V: Class "N\M\N\M\Inner\Gadget" not found
+new Sub\X: Class "N\M\Sub\X" not found
 new \N\M\C: N\M\C
 \N\M\Inner\Gadget::V: gadget
 typed \N\M\C: N\M\C

@@ -44,7 +44,7 @@ bad('new internal',       'module M { internal class N {} public trait T { publi
 bad('module::N::m()',     'module M { internal class N { public static function m(){} } public trait T { public function f() { return module::N::m(); } } }');
 bad('instanceof internal','module M { internal class N {} public trait T { public function f($x): bool { return $x instanceof N; } } }');
 bad('N::CONST internal',  'module M { internal class N { public const K = 1; } public trait T { public function f() { return N::K; } } }');
-bad('bare non-member',    'module M { public trait T { public function f() { return new Whatever(); } } }');
+ok('bare non-member (undecided: deferred)',    'module M { public trait T { public function f() { return new Whatever(); } } }');
 
 echo "--\n";
 ok('public member access', 'module M { public class P { public static function hi(){ return "h"; } } public trait T { public function f(): string { return module::P::hi(); } } } class X { use M\T; }');
@@ -60,7 +60,7 @@ new internal: rejected
 module::N::m(): rejected
 instanceof internal: rejected
 N::CONST internal: rejected
-bare non-member: rejected
+bare non-member (undecided: deferred): ok
 --
 public member access: ok
 public claimed access: ok

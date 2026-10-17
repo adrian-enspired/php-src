@@ -55,6 +55,6 @@ module::Impl::s(): s
 \F\Impl::s(): s
 new \F\Impl: F\Impl
 Impl::K: k
-module::Typo::K: "Typo" is not a member of module "F"
+module::Typo::K: Class "F\Typo" not found
 outside new F\Impl: Cannot access internal module member "F\Impl" from outside its module
 outside F\Impl::K: Cannot access internal module member "F\Impl" from outside its module

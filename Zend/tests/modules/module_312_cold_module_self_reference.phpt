@@ -35,4 +35,4 @@ try { $w->bad(); } catch (Error $e) { echo $e->getMessage(), "\n"; }
 [autoload M\Helper]
 xx
 [autoload M\Nope]
-"Nope" is not a member of module "M"
+Class "M\Nope" not found

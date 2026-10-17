@@ -1,9 +1,9 @@
 --TEST--
-Modules: "module::X" for a name that isn't a member of the current module fails when used
+Modules: "module::X" for a name that is no class fails when used (Class not found)
 --DESCRIPTION--
 Claims decide visibility, not existence: `module::X` may name an unclaimed member that isn't
 loaded yet, so existence is checked when the name is used (the fetch autoloads), not at compile
-time. A name that is no member at all is reported as such.
+time. A name that names no class is reported like any missing class.
 --FILE--
 <?php
 module M {
@@ -18,5 +18,5 @@ foreach (['make', 'konst'] as $m) {
 }
 ?>
 --EXPECT--
-make: "Nope" is not a member of module "M"
-konst: "Nope" is not a member of module "M"
+make: Class "M\Nope" not found
+konst: Class "M\Nope" not found

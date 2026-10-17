@@ -1849,36 +1849,6 @@ static ZEND_COLD void report_class_fetch_error(const zend_string *class_name, ui
 	} else if ((fetch_type & ZEND_FETCH_CLASS_MASK) == ZEND_FETCH_CLASS_TRAIT) {
 		zend_throw_or_error(fetch_type, NULL, "Trait \"%s\" not found", ZSTR_VAL(class_name));
 	} else {
-		/* PHP Modules: if the missing name is under a loaded module and isn't one of its
-		 * claimed members (a typo), say exactly that instead of the generic "Class not
-		 * found". A *claimed* member whose body merely failed to load is left as "Class not
-		 * found" (a genuine load failure, not a membership problem). */
-		const char *cv = ZSTR_VAL(class_name);
-		size_t clen = ZSTR_LEN(class_name);
-		if (clen && cv[0] == '\\') {
-			cv++;
-			clen--;
-		}
-		for (const char *bs = zend_memrchr(cv, '\\', clen); bs; bs = zend_memrchr(cv, '\\', (size_t) (bs - cv))) {
-			zend_string *mod_lc = zend_string_alloc((size_t) (bs - cv), 0);
-			zend_str_tolower_copy(ZSTR_VAL(mod_lc), cv, (size_t) (bs - cv));
-			zend_class_entry *mce = zend_hash_find_ptr(EG(class_table), mod_lc);
-			zend_php_module *mod = (mce && (mce->ce_flags2 & ZEND_ACC2_MODULE)) ? zend_lookup_module(mod_lc) : NULL;
-			zend_string_release(mod_lc);
-			if (!mod) {
-				continue;
-			}
-			zend_string *lc = zend_string_alloc(clen, 0);
-			zend_str_tolower_copy(ZSTR_VAL(lc), cv, clen);
-			bool claimed = zend_hash_exists(&mod->members, lc);
-			zend_string_release(lc);
-			if (!claimed) {
-				zend_throw_or_error(fetch_type, NULL,
-					"\"%s\" is not a member of module \"%s\"", bs + 1, ZSTR_VAL(mce->name));
-				return;
-			}
-			break;
-		}
 		zend_throw_or_error(fetch_type, NULL, "Class \"%s\" not found", ZSTR_VAL(class_name));
 	}
 }

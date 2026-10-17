@@ -6286,14 +6286,6 @@ static bool zend_module_type_name_is_own_nonpublic_ex(
 		&& zend_binary_strncasecmp(ZSTR_VAL(tname), ZSTR_LEN(FC(current_module)),
 			ZSTR_VAL(FC(current_module)), ZSTR_LEN(FC(current_module)),
 			ZSTR_LEN(FC(current_module))) == 0;
-	if (under_own && FC(in_module_block) && !memchr(ZSTR_VAL(tname) + ZSTR_LEN(FC(current_module)) + 1, '\\',
-			ZSTR_LEN(tname) - ZSTR_LEN(FC(current_module)) - 1)) {
-		/* Inside the definition block the module's roster is complete: a name directly in the
-		 * module that it doesn't list is an unclaimed member (internal by default). */
-		if (bad_owner) { *bad_owner = zend_string_copy(FC(current_module)); }
-		if (bad_child) { *bad_child = zend_string_copy(tname); }
-		return true;
-	}
 	if (deferred && (under_module || under_own)) {
 		*deferred = true;
 	}
