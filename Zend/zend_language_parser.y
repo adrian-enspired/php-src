@@ -1554,6 +1554,8 @@ function_call:
 			/* PHP Modules: "module::f(...)" self-call to a backing-class static method. */
 	|	variable_class_name T_PAAMAYIM_NEKUDOTAYIM member_name argument_list
 			{ $$ = zend_ast_create(ZEND_AST_STATIC_CALL, $1, $3, $4); }
+	|	module_ns_member_ref argument_list
+			{ $$ = zend_ast_create(ZEND_AST_CALL, $1, $2); }
 	|	module_ns_member_ref T_PAAMAYIM_NEKUDOTAYIM member_name argument_list
 			{ $$ = zend_ast_create(ZEND_AST_STATIC_CALL, $1, $3, $4); }
 	|	internal_as_name argument_list
@@ -1793,6 +1795,8 @@ scalar:
 
 constant:
 		name		{ $$ = zend_ast_create(ZEND_AST_CONST, $1); }
+	|	module_ns_member_ref
+			{ $$ = zend_ast_create(ZEND_AST_CONST, $1); }
 	|	T_LINE 		{ $$ = zend_ast_create_ex(ZEND_AST_MAGIC_CONST, T_LINE); }
 	|	T_FILE 		{ $$ = zend_ast_create_ex(ZEND_AST_MAGIC_CONST, T_FILE); }
 	|	T_DIR   	{ $$ = zend_ast_create_ex(ZEND_AST_MAGIC_CONST, T_DIR); }

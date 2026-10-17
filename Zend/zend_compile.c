@@ -1185,12 +1185,20 @@ static zend_string *zend_prefix_with_ns(zend_string *name) {
 	}
 }
 
+static zend_string *zend_resolve_class_name(zend_string *name, uint32_t type);
+
 static zend_string *zend_resolve_non_class_name(
 	zend_string *name, uint32_t type, bool *is_fully_qualified,
 	bool case_sensitive, const HashTable *current_import_sub
 ) {
 	const char *compound;
 	*is_fully_qualified = false;
+
+	/* PHP Modules: "module::Sub\\NAME", a constant or function named relative to the module. */
+	if (type == ZEND_NAME_MODULE_SELF) {
+		*is_fully_qualified = true;
+		return zend_resolve_class_name(name, type);
+	}
 
 	if (ZSTR_VAL(name)[0] == '\\') {
 		/* Remove \ prefix (only relevant if this is a string rather than a label) */
